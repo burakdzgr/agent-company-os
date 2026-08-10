@@ -5,6 +5,8 @@
     "baseUrl": ".",
     "noEmit": true,
     "paths": {
+      "@acos/domain/state-machines": ["packages/domain/src/state-machines/index.ts"],
+      "@acos/domain/policies": ["packages/domain/src/policies/index.ts"],
       "@acos/server": ["apps/server/src/index.ts"],
       "@acos/web": ["apps/web/src/index.ts"],
       "@acos/agent-worker": ["workers/agent-worker/src/index.ts"],

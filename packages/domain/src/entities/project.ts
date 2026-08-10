@@ -70,7 +70,6 @@ export function taskBranchName(taskNumber: number, title: string): string {
   const slug = title
     .toLowerCase()
     .normalize("NFKD")
-    // eslint-disable-next-line no-misleading-character-class -- strip combining diacritics
     .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")

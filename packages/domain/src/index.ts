@@ -1,5 +1,8 @@
 export const packageName = "@acos/domain" as const;
 
+export * from "./state-machines/index.js";
+export * from "./policies/index.js";
+
 export { DomainError } from "./errors.js";
 export { uuidv7, isUuid, isUuidv7, uuidv7Timestamp, type Uuidv7Options } from "./ids.js";
 

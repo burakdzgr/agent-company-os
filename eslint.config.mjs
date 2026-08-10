@@ -81,11 +81,12 @@ export default tseslint.config(
         },
       ],
       // Deep imports are banned; packages expose only their exports map (28 §2).
-      // Allowed public subpaths (@acos/domain/state-machines, @acos/domain/policies,
-      // @acos/contracts/client, @acos/db/schema) are re-added here when they land.
+      // Public subpath exports (@acos/domain/state-machines, @acos/domain/policies,
+      // @acos/contracts/client, @acos/db/schema) resolve via exports maps and are
+      // not "internal"; internals live under src/ and dist/.
       "import/no-internal-modules": [
         "error",
-        { forbid: ["@acos/*/*", "@acos/*/*/**"] },
+        { forbid: ["@acos/*/src/**", "@acos/*/dist/**"] },
       ],
       "no-restricted-imports": [
         "error",
