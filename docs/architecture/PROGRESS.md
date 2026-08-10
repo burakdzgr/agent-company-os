@@ -1,0 +1,56 @@
+# PROGRESS
+
+İlerleme kaydı — görevler 35-CLAUDE-CODE-HANDOFF.md §9 (T01–T50) sırasına göre işaretlenir.
+
+| Görev | Durum | Tarih | Not |
+|---|---|---|---|
+| T01 Scaffold monorepo | ✅ Tamamlandı | 2026-08-11 | pnpm 9.15.9 (corepack) + Turborepo; 13 workspace (`@acos/*`) exports map + composite tsconfig (references = §4 bağımlılık matrisi) + trivial index + 1'er geçen Vitest testi; kök turbo.json 28 §6 task grafiği; tsconfig.base.json strict bayrakları; eslint.config.mjs flat + ADR-004 agent-framework yasağı (`no-restricted-imports`); .env.example 28 §7 anahtarları Mode-B localhost defaultları; infrastructure/docker/compose.yaml (postgres pgvector:pg16, nats 2.10 `-js`, temporal auto-setup namespace=acos, temporal-ui) — 4 servis healthy doğrulandı, `acos` namespace kayıtlı. `pnpm install && build && lint && typecheck && test` 13 workspace'te yeşil. Not: nats healthcheck için `nats:2.10-alpine` varyantı kullanıldı (scratch imajda shell yok); boundaries/check-deps/CI T02'de. |
+| T02 Boundary enforcement | ⬜ | | |
+| T03 packages/config | ⬜ | | |
+| T04 Compose infra services | ⬜ | | (T01 kapsamında temel compose.yaml yazıldı; compose.dev.yaml + tam T04 kabulü bu görevde) |
+| T05 App Dockerfiles + full compose | ⬜ | | |
+| T06 CI pipeline | ⬜ | | |
+| T07 Testcontainers harness | ⬜ | | |
+| T08 Egress proxy + workspace network | ⬜ | | |
+| T09 packages/domain core | ⬜ | | |
+| T10 Domain state machines + policies | ⬜ | | |
+| T11 Drizzle schema + migrations 0001–0003 | ⬜ | | |
+| T12 Migrations 0004–0011 | ⬜ | | |
+| T13 Repositories + tenancy + outbox | ⬜ | | |
+| T14 packages/events catalog | ⬜ | | |
+| T15 apps/server skeleton + contracts base | ⬜ | | |
+| T16 Auth module | ⬜ | | |
+| T17 Companies module + seed v1 | ⬜ | | |
+| T18 Org module | ⬜ | | |
+| T19 Agents module | ⬜ | | |
+| T20 Web shell + org/agents UI | ⬜ | | |
+| T21 Outbox relay + JetStream | ⬜ | | |
+| T22 Event emission audit + timeline API | ⬜ | | |
+| T23 /ws gateway | ⬜ | | |
+| T24 Web realtime client + Events view | ⬜ | | |
+| T25 Office Projector (server) | ⬜ | | |
+| T26 PixiJS office skeleton + Agent Monitor | ⬜ | | |
+| T27 Task engine service | ⬜ | | |
+| T28 Delegation + budgets | ⬜ | | |
+| T29 packages/llm ModelRouter + adapters | ⬜ | | |
+| T30 Fake ModelRouter | ⬜ | | |
+| T31 agent-worker scaffold | ⬜ | | |
+| T32 agentTaskWorkflow core loop | ⬜ | | |
+| T33 Signals, inbox, communication | ⬜ | | |
+| T34 Guards + continueAsNew + cost accounting | ⬜ | | |
+| T35 Approvals engine + Approval Center | ⬜ | | |
+| T36 M3 gate: toolless delegation E2E | ⬜ | | |
+| T37 services/sandbox-manager | ⬜ | | |
+| T38 Git model + workspaces | ⬜ | | |
+| T39 Tool Gateway | ⬜ | | |
+| T40 workers/execution-worker | ⬜ | | |
+| T41 Terminal streaming UI | ⬜ | | |
+| T42 Projects + intake | ⬜ | | |
+| T43 Review flow + injection defenses | ⬜ | | |
+| T44 memoryConsolidationWorkflow | ⬜ | | |
+| T45 Retrieval in Working-Set | ⬜ | | |
+| T46 Promotion + contradiction handling | ⬜ | | |
+| T47 Skills & careers | ⬜ | | |
+| T48 Memory Observatory | ⬜ | | |
+| T49 Executive report + cost dashboards | ⬜ | | |
+| T50 Full MVP E2E + hardening gate | ⬜ | | |
