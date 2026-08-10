@@ -1,8 +1,19 @@
 # Base compose file — infrastructure + app services.
-# egress-proxy and the acos-workspaces network land in T08.
 # Spec: 27-INFRASTRUCTURE.md §2, 28-REPOSITORY-STRUCTURE.md §8, 35 §15.
 
 name: acos
+
+networks:
+  default: {}
+  # S8: workspace containers live here; internal => no default route out.
+  # The ONLY way out is egress-proxy. Subnet pinned to match squid.conf's
+  # `acl workspaces src 172.30.0.0/16`.
+  acos-workspaces:
+    name: acos-workspaces
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
 
 services:
   postgres:
@@ -208,6 +219,9 @@ services:
       # S1: the ONLY service that mounts the Docker socket.
       - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock"
       - "${DATA_DIR:-./data}:/data"
+    networks:
+      - default
+      - acos-workspaces
     depends_on:
       nats:
         condition: service_healthy
@@ -217,3 +231,17 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  egress-proxy:
+    image: acos/egress-proxy
+    build:
+      context: egress-proxy
+    networks:
+      - default
+      - acos-workspaces
+    healthcheck:
+      test: ["CMD-SHELL", "squid -k check"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
