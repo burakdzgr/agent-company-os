@@ -1,5 +1,5 @@
-# Base compose file — infrastructure services (T01/T04 scope).
-# App services (server, web, workers, sandbox-manager, egress-proxy) land in T05.
+# Base compose file — infrastructure + app services.
+# egress-proxy and the acos-workspaces network land in T08.
 # Spec: 27-INFRASTRUCTURE.md §2, 28-REPOSITORY-STRUCTURE.md §8, 35 §15.
 
 name: acos
@@ -75,6 +75,145 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080 > /dev/null"]
       interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  server:
+    image: acos/server
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.node
+      args:
+        APP_FILTER: "@acos/server"
+        APP_MAIN: apps/server/dist/main.js
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SERVER_PORT: "3000"
+      DATABASE_URL: postgres://acos:acos@postgres:5432/acos
+      NATS_URL: nats://nats:4222
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: acos
+      SANDBOX_MANAGER_URL: http://sandbox-manager:3010
+    ports:
+      # Container always listens on 3000; host side is overridable because dev
+      # machines may already occupy 3000 (SERVER_PORT is only interpolated here,
+      # the container env above pins the internal port).
+      - "${SERVER_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  web:
+    image: acos/web
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.web
+      target: prod
+    ports:
+      - "${WEB_PORT:-5173}:80"
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/healthz > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+  agent-worker:
+    image: acos/agent-worker
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.node
+      args:
+        APP_FILTER: "@acos/agent-worker"
+        APP_MAIN: workers/agent-worker/dist/main.js
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HEALTH_PORT: "3020"
+      DATABASE_URL: postgres://acos:acos@postgres:5432/acos
+      NATS_URL: nats://nats:4222
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: acos
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3020/healthz > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  execution-worker:
+    image: acos/execution-worker
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.node
+      args:
+        APP_FILTER: "@acos/execution-worker"
+        APP_MAIN: workers/execution-worker/dist/main.js
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HEALTH_PORT: "3021"
+      NATS_URL: nats://nats:4222
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_NAMESPACE: acos
+      SANDBOX_MANAGER_URL: http://sandbox-manager:3010
+    depends_on:
+      nats:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3021/healthz > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  sandbox-manager:
+    image: acos/sandbox-manager
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile.node
+      args:
+        APP_FILTER: "@acos/sandbox-manager"
+        APP_MAIN: services/sandbox-manager/dist/main.js
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SANDBOX_MANAGER_PORT: "3010"
+      NATS_URL: nats://nats:4222
+    volumes:
+      # S1: the ONLY service that mounts the Docker socket.
+      - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock"
+      - "${DATA_DIR:-./data}:/data"
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3010/healthz > /dev/null"]
+      interval: 5s
       timeout: 5s
       retries: 12
       start_period: 10s

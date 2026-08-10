@@ -16,15 +16,18 @@
     "build": "tsc -b",
     "typecheck": "tsc -b",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js"
   },
   "dependencies": {
-    "@acos/domain": "workspace:*",
-    "@acos/db": "workspace:*",
-    "@acos/events": "workspace:*",
+    "@acos/config": "workspace:*",
     "@acos/contracts": "workspace:*",
+    "@acos/db": "workspace:*",
+    "@acos/domain": "workspace:*",
+    "@acos/events": "workspace:*",
     "@acos/llm": "workspace:*",
     "@acos/tools": "workspace:*",
-    "@acos/config": "workspace:*"
+    "fastify": "^5.11.3"
   }
 }

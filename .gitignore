@@ -8,3 +8,4 @@ coverage/
 data/
 infrastructure/docker/data/
 .DS_Store
+dist-types/
