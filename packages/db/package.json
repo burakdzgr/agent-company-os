@@ -7,21 +7,34 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "default": "./dist/schema/index.js"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "migrations"
   ],
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b",
-    "lint": "eslint src",
+    "lint": "eslint src && drizzle-kit check",
     "test": "vitest run src",
-    "test:integration": "vitest run test/integration"
+    "test:integration": "vitest run test/integration",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx src/migrate-cli.ts"
   },
   "dependencies": {
+    "@acos/config": "workspace:*",
     "@acos/domain": "workspace:*",
     "@acos/events": "workspace:*",
-    "@acos/config": "workspace:*"
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.21.0",
+    "drizzle-kit": "^0.31.10"
   }
 }
