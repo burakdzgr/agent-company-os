@@ -16,7 +16,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -b",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run src",
+    "test:integration": "vitest run test/integration"
   },
   "dependencies": {
     "@acos/domain": "workspace:*",
