@@ -1,0 +1,5 @@
+# Dev overlay (Mode A): docker compose -f compose.yaml -f compose.dev.yaml up
+# App services and their `develop.watch` sync/rebuild config land in T05
+# (27-INFRASTRUCTURE.md §3). Infra services need no dev overrides — base
+# compose.yaml already exposes dev ports (27 §2).
+services: {}
