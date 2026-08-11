@@ -254,10 +254,11 @@ describe("/ws gateway (T23)", () => {
     const probe = new WsProbe({ cookie: `acos_session=${sessionCookie}` });
     await probe.expectFrame((f) => (f as { op?: string }).op === "hello");
     probe.send({ op: "subscribe", topics: [`presence:${companyId}`] });
-    const snapshot = await probe.expectFrame<{ state: { agents: unknown[] } }>(
-      (f) => (f as { op?: string }).op === "snapshot",
-    );
-    expect(snapshot.state).toMatchObject({ layoutVersion: 0, agents: [], interactions: [] });
+    const snapshot = await probe.expectFrame<{
+      state: { layoutVersion: number; agents: unknown[]; interactions: unknown[] };
+    }>((f) => (f as { op?: string }).op === "snapshot");
+    // projector-backed (T25): auto-layout v1 for a company with no agents yet
+    expect(snapshot.state).toMatchObject({ layoutVersion: 1, agents: [], interactions: [] });
     probe.close();
   });
 

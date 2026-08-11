@@ -49,6 +49,17 @@ export interface GatewayAuth {
   membership(userId: string, companyId: string): Promise<string | null>;
 }
 
+/** Presence topic state provider — the office projector (T25). */
+export interface PresenceSource {
+  snapshot(companyId: string): Promise<{
+    layoutVersion: number;
+    snapshotEpoch: number;
+    agents: unknown[];
+    interactions: unknown[];
+  }>;
+  handleEvent(envelope: EventEnvelopeDto): Promise<unknown[]>;
+}
+
 export class RealtimeGateway {
   private readonly connections = new Map<string, Connection>();
   private nats: NatsConnection | null = null;
@@ -59,6 +70,7 @@ export class RealtimeGateway {
   constructor(
     private readonly db: GuardedDb,
     private readonly auth: GatewayAuth,
+    private readonly presenceSource: PresenceSource | null = null,
   ) {}
 
   // ---------- lifecycle ----------
@@ -75,13 +87,37 @@ export class RealtimeGateway {
     void (async () => {
       for await (const message of this.natsSub!) {
         try {
-          const envelope = JSON.parse(new TextDecoder().decode(message.data)) as EventEnvelopeDto;
-          this.onLiveEvent(envelope);
+          const payload = JSON.parse(new TextDecoder().decode(message.data)) as EventEnvelopeDto;
+          // co.<companyId>.office.* = projector instructions → presence topic
+          const parts = message.subject.split(".");
+          if (parts[2] === "office") {
+            if (parts[1]) this.onPresenceDelta(parts[1], payload);
+            continue;
+          }
+          this.onLiveEvent(payload);
+          // domain events feed the projector; its instructions come back on
+          // co.<companyId>.office.* (23 §3 flow)
+          if (this.presenceSource) {
+            void this.presenceSource.handleEvent(payload).catch(() => {});
+          }
         } catch {
           // non-envelope payloads on co.> are ignored
         }
       }
     })();
+  }
+
+  /** office.* instruction / agent presence delta → presence:<companyId> subs. */
+  private onPresenceDelta(companyId: string, instruction: unknown): void {
+    const topic = `presence:${companyId}`;
+    const seq = (this.presenceSeq.get(companyId) ?? 0) + 1;
+    this.presenceSeq.set(companyId, seq);
+    for (const connection of this.connections.values()) {
+      const sub = connection.subs.get(topic);
+      if (!sub) continue;
+      sub.lastSentSeq = seq;
+      this.send(connection, { topic, seq, events: [instruction] });
+    }
   }
 
   async stop(): Promise<void> {
@@ -261,9 +297,12 @@ export class RealtimeGateway {
     this.send(connection, { op: "replay_done", topic, up_to_seq: sub.lastSentSeq });
   }
 
-  private subscribePresence(connection: Connection, topic: string, parsed: ParsedTopic): void {
-    // Snapshot-then-delta (22 §5.3). Real state arrives with the office
-    // projector (T25); until then the snapshot is structurally valid + empty.
+  private async subscribePresence(
+    connection: Connection,
+    topic: string,
+    parsed: ParsedTopic,
+  ): Promise<void> {
+    // Snapshot-then-delta (22 §5.3) — state comes from the office projector.
     const seq = this.presenceSeq.get(parsed.id) ?? 0;
     connection.subs.set(topic, {
       parsed,
@@ -273,12 +312,12 @@ export class RealtimeGateway {
       authorizedAt: Date.now(),
     });
     this.send(connection, { op: "sub_ok", topic, current_seq: seq, mode: "live" });
-    this.send(connection, {
-      op: "snapshot",
-      topic,
-      seq,
-      state: { layoutVersion: 0, agents: [], interactions: [] },
-    });
+    const state = this.presenceSource
+      ? await this.presenceSource
+          .snapshot(parsed.id)
+          .catch(() => ({ layoutVersion: 0, snapshotEpoch: 0, agents: [], interactions: [] }))
+      : { layoutVersion: 0, snapshotEpoch: 0, agents: [], interactions: [] };
+    this.send(connection, { op: "snapshot", topic, seq, state });
   }
 
   private subscribeTerminal(connection: Connection, topic: string, parsed: ParsedTopic): void {

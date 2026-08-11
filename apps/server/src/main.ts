@@ -43,6 +43,7 @@ async function main(): Promise<void> {
   let relay: OutboxRelay | null = null;
   let dlq: DlqHandler | null = null;
   if (nats) {
+    app.attachOfficeNats?.(nats); // projector publishes office.* (T25)
     app.realtime?.attachNats(nats); // /ws live fanout (T23)
     await provisionJetStream(nats);
     relay = new OutboxRelay({

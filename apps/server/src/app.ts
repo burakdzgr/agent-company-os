@@ -26,6 +26,8 @@ import { AgentsService } from "./modules/agents/service.js";
 import { registerEventRoutes } from "./modules/events/routes.js";
 import { EventsReadService } from "./modules/events/read.js";
 import { RealtimeGateway } from "./modules/realtime/gateway.js";
+import { createOfficeProjector } from "./modules/office/wiring.js";
+import type { OfficeProjector } from "./modules/office/projector.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -34,6 +36,8 @@ declare module "fastify" {
   }
   interface FastifyInstance {
     realtime: RealtimeGateway | null;
+    officeProjector: OfficeProjector | null;
+    attachOfficeNats: ((nats: import("nats").NatsConnection) => void) | null;
   }
 }
 
@@ -210,13 +214,20 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
 
   // ---------- /ws gateway (T23; 21 §4, 22 §2–8) ----------
   await app.register(websocket, { options: { maxPayload: 131_072 } }); // 128 KB (22 §8)
+  const office = options.guardedDb ? createOfficeProjector(options.guardedDb) : null;
   const gateway = options.guardedDb
-    ? new RealtimeGateway(options.guardedDb, {
-        verifySession: (token) => auth().verifySession(token),
-        membership: (userId, companyId) => companiesSvc().membership(userId, companyId),
-      })
+    ? new RealtimeGateway(
+        options.guardedDb,
+        {
+          verifySession: (token) => auth().verifySession(token),
+          membership: (userId, companyId) => companiesSvc().membership(userId, companyId),
+        },
+        office?.projector ?? null,
+      )
     : null;
   app.decorate("realtime", gateway);
+  app.decorate("officeProjector", office?.projector ?? null);
+  app.decorate("attachOfficeNats", office ? office.attachNats : null);
   gateway?.start();
   app.addHook("onClose", async () => {
     await gateway?.stop();
