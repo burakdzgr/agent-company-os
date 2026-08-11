@@ -7,13 +7,18 @@ import { timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   CreateWorkspaceRequestSchema,
+  EnsureRepoRequestSchema,
   ExecRequestSchema,
+  ProvisionWorktreeRequestSchema,
+  WORKTREE_VOLUME_PATTERN,
   type ExecResult,
 } from "@acos/contracts";
 import type { DockerSandbox } from "./docker.js";
+import type { GitWorkspaces } from "./git.js";
 
 export interface AppDeps {
   sandbox: DockerSandbox;
+  git: GitWorkspaces;
   internalApiToken: string;
   logger?: boolean;
 }
@@ -82,9 +87,43 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     },
   );
 
+  // --- Git model (T38): bare repos + per-task worktree volumes ---
+
+  app.post("/internal/v1/repos", async (request, reply) => {
+    const parsed = EnsureRepoRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ code: "validation_failed", issues: parsed.error.issues });
+    }
+    const result = await deps.git.ensureBareRepo(parsed.data.projectId);
+    return reply.status(result.created ? 201 : 200).send(result);
+  });
+
+  app.post("/internal/v1/worktrees", async (request, reply) => {
+    const parsed = ProvisionWorktreeRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ code: "validation_failed", issues: parsed.error.issues });
+    }
+    const result = await deps.git.provisionWorktree(parsed.data);
+    return reply.status(result.created ? 201 : 200).send(result);
+  });
+
+  app.delete<{ Params: { volumeName: string } }>(
+    "/internal/v1/worktrees/:volumeName",
+    async (request, reply) => {
+      if (!WORKTREE_VOLUME_PATTERN.test(request.params.volumeName)) {
+        return reply.status(400).send({ code: "validation_failed", message: "bad volume name" });
+      }
+      await deps.git.removeWorktree(request.params.volumeName);
+      return reply.status(204).send();
+    },
+  );
+
   app.setErrorHandler((error: Error & { code?: string }, request, reply) => {
-    if (error.code === "NOT_FOUND") {
+    if (error.code === "NOT_FOUND" || error.code === "REPO_NOT_FOUND") {
       return reply.status(404).send({ code: "not_found", message: error.message });
+    }
+    if (error.code === "INVALID_INPUT") {
+      return reply.status(400).send({ code: "validation_failed", message: error.message });
     }
     request.log.error(error);
     return reply.status(500).send({ code: "internal", message: error.message });

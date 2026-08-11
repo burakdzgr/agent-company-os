@@ -71,21 +71,26 @@ export class DockerSandbox {
     const env = { ...workspaceEnv(level), ...req.env };
     const hostConfig = hardenedHostConfig(
       level,
-      req.mounts.map((m) => ({ source: m.source, target: m.target, readonly: m.readonly })),
+      req.mounts.map((m) => ({
+        source: m.source,
+        target: m.target,
+        readonly: m.readonly,
+        type: m.type,
+      })),
     );
 
     let container: Docker.Container;
     try {
       // WorkingDir only when a mount provides it — on a read-only rootfs
-      // Docker cannot create a missing WorkingDir, so default to "/" (T38
-      // wires the worktree volume at /workspace)
-      const hasWorkspaceMount = req.mounts.some((m) => m.target === "/workspace");
+      // Docker cannot create a missing WorkingDir, so default to "/". The
+      // worktree volume mounts rw at /work (15 §3.1, T38).
+      const workMount = req.mounts.find((m) => m.target === "/work");
       container = await this.docker.createContainer({
         name: `acos-ws-${req.workspaceId}`,
         Image: image,
         Cmd: KEEPALIVE,
         Tty: false,
-        ...(hasWorkspaceMount && { WorkingDir: "/workspace" }),
+        ...(workMount && { WorkingDir: "/work" }),
         Env: Object.entries(env).map(([k, v]) => `${k}=${v}`),
         Labels: {
           [LABEL_MANAGED]: "true",

@@ -62,11 +62,14 @@ export const ISOLATION_LIMITS: Readonly<Record<IsolationLevel, IsolationLimits>>
 export const WORKSPACE_NETWORK = "acos-workspaces";
 export const EGRESS_PROXY_URL = "http://egress-proxy:3128";
 
-/** A container mount, mirroring Docker's HostConfig.Mounts entry. */
+/** A container mount, mirroring Docker's HostConfig.Mounts entry. Worktree
+ *  volumes (T38) are named Docker volumes — `type: "volume"`; host binds
+ *  stay the default. */
 export interface WorkspaceMount {
   readonly source: string;
   readonly target: string;
   readonly readonly: boolean;
+  readonly type?: "bind" | "volume";
 }
 
 /** The subset of Docker's HostConfig we set — kept structural so the service
@@ -114,7 +117,7 @@ export function hardenedHostConfig(
       "/tmp": `rw,noexec,nosuid,size=${limits.scratchBytes}`,
     },
     Mounts: mounts.map((m) => ({
-      Type: "bind" as const,
+      Type: m.type ?? ("bind" as const),
       Source: m.source,
       Target: m.target,
       ReadOnly: m.readonly,

@@ -92,3 +92,17 @@ export {
   type ApprovalVerdictResult,
   type SweepResult,
 } from "./approvals.js";
+export {
+  WorkspaceService,
+  WorkspaceError,
+  worktreeVolumeName,
+  type WorkspaceRow,
+  type WorkspaceLockRow,
+  type TerminalSessionRow,
+  type RepositoryRow,
+  type SandboxPort,
+  type ProvisionInput,
+  type ProvisionResult,
+  type AcquireLockResult,
+  type LockConflict,
+} from "./workspaces.js";

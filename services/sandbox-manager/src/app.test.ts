@@ -5,6 +5,7 @@ import { describe, expect, it, beforeAll, afterAll } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "./app.js";
 import type { DockerSandbox } from "./docker.js";
+import type { GitWorkspaces } from "./git.js";
 import type { Workspace } from "@acos/contracts";
 
 const TOKEN = "internal-token-0123456789";
@@ -25,11 +26,26 @@ const fakeSandbox = {
   newTerminalSession: () => ({}) as never,
 } as unknown as DockerSandbox;
 
+const HEAD = "a".repeat(40);
+const fakeGit = {
+  ensureBareRepo: async (projectId: string) => ({
+    barePath: `/data/repos/${projectId}.git`,
+    headCommit: HEAD,
+    created: true,
+  }),
+  provisionWorktree: async (input: { volumeName: string }) => ({
+    volumeName: input.volumeName,
+    baseCommit: HEAD,
+    created: true,
+  }),
+  removeWorktree: async () => {},
+} as unknown as GitWorkspaces;
+
 let app: FastifyInstance;
 const auth = { authorization: `Bearer ${TOKEN}` };
 
 beforeAll(async () => {
-  app = buildApp({ sandbox: fakeSandbox, internalApiToken: TOKEN, logger: false });
+  app = buildApp({ sandbox: fakeSandbox, git: fakeGit, internalApiToken: TOKEN, logger: false });
   await app.ready();
 });
 afterAll(async () => {
@@ -105,5 +121,70 @@ describe("sandbox-manager routes", () => {
       headers: auth,
     });
     expect(res.statusCode).toBe(204);
+  });
+});
+
+describe("git model routes (T38)", () => {
+  it("ensures a bare repo (201 on create) and validates the project id", async () => {
+    const ok = await app.inject({
+      method: "POST",
+      url: "/internal/v1/repos",
+      headers: auth,
+      payload: { projectId: "018f0000-0000-7000-8000-00000000aaaa" },
+    });
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json()).toMatchObject({ headCommit: HEAD, created: true });
+
+    const bad = await app.inject({
+      method: "POST",
+      url: "/internal/v1/repos",
+      headers: auth,
+      payload: { projectId: "not-a-uuid" },
+    });
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it("provisions a worktree and enforces the branch/volume patterns", async () => {
+    const ok = await app.inject({
+      method: "POST",
+      url: "/internal/v1/worktrees",
+      headers: auth,
+      payload: {
+        projectId: "018f0000-0000-7000-8000-00000000aaaa",
+        volumeName: "ws-81-018f0000",
+        branch: "task/81-add-oauth-login",
+      },
+    });
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json()).toMatchObject({ volumeName: "ws-81-018f0000", baseCommit: HEAD });
+
+    const badBranch = await app.inject({
+      method: "POST",
+      url: "/internal/v1/worktrees",
+      headers: auth,
+      payload: {
+        projectId: "018f0000-0000-7000-8000-00000000aaaa",
+        volumeName: "ws-81-018f0000",
+        branch: "main", // never a task branch
+      },
+    });
+    expect(badBranch.statusCode).toBe(400);
+  });
+
+  it("removes a worktree volume (204) and rejects non-worktree names", async () => {
+    const ok = await app.inject({
+      method: "DELETE",
+      url: "/internal/v1/worktrees/ws-81-018f0000",
+      headers: auth,
+    });
+    expect(ok.statusCode).toBe(204);
+
+    // the repos volume can never be addressed through this route
+    const bad = await app.inject({
+      method: "DELETE",
+      url: "/internal/v1/worktrees/acos-repos",
+      headers: auth,
+    });
+    expect(bad.statusCode).toBe(400);
   });
 });

@@ -11,6 +11,7 @@ import { connect, type NatsConnection } from "nats";
 import type { SandboxTerminalFrame } from "@acos/contracts";
 import { buildApp } from "./app.js";
 import { DockerSandbox } from "./docker.js";
+import { DockerGitRunner, GitWorkspaces } from "./git.js";
 import type { TerminalLogSink, TerminalTransport } from "./terminal.js";
 
 function requireEnv(name: string): string {
@@ -63,11 +64,18 @@ async function main(): Promise<void> {
     log: (msg, meta) => console.log(JSON.stringify({ msg, ...meta })),
   });
 
+  const git = new GitWorkspaces(
+    new DockerGitRunner({
+      docker,
+      log: (msg, meta) => console.log(JSON.stringify({ msg, ...meta })),
+    }),
+  );
+
   const gc = setInterval(() => {
     void sandbox.gc(WORKSPACE_MAX_AGE_MS).catch((err) => console.error("gc failed", err));
   }, GC_INTERVAL_MS);
 
-  const app = buildApp({ sandbox, internalApiToken });
+  const app = buildApp({ sandbox, git, internalApiToken });
 
   const close = async () => {
     clearInterval(gc);

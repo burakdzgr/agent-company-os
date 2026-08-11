@@ -13,6 +13,8 @@ export const WorkspaceMountSchema = z.object({
   source: z.string().min(1),
   target: z.string().min(1),
   readonly: z.boolean().default(false),
+  /** Named Docker volumes (worktrees, T38) use "volume"; host paths "bind". */
+  type: z.enum(["bind", "volume"]).default("bind"),
 });
 
 export const CreateWorkspaceRequestSchema = z.object({
@@ -74,3 +76,46 @@ export const TerminalFrameSchema = z.object({
 export type SandboxTerminalFrame = z.infer<typeof TerminalFrameSchema>;
 
 export const WorkspaceListSchema = z.array(WorkspaceSchema);
+
+// ---------------------------------------------------------------------------
+// Git model (T38, ADR-010, 15 §3): bare repos + per-task worktree volumes.
+// The strict patterns double as shell-safety: every value interpolated into a
+// git helper script must match one of these.
+// ---------------------------------------------------------------------------
+
+/** `task/<task-number>-<slug>` (15 §3.1, _DECISIONS §13). */
+export const TASK_BRANCH_PATTERN = /^task\/[0-9]+-[a-z0-9-]+$/;
+/** Worktree volume names: `ws-<task_number>-<uuid prefix>` (15 §3.1 naming
+ *  decision + a task-id suffix for cross-tenant uniqueness — recorded T38
+ *  deviation). */
+export const WORKTREE_VOLUME_PATTERN = /^ws-[0-9]+-[0-9a-f]{8}$/;
+
+export const EnsureRepoRequestSchema = z.object({
+  /** Bare repo lives at `/data/repos/<projectId>.git` on the repos volume. */
+  projectId: z.uuid(),
+});
+export type EnsureRepoRequest = z.infer<typeof EnsureRepoRequestSchema>;
+
+export const EnsureRepoResponseSchema = z.object({
+  barePath: z.string(),
+  /** HEAD of the default branch (`main`) after the (idempotent) init. */
+  headCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  created: z.boolean(),
+});
+export type EnsureRepoResponse = z.infer<typeof EnsureRepoResponseSchema>;
+
+export const ProvisionWorktreeRequestSchema = z.object({
+  projectId: z.uuid(),
+  volumeName: z.string().regex(WORKTREE_VOLUME_PATTERN),
+  branch: z.string().regex(TASK_BRANCH_PATTERN),
+});
+export type ProvisionWorktreeRequest = z.infer<typeof ProvisionWorktreeRequestSchema>;
+
+export const ProvisionWorktreeResponseSchema = z.object({
+  volumeName: z.string(),
+  /** Commit the worktree was cloned at (branch base). */
+  baseCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  /** false when the volume already held a worktree (idempotent re-provision). */
+  created: z.boolean(),
+});
+export type ProvisionWorktreeResponse = z.infer<typeof ProvisionWorktreeResponseSchema>;

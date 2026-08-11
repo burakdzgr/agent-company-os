@@ -16,7 +16,8 @@
     "test:repo": "vitest run scripts",
     "seed": "pnpm --filter @acos/server seed",
     "ops": "echo \"ops: not implemented yet (keygen/backup/restore land later)\" && exit 0",
-    "test:int": "turbo run test:integration"
+    "test:int": "turbo run test:integration",
+    "build:workspace-images": "docker build -t acos/workspace-node infrastructure/docker/workspace-images/node"
   },
   "devDependencies": {
     "@temporalio/client": "^1.22.0",
