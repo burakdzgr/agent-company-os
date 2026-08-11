@@ -50,6 +50,21 @@ async function ensureNetwork(): Promise<void> {
 beforeAll(async () => {
   if (!dockerUp) return;
   await ensureNetwork();
+  // fixed worktree names: a crashed earlier run may have left them behind
+  // (possibly still referenced by its workspace containers) — stale content
+  // would flip created=false and pollute the assertions
+  for (const vol of [VOL_81, VOL_82]) {
+    const holders = await docker
+      .listContainers({ all: true, filters: { volume: [vol] } })
+      .catch(() => []);
+    for (const holder of holders) {
+      await docker.getContainer(holder.Id).remove({ force: true }).catch(() => {});
+    }
+    await docker
+      .getVolume(vol)
+      .remove({ force: true })
+      .catch(() => {});
+  }
   sandbox = new DockerSandbox({ docker, transport, logSink, nowMs: () => Date.now() });
   git = new GitWorkspaces(new DockerGitRunner({ docker }), { reposVolume: REPOS_TEST_VOLUME });
 }, 240_000);

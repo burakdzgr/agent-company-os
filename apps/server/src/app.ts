@@ -31,6 +31,7 @@ import { registerCommsRoutes } from "./modules/comms/routes.js";
 import { registerApprovalRoutes, type ApprovalSignalPort } from "./modules/approvals/routes.js";
 import { registerToolGatewayRoutes } from "./modules/tools/routes.js";
 import { registerTerminalRoutes } from "./modules/terminals/routes.js";
+import { registerProjectRoutes, type IntakeStarter } from "./modules/projects/routes.js";
 import { ToolGateway, type ToolDispatchPort } from "./modules/tools/gateway.js";
 import { unsealSecret } from "./modules/auth/crypto.js";
 import { secrets } from "@acos/db/schema";
@@ -58,6 +59,8 @@ declare module "fastify" {
     /** Tool execution seam (17 §4 step 7) — attached by T40 wiring; null ⇒
      *  allow-decisions dispatch-fail (still audited). */
     toolDispatchPort: ToolDispatchPort | null;
+    /** projectIntakeWorkflow start (14 §2) — attached by main.ts (T42). */
+    intakeStarter: IntakeStarter | null;
   }
 }
 
@@ -342,6 +345,17 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     },
     companiesSvc,
     sandbox: () => sandboxInternal,
+  });
+
+  // ---------- projects + intake (T42; 14 §2) ----------
+  app.decorate("intakeStarter", null);
+  await registerProjectRoutes(app, {
+    guardedDb: () => {
+      if (!options.guardedDb) throw new ApiError("internal", "projects not wired");
+      return options.guardedDb;
+    },
+    companiesSvc,
+    intakeStarter: () => app.intakeStarter,
   });
 
   // ---------- /ws gateway (T23; 21 §4, 22 §2–8) ----------

@@ -175,6 +175,9 @@ export {
   EnsureRepoResponseSchema,
   ProvisionWorktreeRequestSchema,
   ProvisionWorktreeResponseSchema,
+  IngestSourceSchema,
+  IngestRepoRequestSchema,
+  IngestRepoResponseSchema,
   type CreateWorkspaceRequest,
   type Workspace,
   type ExecRequest,
@@ -185,6 +188,9 @@ export {
   type EnsureRepoResponse,
   type ProvisionWorktreeRequest,
   type ProvisionWorktreeResponse,
+  type IngestSource,
+  type IngestRepoRequest,
+  type IngestRepoResponse,
 } from "./sandbox.js";
 export {
   ToolInvokeWireRequestSchema,
@@ -199,6 +205,16 @@ export {
   type TerminalSessionDto,
   type TerminalListResponse,
 } from "./terminals.js";
+export {
+  ProjectDtoSchema,
+  CreateProjectRequestSchema,
+  ProjectListResponseSchema,
+  ArtifactDtoSchema,
+  type ProjectDto,
+  type CreateProjectRequest,
+  type ProjectListResponse,
+  type ArtifactDto,
+} from "./projects.js";
 export {
   ApprovalBriefSchema,
   ApprovalKindSchema,

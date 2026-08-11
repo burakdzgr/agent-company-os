@@ -205,9 +205,10 @@ services:
       HEALTH_PORT: "3021"
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: acos
-      # every tool effect goes through the gateway (S3) — the execution plane
-      # never talks to sandbox-manager or the DB directly (T40)
+      # agent tool effects go through the gateway (S3, T40); intake SYSTEM
+      # activities (14 §3.1, T42) are the doc-assigned direct sandbox path
       SERVER_INTERNAL_URL: http://server:3000
+      SANDBOX_MANAGER_URL: http://sandbox-manager:3010
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
     depends_on:
       temporal:

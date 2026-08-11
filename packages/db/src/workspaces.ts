@@ -117,9 +117,11 @@ export interface AcquireLockResult {
 
 const DEFAULT_IMAGE = "acos/workspace-node";
 
-/** `ws-<task_number>-<uuid8>` (15 §3.1 + recorded uniqueness suffix). */
+/** `ws-<task_number>-<uuid8>` (15 §3.1 + recorded uniqueness suffix). The
+ *  LAST 8 hex carry uuidv7's random bits — the first 8 are timestamp high
+ *  bits shared by ids minted within the same ~65s window. */
 export function worktreeVolumeName(taskNumber: number, taskId: string): string {
-  return `ws-${taskNumber}-${taskId.replace(/-/g, "").slice(0, 8)}`;
+  return `ws-${taskNumber}-${taskId.replace(/-/g, "").slice(-8)}`;
 }
 
 export class WorkspaceService {

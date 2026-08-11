@@ -192,12 +192,27 @@ async function run(): Promise<void> {
     maxConcurrentActivityTaskExecutions: 8,
     shutdownGraceTime: "30s",
   });
+  const { createIntakeControlActivities } = await import("./intake/activities.js");
   const intakeWorker = await Worker.create({
     connection,
     namespace: "acos",
     taskQueue: TASK_QUEUES.intake,
     workflowsPath: require.resolve("./workflows/intake/index.js"),
-    activities: {}, // analysis orchestration activities land with T42
+    activities: createIntakeControlActivities({
+      guardedDb,
+      // routed GOAL → CEO agentTaskWorkflow (09 §4, same port as T36)
+      startAgentWorkflow: async ({ companyId, agentId, taskId }) => {
+        await startAgentTaskWorkflow(temporalClient, "agentTaskWorkflow", {
+          companyId,
+          agentId,
+          taskId,
+          sessionId: uuidv7(),
+          attempt: 1,
+        }).catch((err: unknown) => {
+          if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") throw err;
+        });
+      },
+    }),
     maxConcurrentActivityTaskExecutions: 4,
     shutdownGraceTime: "30s",
   });

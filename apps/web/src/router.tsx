@@ -22,6 +22,7 @@ import { TasksView } from "./features/tasks/TasksView.js";
 import { CommunicationView } from "./features/comms/CommunicationView.js";
 import { ApprovalsView } from "./features/approvals/ApprovalsView.js";
 import { TerminalsView } from "./features/terminals/TerminalsView.js";
+import { ProjectsView } from "./features/projects/ProjectsView.js";
 
 const rootRoute = createRootRoute();
 
@@ -124,6 +125,12 @@ const terminalsRoute = createRoute({
   component: TerminalsView,
 });
 
+const projectsRoute = createRoute({
+  getParentRoute: () => companyRoute,
+  path: "projects",
+  component: ProjectsView,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
@@ -139,6 +146,7 @@ const routeTree = rootRoute.addChildren([
     commsRoute,
     approvalsRoute,
     terminalsRoute,
+    projectsRoute,
   ]),
 ]);
 

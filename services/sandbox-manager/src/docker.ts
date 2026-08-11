@@ -106,6 +106,16 @@ export class DockerSandbox {
       });
       await container.start();
     } catch (err) {
+      // TOCTOU on the idempotency check: concurrent creates for the same
+      // workspaceId race past findContainer — the 409 loser adopts the winner
+      if ((err as { statusCode?: number }).statusCode === 409) {
+        const winner = await this.findContainer(req.workspaceId);
+        if (winner) {
+          const info = await winner.inspect();
+          if (!info.State.Running) await winner.start().catch(() => {});
+          return this.toWorkspace(await winner.inspect());
+        }
+      }
       throw new SandboxError("DOCKER_ERROR", `create/start failed: ${String(err)}`);
     }
     const info = await container.inspect();

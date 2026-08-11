@@ -9,6 +9,7 @@ import {
   CreateWorkspaceRequestSchema,
   EnsureRepoRequestSchema,
   ExecRequestSchema,
+  IngestRepoRequestSchema,
   ProvisionWorktreeRequestSchema,
   WORKTREE_VOLUME_PATTERN,
   type ExecResult,
@@ -145,6 +146,16 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       return reply.status(400).send({ code: "validation_failed", issues: parsed.error.issues });
     }
     const result = await deps.git.ensureBareRepo(parsed.data.projectId);
+    return reply.status(result.created ? 201 : 200).send(result);
+  });
+
+  // project intake ingest (T42, 14 §3.1 stage 1)
+  app.post("/internal/v1/repos/ingest", async (request, reply) => {
+    const parsed = IngestRepoRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ code: "validation_failed", issues: parsed.error.issues });
+    }
+    const result = await deps.git.ingestRepo(parsed.data);
     return reply.status(result.created ? 201 : 200).send(result);
   });
 

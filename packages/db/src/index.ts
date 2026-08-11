@@ -93,6 +93,14 @@ export {
   type SweepResult,
 } from "./approvals.js";
 export {
+  ProjectsService,
+  ProjectError,
+  projectSlug,
+  type ProjectRow,
+  type ArtifactRow,
+  type CreateProjectInput,
+} from "./projects.js";
+export {
   WorkspaceService,
   WorkspaceError,
   worktreeVolumeName,

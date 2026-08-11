@@ -82,6 +82,7 @@ export class TasksService {
   ): Promise<TaskRow> {
     return this.db.transaction(async (tx) => {
       let delegationDepth = 0;
+      let inheritedProjectId: string | null = null;
       if (input.parentId) {
         const [parent] = await tx
           .select()
@@ -98,6 +99,9 @@ export class TasksService {
         if (delegationDepth > 5) {
           throw new TaskEngineError("TASK_HIERARCHY_INVALID", "delegation depth exceeds 5");
         }
+        // a subtree belongs to its project (14 §1): children inherit unless
+        // the creator scopes them explicitly (T42)
+        inheritedProjectId = parent.projectId;
       } else if (!PARENTLESS_KINDS.has(input.kind)) {
         throw new TaskEngineError(
           "TASK_HIERARCHY_INVALID",
@@ -110,7 +114,7 @@ export class TasksService {
         .insert(tasks)
         .values({
           companyId: ctx.companyId,
-          projectId: input.projectId ?? null,
+          projectId: input.projectId ?? inheritedProjectId,
           parentId: input.parentId ?? null,
           number,
           kind: input.kind,

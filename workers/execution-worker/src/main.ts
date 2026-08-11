@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { Worker, NativeConnection } from "@temporalio/worker";
 import { createGatewayClient } from "./gateway-client.js";
 import { createExecutionActivities } from "./activities.js";
+import { createIntakeExecutionActivities, createIntakeSandboxClient } from "./intake.js";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -33,6 +34,11 @@ async function main(): Promise<void> {
     res.writeHead(404).end();
   }).listen(healthPort, "0.0.0.0");
 
+  // intake sandbox activities (T42, 14 §3.1): pre-agent SYSTEM operations —
+  // the doc routes these to sandbox-manager directly; agent tools stay
+  // gateway-only (S3)
+  const sandboxManagerUrl = process.env.SANDBOX_MANAGER_URL ?? "http://sandbox-manager:3010";
+
   const connection = await NativeConnection.connect({ address: temporalAddress });
   const worker = await Worker.create({
     connection,
@@ -40,9 +46,14 @@ async function main(): Promise<void> {
     taskQueue: "execution",
     // activities-only (09 §4.1): sandboxed tool activities are always
     // children of workflows running on agent-tasks/intake
-    activities: createExecutionActivities({
-      invokeGateway: createGatewayClient({ serverUrl, internalApiToken }),
-    }),
+    activities: {
+      ...createExecutionActivities({
+        invokeGateway: createGatewayClient({ serverUrl, internalApiToken }),
+      }),
+      ...createIntakeExecutionActivities({
+        sandbox: createIntakeSandboxClient({ sandboxManagerUrl, internalApiToken }),
+      }),
+    },
     maxConcurrentActivityTaskExecutions: 16,
     shutdownGraceTime: "30s",
   });

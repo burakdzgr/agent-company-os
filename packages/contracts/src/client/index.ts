@@ -59,6 +59,15 @@ import {
   type TaskTreeNode,
 } from "../tasks.js";
 import { TerminalListResponseSchema, type TerminalListResponse } from "../terminals.js";
+import {
+  ArtifactDtoSchema,
+  ProjectDtoSchema,
+  ProjectListResponseSchema,
+  type ArtifactDto,
+  type CreateProjectRequest,
+  type ProjectDto,
+  type ProjectListResponse,
+} from "../projects.js";
 
 export interface EventListFilters {
   types?: string[];
@@ -365,6 +374,20 @@ export function createAcosClient(options: AcosClientOptions) {
         ),
       get: async (companyId: string, eventId: string): Promise<Event> =>
         EventSchema.parse(await get(`/api/v1/companies/${companyId}/events/${eventId}`)),
+    },
+    projects: {
+      list: async (companyId: string): Promise<ProjectListResponse> =>
+        ProjectListResponseSchema.parse(await get(`/api/v1/companies/${companyId}/projects`)),
+      create: async (companyId: string, body: CreateProjectRequest): Promise<ProjectDto> =>
+        ProjectDtoSchema.parse(await post(`/api/v1/companies/${companyId}/projects`, body)),
+      get: async (companyId: string, projectId: string): Promise<ProjectDto> =>
+        ProjectDtoSchema.parse(
+          await get(`/api/v1/companies/${companyId}/projects/${projectId}`),
+        ),
+      report: async (companyId: string, projectId: string): Promise<ArtifactDto> =>
+        ArtifactDtoSchema.parse(
+          await get(`/api/v1/companies/${companyId}/projects/${projectId}/report`),
+        ),
     },
     terminals: {
       list: async (

@@ -131,3 +131,37 @@ export const ProvisionWorktreeResponseSchema = z.object({
   created: z.boolean(),
 });
 export type ProvisionWorktreeResponse = z.infer<typeof ProvisionWorktreeResponseSchema>;
+
+// ---------------------------------------------------------------------------
+// Project intake ingest (T42, 14 §3.1 stage 1): copy a source into the
+// platform's own bare repo. `git_url` clones over http(s); `empty` seeds a
+// greenfield repo. Local-path import needs a host-path mapping decision and
+// is deferred (recorded T42 deviation).
+// ---------------------------------------------------------------------------
+
+export const IngestSourceSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("git_url"),
+    url: z.string().regex(/^https?:\/\/[^\s'"\\]+$/).max(2048),
+  }),
+  z.object({ kind: z.literal("empty") }),
+]);
+export type IngestSource = z.infer<typeof IngestSourceSchema>;
+
+export const IngestRepoRequestSchema = z.object({
+  projectId: z.uuid(),
+  source: IngestSourceSchema,
+});
+export type IngestRepoRequest = z.infer<typeof IngestRepoRequestSchema>;
+
+export const IngestRepoResponseSchema = z.object({
+  barePath: z.string(),
+  headCommit: z.string().regex(/^[0-9a-f]{40}$/),
+  defaultBranch: z.string(),
+  branches: z.array(z.string()),
+  sizeKb: z.number().int(),
+  created: z.boolean(),
+  /** Read-only intake worktree volume (`ws-0-<proj8>`), null for `empty`. */
+  worktreeVolume: z.string().nullable(),
+});
+export type IngestRepoResponse = z.infer<typeof IngestRepoResponseSchema>;

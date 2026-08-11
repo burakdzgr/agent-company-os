@@ -14,6 +14,8 @@ import {
   TASK_BRANCH_PATTERN,
   WORKTREE_VOLUME_PATTERN,
   type EnsureRepoResponse,
+  type IngestRepoRequest,
+  type IngestRepoResponse,
   type ProvisionWorktreeResponse,
 } from "@acos/contracts";
 
@@ -49,9 +51,20 @@ export interface GitBind {
   readonly?: boolean;
 }
 
+export interface GitRunOptions {
+  /**
+   * Helper network. Default "none" — local-path git needs nothing. Ingest
+   * clones (T42) run on "bridge": the clone itself executes no repo code,
+   * the container stays unprivileged and short-lived, and the URL is
+   * Founder-supplied operator input (recorded softening of 27 §12 for this
+   * single system operation; agent workloads never get this mode).
+   */
+  network?: "none" | "bridge";
+}
+
 /** The container-running seam — faked in unit tests, dockerode in prod. */
 export interface GitRunner {
-  run(script: string, binds: readonly GitBind[]): Promise<GitRunResult>;
+  run(script: string, binds: readonly GitBind[], opts?: GitRunOptions): Promise<GitRunResult>;
   ensureVolume(name: string): Promise<void>;
   removeVolume(name: string): Promise<void>;
 }
@@ -70,8 +83,13 @@ export class DockerGitRunner implements GitRunner {
     this.image = deps.image ?? GIT_HELPER_IMAGE;
   }
 
-  async run(script: string, binds: readonly GitBind[]): Promise<GitRunResult> {
+  async run(
+    script: string,
+    binds: readonly GitBind[],
+    opts: GitRunOptions = {},
+  ): Promise<GitRunResult> {
     await this.ensureImage();
+    const network = opts.network ?? "none";
     const container = await this.deps.docker.createContainer({
       Image: this.image,
       Entrypoint: ["/bin/sh", "-c"],
@@ -79,8 +97,9 @@ export class DockerGitRunner implements GitRunner {
       Tty: false,
       Labels: { "acos.sandbox": "true", "acos.git_helper": "true" },
       HostConfig: {
-        // local-path git only — a helper never needs the network
-        NetworkMode: "none",
+        NetworkMode: network,
+        // host-gateway alias so tests can serve fixture repos from the host
+        ...(network === "bridge" && { ExtraHosts: ["host.docker.internal:host-gateway"] }),
         Binds: binds.map(
           (b) => `${b.volume}:${b.target}${b.readonly ? ":ro" : ""}`,
         ),
@@ -269,5 +288,119 @@ export class GitWorkspaces {
       throw new GitError("INVALID_INPUT", `bad worktree volume name: ${volumeName}`);
     }
     await this.runner.removeVolume(volumeName);
+  }
+
+  /** Intake worktree volume: task number 0 is reserved for the RO analysis
+   *  worktree (T42) — the name still fits WORKTREE_VOLUME_PATTERN. Last 8
+   *  hex = uuidv7 random bits (the first 8 are shared timestamp bits). */
+  intakeWorktreeName(projectId: string): string {
+    return `ws-0-${projectId.replace(/-/g, "").slice(-8)}`;
+  }
+
+  /**
+   * Project intake ingest (14 §3.1 stage 1): copy the source into the bare
+   * repo — the platform's own origin (P1: path derived from the id, never
+   * user-supplied) — then materialize a read-only intake worktree volume for
+   * the analysis containers. Idempotent on the bare repo.
+   */
+  async ingestRepo(input: IngestRepoRequest): Promise<IngestRepoResponse> {
+    if (!UUID_PATTERN.test(input.projectId)) {
+      throw new GitError("INVALID_INPUT", `projectId is not a uuid: ${input.projectId}`);
+    }
+    await this.runner.ensureVolume(this.reposVolume);
+    const repo = this.bareRepoPath(input.projectId);
+
+    if (input.source.kind === "empty") {
+      const seeded = await this.ensureBareRepo(input.projectId);
+      return {
+        barePath: seeded.barePath,
+        headCommit: seeded.headCommit,
+        defaultBranch: "main",
+        branches: ["main"],
+        sizeKb: 0,
+        created: seeded.created,
+        worktreeVolume: null,
+      };
+    }
+
+    // url is schema-validated to exclude quotes/backslashes/whitespace
+    const url = input.source.url;
+    if (!/^https?:\/\/[^\s'"\\]+$/.test(url)) {
+      throw new GitError("INVALID_INPUT", `bad ingest url`);
+    }
+    const script = [
+      "set -e",
+      `R="${repo}"`,
+      'if [ -d "$R" ]; then',
+      "  echo '::created::0'",
+      "else",
+      `  git clone --bare '${url}' "$R"`,
+      "  echo '::created::1'",
+      "fi",
+      `DB=$(git --git-dir="$R" symbolic-ref --short HEAD 2>/dev/null || echo main)`,
+      'echo "::branch::$DB"',
+      'echo "::head::$(git --git-dir="$R" rev-parse HEAD)"',
+      'echo "::size::$(du -sk "$R" | cut -f1)"',
+      `git --git-dir="$R" for-each-ref --format='::ref::%(refname:short)' refs/heads`,
+    ].join("\n");
+    const result = await this.runner.run(
+      script,
+      [{ volume: this.reposVolume, target: REPOS_MOUNT }],
+      { network: "bridge" },
+    );
+    if (result.exitCode !== 0) {
+      throw new GitError("GIT_FAILED", `ingest clone failed: ${result.stderr.trim().slice(-500)}`);
+    }
+    const get = (key: string) =>
+      result.stdout
+        .split("\n")
+        .find((l) => l.startsWith(`::${key}::`))
+        ?.slice(key.length + 4)
+        .trim();
+    const headCommit = get("head") ?? "";
+    if (!COMMIT_PATTERN.test(headCommit)) {
+      throw new GitError("GIT_FAILED", `unexpected ingest output: ${result.stdout.slice(0, 300)}`);
+    }
+    const worktree = await this.provisionIntakeWorktree(input.projectId);
+    return {
+      barePath: repo,
+      headCommit,
+      defaultBranch: get("branch") ?? "main",
+      branches: result.stdout
+        .split("\n")
+        .filter((l) => l.startsWith("::ref::"))
+        .map((l) => l.slice(7).trim())
+        .slice(0, 100),
+      sizeKb: Number(get("size") ?? 0),
+      created: get("created") === "1",
+      worktreeVolume: worktree,
+    };
+  }
+
+  /** Clone the default branch (history included) into the intake worktree
+   *  volume — mounted READ-ONLY into analysis containers (P2). Idempotent. */
+  private async provisionIntakeWorktree(projectId: string): Promise<string> {
+    const volumeName = this.intakeWorktreeName(projectId);
+    await this.runner.ensureVolume(volumeName);
+    const repo = this.bareRepoPath(projectId);
+    const script = [
+      "set -e",
+      `R="${repo}"`,
+      "if [ ! -d /work/.git ]; then",
+      '  git clone "$R" /work',
+      "fi",
+      "git -C /work rev-parse HEAD",
+    ].join("\n");
+    const result = await this.runner.run(script, [
+      { volume: this.reposVolume, target: REPOS_MOUNT, readonly: true },
+      { volume: volumeName, target: "/work" },
+    ]);
+    if (result.exitCode !== 0) {
+      throw new GitError(
+        "GIT_FAILED",
+        `intake worktree provisioning failed: ${result.stderr.trim().slice(-500)}`,
+      );
+    }
+    return volumeName;
   }
 }

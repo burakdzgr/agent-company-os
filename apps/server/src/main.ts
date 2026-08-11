@@ -88,6 +88,20 @@ async function main(): Promise<void> {
     app.agentWorkflowStarter = createAgentWorkflowStarter(temporalClient, (err, input) =>
       app.log.warn({ err, ...input }, "agentTaskWorkflow start failed"),
     );
+    // project creation → projectIntakeWorkflow on the intake queue (T42)
+    app.intakeStarter = async ({ companyId, projectId, source }) => {
+      await temporalClient.workflow
+        .start("projectIntakeWorkflow", {
+          taskQueue: "intake",
+          workflowId: `intake.${projectId}`,
+          args: [{ companyId, projectId, source }],
+        })
+        .catch((err: unknown) => {
+          if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") {
+            throw err;
+          }
+        });
+    };
     app.log.info("comms delivery signal port attached (Temporal)");
   } catch (err) {
     app.log.error({ err }, "Temporal unavailable — comms delivery signalling disabled");
