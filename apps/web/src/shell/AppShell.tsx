@@ -16,7 +16,7 @@ const NAV_ITEMS: Array<{ label: string; path?: string }> = [
   { label: "MEMORY" },
   { label: "ORGANIZATION", path: "/c/$companyId/organization" },
   { label: "SKILLS" },
-  { label: "COMMUNICATION" },
+  { label: "COMMUNICATION", path: "/c/$companyId/communication" },
   { label: "TERMINALS" },
   { label: "APPROVALS" },
   { label: "EVENTS", path: "/c/$companyId/events" },

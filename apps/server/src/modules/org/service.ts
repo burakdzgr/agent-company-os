@@ -51,6 +51,15 @@ export class OrgService {
           parentId: input.parentId ?? null,
         })
         .returning();
+      // team/department channels auto-provision with their unit (11 §2)
+      if (input.kind === "team" || input.kind === "department") {
+        const { ChannelService } = await import("@acos/db");
+        await new ChannelService(this.db).provisionInTx(tx, ctx, {
+          kind: input.kind,
+          orgUnitId: unit!.id,
+          name: unit!.name,
+        });
+      }
       const type =
         input.kind === "department"
           ? "department.created"
@@ -213,6 +222,22 @@ export class OrgService {
           toUnitId: null,
           kind: "manages",
         });
+      }
+
+      // membership sync (11 §2): member_of joins the unit's channel if any
+      if (input.kind === "member_of" && input.toUnitId) {
+        const { ChannelService } = await import("@acos/db");
+        const { channels } = await import("@acos/db/schema");
+        const { eq: eqOp, and: andOp } = await import("drizzle-orm");
+        const [channel] = await tx
+          .select({ id: channels.id })
+          .from(channels)
+          .where(
+            andOp(eqOp(channels.companyId, ctx.companyId), eqOp(channels.orgUnitId, input.toUnitId)),
+          );
+        if (channel) {
+          await new ChannelService(this.db).addMemberInTx(tx, ctx, channel.id, input.fromAgentId);
+        }
       }
 
       const inserted = await tx.insert(orgEdges).values(rows).returning();

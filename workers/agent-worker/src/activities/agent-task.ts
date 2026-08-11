@@ -6,12 +6,17 @@ import { and, eq, sql } from "drizzle-orm";
 import { uuidv5 } from "@acos/domain";
 import { parseEventPayload } from "@acos/events";
 import {
+  ChannelService,
+  MessageService,
   TaskStateService,
   appendEvents,
   companyContext,
+  deliverMessage,
   type CompanyContext,
   type GuardedDb,
+  type InboxItem,
   type NewEventInput,
+  type SignalPort,
   type Tx,
 } from "@acos/db";
 import {
@@ -39,6 +44,8 @@ export interface AgentTaskActivityDeps {
   router: ModelRouter;
   /** RoutingContext loader — DB bindings/profiles in prod, fixed in scripted mode. */
   routingFor(ctx: CompanyContext, agentId: string): Promise<RoutingContext>;
+  /** Post-commit message delivery transport (11 §4.4); absent in narrow tests. */
+  signalPort?: SignalPort | undefined;
 }
 
 export interface SessionRef {
@@ -73,6 +80,8 @@ function fnvDigest(text: string): string {
 export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
   const { guardedDb } = deps;
   const taskState = new TaskStateService(guardedDb);
+  const channelService = new ChannelService(guardedDb);
+  const messageService = new MessageService(guardedDb, channelService);
 
   return {
     /** 08 §1: mark the pre-created session running; task started + presence. */
@@ -127,8 +136,10 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       });
     },
 
-    /** 08 §8 section order; memory sections land with T45, thread with T33. */
-    async buildWorkingSetActivity(input: SessionRef & { stepNo: number }): Promise<WorkingSet> {
+    /** 08 §8 section order; memory sections land with T45. */
+    async buildWorkingSetActivity(
+      input: SessionRef & { stepNo: number; signalMarkers?: string[] | undefined },
+    ): Promise<WorkingSet> {
       const ctx = companyContext(input.companyId);
       const [agentRow] = await guardedDb
         .select({
@@ -190,6 +201,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         `[taskFixture:${String(taskContext.taskFixture ?? "none")}]`,
         `[lastExitCode:${lastObservation?.exitCode ?? 0}]`,
         ...Object.entries(lastObservation?.signal ?? {}).map(([k, v]) => `[signal:${k}=${v}]`),
+        ...(input.signalMarkers ?? []), // drained signal buffer (08 §5, T33)
       ].join(" ");
 
       // sections 1–10 of 08 §8 (memory 4–6 and thread 7 are placeholders
@@ -203,6 +215,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       const user = [
         `# Org context\nEscalation chain: ${managers.join(" -> ") || "(top level)"} -> Founder`,
         `# Task TASK-${task.number}: ${task.title}\nObjective: ${task.objective}\nStatus: ${task.status} | Priority: ${task.priority} | Risk: ${task.risk}\nSuccess criteria: ${task.successCriteria.join("; ") || "(none)"}\nBudget remaining cents: ${task.budgetCents === null ? "inherit" : task.budgetCents - task.spentCents}`,
+        `# Thread + signals\n${(input.signalMarkers ?? []).join("\n") || "(no new messages)"}`,
         `# Recent steps\n${recentSteps
           .slice()
           .reverse()
@@ -299,6 +312,36 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           // observation shape matches what scripted branches key on
           return { ok: true, tool: action.tool, exitCode: 0, stub: true, input: action.input };
         }
+        case "send_message": {
+          // the ONE send path (11 §0.2) + post-commit delivery via SignalPort
+          const plan = await messageService.send(ctx, {
+            channelId: action.channelId,
+            senderAgentId: input.agentId,
+            kind: action.kind === "text" ? "text" : action.kind,
+            body: action.body,
+            refs: action.refs,
+            mentions: action.mentions,
+            idempotencyKey: uuidv5("msg", input.stepId),
+          });
+          if (deps.signalPort) {
+            await deliverMessage(guardedDb, ctx, plan, deps.signalPort);
+          }
+          return { ok: true, messageId: plan.message.id, recipients: plan.recipients.length };
+        }
+        case "wait_for": {
+          // status move only — the workflow owns the Temporal condition (08 §6)
+          const [current] = await guardedDb
+            .select({ status: tasks.status })
+            .from(tasks)
+            .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
+          if (current?.status === "IN_PROGRESS") {
+            await taskState.transition(ctx, input.taskId, "WAITING", {
+              kind: "agent",
+              agentId: input.agentId,
+            }, { note: `waiting for ${action.what}` });
+          }
+          return { ok: true, waiting: action.what };
+        }
         case "think":
           return { ok: true, thought: true };
         case "complete_task":
@@ -376,6 +419,65 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           .where(and(eq(agentSessions.companyId, ctx.companyId), eq(agentSessions.id, input.sessionId)));
         return { inserted: true };
       });
+    },
+
+    /** wake from wait_for: WAITING→IN_PROGRESS (system actor, 07 §5). */
+    async resumeFromWaitActivity(input: SessionRef): Promise<void> {
+      const ctx = companyContext(input.companyId);
+      const [current] = await guardedDb
+        .select({ status: tasks.status })
+        .from(tasks)
+        .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
+      if (current?.status === "WAITING") {
+        await taskState.transition(ctx, input.taskId, "IN_PROGRESS", { kind: "system" });
+      }
+    },
+
+    /** Inbox triage (08 §7): cheap model classifies items act|queue|ignore;
+     *  no fast route resolves ⇒ ignore (still marks read). */
+    async triageInboxActivity(input: {
+      companyId: string;
+      agentId: string;
+      items: InboxItem[];
+    }): Promise<{ verdict: "act" | "queue" | "ignore" }> {
+      const ctx = companyContext(input.companyId);
+      try {
+        const routing = await deps.routingFor(ctx, input.agentId);
+        const result = await deps.router.complete(
+          {
+            purpose: "fast",
+            messages: [
+              {
+                role: "system",
+                content:
+                  'Triage the inbox items. Reply with exactly one JSON object {"verdict":"act"|"queue"|"ignore"}.',
+              },
+              {
+                role: "user",
+                content: input.items.map((i) => `${i.kind}: ${i.preview}`).join("\n"),
+              },
+            ],
+            agentId: input.agentId,
+          },
+          routing,
+        );
+        const parsed = JSON.parse(result.text) as { verdict?: string };
+        if (parsed.verdict === "act" || parsed.verdict === "queue") return { verdict: parsed.verdict };
+        return { verdict: "ignore" };
+      } catch {
+        return { verdict: "ignore" }; // no fast profile / parse failure — FYI path
+      }
+    },
+
+    async markInboxReadActivity(input: {
+      companyId: string;
+      agentId: string;
+      channelIds: string[];
+    }): Promise<void> {
+      const ctx = companyContext(input.companyId);
+      for (const channelId of new Set(input.channelIds)) {
+        await channelService.markRead(ctx, channelId, input.agentId);
+      }
     },
 
     async closeAgentSessionActivity(input: SessionRef & {

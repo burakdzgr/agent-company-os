@@ -46,6 +46,18 @@ export function createDb(pool: Pool): Db {
   return drizzle(pool, { schema });
 }
 export {
+  ChannelService,
+  MessageService,
+  CommsError,
+  deliverMessage,
+  type ChannelRow,
+  type MessageRow,
+  type SendInput,
+  type DeliveryPlan,
+  type SignalPort,
+  type InboxItem,
+} from "./comms.js";
+export {
   TaskEngineError,
   TasksService,
   TaskStateService,

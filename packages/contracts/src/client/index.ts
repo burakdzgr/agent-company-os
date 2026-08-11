@@ -40,6 +40,7 @@ import {
   type EventListResponse,
   type EventReplayResponse,
 } from "../events.js";
+import { ChannelSchema, MessageSchema } from "../comms.js";
 import {
   TaskSchema,
   TaskAssignmentSchema,
@@ -290,6 +291,45 @@ export function createAcosClient(options: AcosClientOptions) {
         TaskSchema.parse(
           await post(`/api/v1/companies/${companyId}/tasks/${taskId}/assignments`, body),
         ),
+    },
+    comms: {
+      listChannels: async (companyId: string, kind?: string) =>
+        z
+          .array(ChannelSchema)
+          .parse(await get(`/api/v1/companies/${companyId}/channels${kind ? `?kind=${kind}` : ""}`)),
+      openDm: async (companyId: string, agentId: string) =>
+        ChannelSchema.parse(
+          await post(`/api/v1/companies/${companyId}/channels`, { kind: "dm", agentId }),
+        ),
+      messages: async (
+        companyId: string,
+        channelId: string,
+        opts: { beforeId?: string; limit?: number } = {},
+      ) => {
+        const search = new URLSearchParams();
+        if (opts.beforeId) search.set("beforeId", opts.beforeId);
+        if (opts.limit) search.set("limit", String(opts.limit));
+        const qs = search.toString();
+        return z
+          .array(MessageSchema)
+          .parse(
+            await get(
+              `/api/v1/companies/${companyId}/channels/${channelId}/messages${qs ? `?${qs}` : ""}`,
+            ),
+          );
+      },
+      send: async (
+        companyId: string,
+        channelId: string,
+        body: { kind?: string; body: string; mentions?: string[]; refs?: Array<{ kind: string; id: string }> },
+      ) =>
+        MessageSchema.parse(
+          await post(`/api/v1/companies/${companyId}/channels/${channelId}/messages`, body),
+        ),
+      markRead: async (companyId: string, channelId: string) =>
+        z
+          .object({ ok: z.boolean() })
+          .parse(await post(`/api/v1/companies/${companyId}/channels/${channelId}/read`)),
     },
     events: {
       list: async (companyId: string, filters: EventListFilters = {}): Promise<EventListResponse> => {

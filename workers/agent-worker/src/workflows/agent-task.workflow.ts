@@ -5,11 +5,20 @@
 // safety stop at 60 steps protects until then). Pure orchestration — every
 // side effect is an activity; stepId = uuidv5(String(stepNo), sessionId) is
 // deterministic and replay-safe (08 §2).
-import { proxyActivities, workflowInfo } from "@temporalio/workflow";
+import { condition, proxyActivities, setHandler, workflowInfo } from "@temporalio/workflow";
 import { uuidv5 } from "@acos/domain";
 import { AgentActionSchema, type AgentAction } from "@acos/llm/agent-action";
 import type { createAgentTaskActivities } from "../activities/agent-task.js";
 import type { LlmMessage } from "@acos/llm";
+import {
+  approvalVerdictSignal,
+  cancelSignal,
+  dependencyResolvedSignal,
+  managerDirectiveSignal,
+  messageReceivedSignal,
+  reviewVerdictSignal,
+  type InboxItemSignal,
+} from "./signals.js";
 
 const activities = proxyActivities<ReturnType<typeof createAgentTaskActivities>>({
   startToCloseTimeout: "120s", // LLM class ceiling; fast DB ops finish well under
@@ -40,6 +49,63 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
     taskId: input.taskId,
     sessionId: input.sessionId,
   };
+
+  // ---- signal state (08 §5; carried-state versions arrive with T34) ----
+  const seenSignalIds = new Set<string>();
+  const pendingMessages: InboxItemSignal[] = [];
+  // property access (not closed-over lets) — keeps TS control-flow honest
+  // about mutations arriving from signal handlers
+  const signals: {
+    resolvedDependencies: string[];
+    reviewVerdict: { verdict: string; notes?: string | undefined } | null;
+    approvalVerdict: { verdict: string; note?: string | undefined } | null;
+    paused: boolean;
+    cancelled: { by: string; reason: string } | null;
+  } = {
+    resolvedDependencies: [],
+    reviewVerdict: null,
+    approvalVerdict: null,
+    paused: false,
+    cancelled: null,
+  };
+
+  setHandler(messageReceivedSignal, (item) => {
+    if (seenSignalIds.has(item.signalId)) return; // at-least-once dedupe
+    seenSignalIds.add(item.signalId);
+    if (pendingMessages.length < 50) pendingMessages.push(item);
+  });
+  setHandler(dependencyResolvedSignal, (payload) => {
+    signals.resolvedDependencies.push(payload.dependsOnTaskId);
+  });
+  setHandler(reviewVerdictSignal, (payload) => {
+    signals.reviewVerdict = { verdict: payload.verdict, notes: payload.notes };
+  });
+  setHandler(approvalVerdictSignal, (payload) => {
+    signals.approvalVerdict = { verdict: payload.verdict, note: payload.note };
+  });
+  setHandler(managerDirectiveSignal, (payload) => {
+    if (payload.directive === "pause") signals.paused = true;
+    if (payload.directive === "resume") signals.paused = false;
+  });
+  setHandler(cancelSignal, (payload) => {
+    signals.cancelled = payload;
+  });
+
+  const wakeConditionMet = (what: string): boolean => {
+    if (signals.cancelled) return true;
+    switch (what) {
+      case "reply":
+        return pendingMessages.length > 0;
+      case "dependency":
+        return signals.resolvedDependencies.length > 0;
+      case "review":
+        return signals.reviewVerdict !== null;
+      case "approval":
+        return signals.approvalVerdict !== null;
+      default:
+        return false; // timer waits only time out
+    }
+  };
   await activities.startAgentSessionActivity({
     ...ref,
     workflowId: info.workflowId,
@@ -55,7 +121,34 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
       const stepId = uuidv5(String(stepNo), input.sessionId);
       const stepStart = Date.now(); // Temporal-deterministic Date in workflows
 
-      const workingSet = await activities.buildWorkingSetActivity({ ...ref, stepNo });
+      if (signals.cancelled !== null) {
+        outcome = "abandoned";
+        break;
+      }
+      if (signals.paused) {
+        await condition(() => !signals.paused || signals.cancelled !== null);
+        continue;
+      }
+
+      // drain the signal buffer into this step's working set (08 §5)
+      const drained = pendingMessages.splice(0, pendingMessages.length);
+      const signalMarkers: string[] = drained.map(
+        (m) => `[signal:message=${m.kind}] from ${m.senderAgentId ?? "founder"}: ${m.preview}`,
+      );
+      if (signals.reviewVerdict !== null) {
+        signalMarkers.push(`[signal:reviewVerdict=${signals.reviewVerdict.verdict}]`);
+        signals.reviewVerdict = null;
+      }
+      if (signals.approvalVerdict !== null) {
+        signalMarkers.push(`[signal:approvalVerdict=${signals.approvalVerdict.verdict}]`);
+        signals.approvalVerdict = null;
+      }
+
+      const workingSet = await activities.buildWorkingSetActivity({
+        ...ref,
+        stepNo,
+        signalMarkers,
+      });
 
       // strict parse with bounded auto-repair (08 §4)
       let action: AgentAction | null = null;
@@ -116,6 +209,31 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
         });
         outcome = "abandoned";
         break;
+      }
+
+      // wait_for maps to Temporal condition + timer — never polling (08 §6)
+      if (action.type === "wait_for") {
+        await activities.executeActionActivity({ ...ref, stepId, action }); // → WAITING
+        const woken = await condition(
+          () => wakeConditionMet(action.what),
+          action.timeoutMinutes * 60_000,
+        );
+        await activities.persistStepActivity({
+          ...ref,
+          stepId,
+          stepNo,
+          action,
+          observation: { ok: true, woken, waitedFor: action.what },
+          usage,
+          costCents,
+          durationMs: Date.now() - stepStart,
+        });
+        if (signals.cancelled !== null) {
+          outcome = "abandoned";
+          break;
+        }
+        await activities.resumeFromWaitActivity({ ...ref });
+        continue;
       }
 
       const observation = await activities.executeActionActivity({ ...ref, stepId, action });

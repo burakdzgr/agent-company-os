@@ -123,12 +123,21 @@ async function run(): Promise<void> {
   }
   const { router, routingFor } = routerDeps!;
 
+  const connection = await NativeConnection.connect({ address: config.temporal.address });
+  const { Connection: ClientConnection, Client } = await import("@temporalio/client");
+  const clientConnection = await ClientConnection.connect({ address: config.temporal.address });
+  const temporalClient = new Client({ connection: clientConnection, namespace: "acos" });
+  const { createTemporalSignalPort } = await import("./delivery.js");
+
   const activities = {
     ...trivialActivities,
-    ...createAgentTaskActivities({ guardedDb, router, routingFor }),
+    ...createAgentTaskActivities({
+      guardedDb,
+      router,
+      routingFor,
+      signalPort: createTemporalSignalPort(temporalClient),
+    }),
   };
-
-  const connection = await NativeConnection.connect({ address: config.temporal.address });
 
   const agentWorker = await Worker.create({
     connection,

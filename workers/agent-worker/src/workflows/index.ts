@@ -27,3 +27,8 @@ export {
   type AgentTaskInput,
   type AgentTaskOutcome,
 } from "./agent-task.workflow.js";
+export {
+  agentInboxWorkflow,
+  type AgentInboxInput,
+  type AgentInboxOutcome,
+} from "./agent-inbox.workflow.js";

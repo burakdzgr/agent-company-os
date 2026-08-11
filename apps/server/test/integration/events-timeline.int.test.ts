@@ -215,6 +215,8 @@ describe("producer contract matrix (T22)", () => {
       [
         "agent.hired",
         "agent.model.binding.changed",
+        "channel.created", // team/department channels auto-provision (T33)
+        "channel.member.added",
         "agent.offboarded",
         "agent.paused",
         "agent.resumed",

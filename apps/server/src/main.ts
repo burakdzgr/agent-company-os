@@ -36,6 +36,36 @@ async function main(): Promise<void> {
     version: process.env.npm_package_version ?? "0.0.0",
   });
 
+  // message delivery signalling (11 §4.4, T33): best-effort Temporal client —
+  // messages stay durable without it, agents just poll their thread slice
+  try {
+    const { Client, Connection } = await import("@temporalio/client");
+    const temporalConnection = await Connection.connect({ address: config.temporal.address });
+    const temporalClient = new Client({ connection: temporalConnection, namespace: "acos" });
+    app.commsSignalPort = {
+      async signalActiveSession({ workflowId, item }) {
+        try {
+          await temporalClient.workflow.getHandle(workflowId).signal("messageReceived", item);
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      async signalInbox({ companyId, agentId, item }) {
+        await temporalClient.workflow.signalWithStart("agentInboxWorkflow", {
+          taskQueue: "agent-tasks",
+          workflowId: `agent-inbox.${agentId}`,
+          args: [{ companyId, agentId }],
+          signal: "inboxItem",
+          signalArgs: [item],
+        });
+      },
+    };
+    app.log.info("comms delivery signal port attached (Temporal)");
+  } catch (err) {
+    app.log.error({ err }, "Temporal unavailable — comms delivery signalling disabled");
+  }
+
   const nats = await natsConnect({ servers: config.nats.url }).catch((err: unknown) => {
     app.log.error({ err }, "NATS unavailable at boot — outbox relay disabled");
     return null;

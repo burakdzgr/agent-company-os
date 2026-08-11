@@ -127,6 +127,16 @@ export class TasksService {
         })
         .returning();
 
+      // a task can never exist without its thread (11 §2) — same tx
+      if (["task", "subtask", "epic"].includes(input.kind)) {
+        const { ChannelService } = await import("./comms.js");
+        await new ChannelService(this.db).provisionInTx(tx, ctx, {
+          kind: "task_thread",
+          taskId: task!.id,
+          memberAgentIds: creator.kind === "agent" ? [creator.agentId] : [],
+        });
+      }
+
       await emitDomainEvent(tx, ctx, {
         type: "task.created",
         actor:
@@ -536,6 +546,18 @@ export class TaskStateService {
         })
         .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)))
         .returning();
+
+      // the new owner joins the task thread (11 §2 membership rule)
+      {
+        const { ChannelService } = await import("./comms.js");
+        const channelService = new ChannelService(this.db);
+        const thread = await channelService.provisionInTx(tx, ctx, {
+          kind: "task_thread",
+          taskId,
+          memberAgentIds: [],
+        });
+        await channelService.addMemberInTx(tx, ctx, thread.id, input.agentId);
+      }
 
       const eventActor =
         actor.kind === "agent"

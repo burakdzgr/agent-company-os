@@ -27,6 +27,8 @@ import { registerEventRoutes } from "./modules/events/routes.js";
 import { EventsReadService } from "./modules/events/read.js";
 import { registerTaskRoutes } from "./modules/tasks/routes.js";
 import { TasksService, TaskStateService } from "./modules/tasks/service.js";
+import { registerCommsRoutes } from "./modules/comms/routes.js";
+import type { SignalPort } from "@acos/db";
 import { RealtimeGateway } from "./modules/realtime/gateway.js";
 import { createOfficeProjector } from "./modules/office/wiring.js";
 import type { OfficeProjector } from "./modules/office/projector.js";
@@ -40,6 +42,8 @@ declare module "fastify" {
     realtime: RealtimeGateway | null;
     officeProjector: OfficeProjector | null;
     attachOfficeNats: ((nats: import("nats").NatsConnection) => void) | null;
+    /** Temporal-backed message delivery — attached by main.ts when up (T33). */
+    commsSignalPort: SignalPort | null;
   }
 }
 
@@ -231,6 +235,15 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   await registerAgentRoutes(app, agentsSvc, companiesSvc);
   await registerEventRoutes(app, eventsSvc, companiesSvc);
   await registerTaskRoutes(app, tasksSvc, taskStateSvc, companiesSvc);
+  app.decorate("commsSignalPort", null);
+  await registerCommsRoutes(app, {
+    guardedDb: () => {
+      if (!options.guardedDb) throw new ApiError("internal", "comms not wired");
+      return options.guardedDb;
+    },
+    companiesSvc,
+    signalPort: () => app.commsSignalPort,
+  });
 
   // ---------- /ws gateway (T23; 21 §4, 22 §2–8) ----------
   await app.register(websocket, { options: { maxPayload: 131_072 } }); // 128 KB (22 §8)

@@ -94,6 +94,17 @@ export {
   type EventsDataFrame,
 } from "./realtime.js";
 export {
+  ChannelKindSchema,
+  ChannelSchema,
+  MessageKindSchema,
+  MessageSchema,
+  SendMessageRequestSchema,
+  CreateDmRequestSchema,
+  ChannelMemberSchema,
+  type Channel,
+  type Message,
+} from "./comms.js";
+export {
   TASK_NEXT_STATUSES,
   TaskKindSchema,
   TaskPrioritySchema,

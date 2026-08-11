@@ -34,6 +34,7 @@
     "@fastify/swagger": "^9.8.1",
     "@fastify/websocket": "^11.2.0",
     "@node-rs/argon2": "^2.0.2",
+    "@temporalio/client": "^1.13.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.11.3",
     "fastify-type-provider-zod": "^7.0.0",
