@@ -11,11 +11,13 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import { problemFor, type ErrorCode } from "@acos/contracts";
-import type { Db } from "@acos/db";
+import type { Db, GuardedDb } from "@acos/db";
 import { registerHealthRoutes, type HealthCheckers } from "./modules/health/index.js";
 import { moduleStubs } from "./modules/index.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
 import { AuthService, CSRF_COOKIE, SESSION_COOKIE, type UserRow } from "./modules/auth/service.js";
+import { registerCompanyRoutes } from "./modules/companies/routes.js";
+import { CompanyService } from "./modules/companies/service.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -41,6 +43,7 @@ export interface BuildAppOptions {
   logger?: boolean;
   /** Absent only for OpenAPI generation — handlers throw if hit without it. */
   db?: Db;
+  guardedDb?: GuardedDb;
   masterKey?: string;
 }
 
@@ -151,8 +154,18 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   // Container healthcheck (compose) — trivial liveness.
   app.get("/healthz", () => ({ status: "ok", service: "server" }));
 
+  let companyService: CompanyService | null = null;
+  const companiesSvc = (): CompanyService => {
+    if (!companyService) {
+      if (!options.guardedDb) throw new ApiError("internal", "companies not wired");
+      companyService = new CompanyService(options.guardedDb);
+    }
+    return companyService;
+  };
+
   await registerHealthRoutes(app, options.healthCheckers, options.version ?? "0.0.0");
   await registerAuthRoutes(app, auth);
+  await registerCompanyRoutes(app, companiesSvc);
 
   // Domain modules (28 §2) — stubs now; routes land with T16+.
   for (const [name, plugin] of Object.entries(moduleStubs)) {

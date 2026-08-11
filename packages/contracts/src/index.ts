@@ -31,3 +31,11 @@ export {
   OkSchema,
   type SessionUser,
 } from "./auth.js";
+export {
+  CompanySchema,
+  CreateCompanyRequestSchema,
+  CompanySettingsSchema,
+  UpdateCompanySettingsRequestSchema,
+  type Company,
+  type CompanySettings,
+} from "./companies.js";

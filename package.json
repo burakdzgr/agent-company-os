@@ -14,7 +14,7 @@
     "dev": "turbo run dev",
     "check-deps": "tsx scripts/check-deps.ts",
     "test:repo": "vitest run scripts",
-    "seed": "echo \"seed: not implemented yet (lands with apps/server, T17)\" && exit 0",
+    "seed": "pnpm --filter @acos/server seed",
     "ops": "echo \"ops: not implemented yet (keygen/backup/restore land later)\" && exit 0",
     "test:int": "turbo run test:integration"
   },

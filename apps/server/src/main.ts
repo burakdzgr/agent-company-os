@@ -1,7 +1,7 @@
 // Boot sequence (T15, 28 §2): config → migrate under advisory lock → routes.
 import { Pool } from "pg";
 import { loadConfigOrExit } from "@acos/config";
-import { createDb, runMigrations } from "@acos/db";
+import { createDb, createGuardedDb, runMigrations } from "@acos/db";
 import { buildApp } from "./app.js";
 import { buildCheckers } from "./checkers.js";
 
@@ -11,8 +11,18 @@ async function main(): Promise<void> {
   await runMigrations(config.database.url); // pg_advisory_lock inside — safe under multi-boot
   const pool = new Pool({ connectionString: config.database.url });
 
+  const guardedDb = createGuardedDb(pool);
+  if (config.seedDemo) {
+    const { ensureSeed, SEED_FOUNDER_EMAIL } = await import("./seed.js");
+    const seeded = await ensureSeed(guardedDb);
+    if (seeded.created && seeded.founderPassword) {
+      console.log(`ACOS ready — ${SEED_FOUNDER_EMAIL} / ${seeded.founderPassword}`);
+    }
+  }
+
   const app = await buildApp({
     db: createDb(pool),
+    guardedDb,
     masterKey: config.security.masterKey,
     healthCheckers: buildCheckers({
       pool,

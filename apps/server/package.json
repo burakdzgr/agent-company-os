@@ -19,7 +19,8 @@
     "test": "vitest run src",
     "dev": "tsx watch src/main.ts",
     "start": "node dist/main.js",
-    "test:integration": "vitest run test/integration"
+    "test:integration": "vitest run test/integration",
+    "seed": "tsx src/seed-cli.ts"
   },
   "dependencies": {
     "@acos/config": "workspace:*",
