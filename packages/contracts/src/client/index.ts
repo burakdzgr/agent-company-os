@@ -42,6 +42,13 @@ import {
 } from "../events.js";
 import { ChannelSchema, MessageSchema } from "../comms.js";
 import {
+  ApprovalSchema,
+  ApprovalDetailSchema,
+  type Approval,
+  type ApprovalDetail,
+  type ApprovalVerdictRequest,
+} from "../approvals.js";
+import {
   TaskSchema,
   TaskAssignmentSchema,
   TaskDependenciesResponseSchema,
@@ -357,6 +364,36 @@ export function createAcosClient(options: AcosClientOptions) {
         ),
       get: async (companyId: string, eventId: string): Promise<Event> =>
         EventSchema.parse(await get(`/api/v1/companies/${companyId}/events/${eventId}`)),
+    },
+    approvals: {
+      list: async (
+        companyId: string,
+        filters: { status?: string; kind?: string; urgency?: string; limit?: number; offset?: number } = {},
+      ): Promise<Approval[]> => {
+        const search = new URLSearchParams();
+        for (const key of ["status", "kind", "urgency"] as const) {
+          const value = filters[key];
+          if (value !== undefined) search.set(key, value);
+        }
+        if (filters.limit !== undefined) search.set("limit", String(filters.limit));
+        if (filters.offset !== undefined) search.set("offset", String(filters.offset));
+        const qs = search.toString();
+        return z
+          .array(ApprovalSchema)
+          .parse(await get(`/api/v1/companies/${companyId}/approvals${qs ? `?${qs}` : ""}`));
+      },
+      get: async (companyId: string, approvalId: string): Promise<ApprovalDetail> =>
+        ApprovalDetailSchema.parse(
+          await get(`/api/v1/companies/${companyId}/approvals/${approvalId}`),
+        ),
+      verdict: async (
+        companyId: string,
+        approvalId: string,
+        body: ApprovalVerdictRequest,
+      ): Promise<Approval> =>
+        ApprovalSchema.parse(
+          await post(`/api/v1/companies/${companyId}/approvals/${approvalId}/verdict`, body),
+        ),
     },
   };
 }

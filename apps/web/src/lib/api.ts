@@ -27,4 +27,5 @@ export const keys = {
   orgUnits: (cid: string) => [cid, "org", "units"] as const,
   orgPositions: (cid: string) => [cid, "org", "positions"] as const,
   orgEdges: (cid: string) => [cid, "org", "graph"] as const,
+  approvals: (cid: string, scope: string) => [cid, "approvals", scope] as const,
 };

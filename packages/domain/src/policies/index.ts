@@ -48,3 +48,17 @@ export {
   escalationChain,
   type ReportsToEdge,
 } from "./org-forest.js";
+export {
+  FOUNDER_ONLY_CATEGORIES,
+  isFounderOnlyCategory,
+  APPROVAL_KINDS,
+  isApprovalKind,
+  FOUNDER_ONLY_APPROVAL_KINDS,
+  APPROVAL_EXPIRY_HOURS,
+  approvalExpiresAt,
+  APPROVAL_REMINDER_FRACTIONS,
+  approvalReminderAt,
+  EXPIRED_VERDICT_SEMANTICS,
+  type FounderOnlyCategory,
+  type ApprovalKind,
+} from "./approval-rules.js";

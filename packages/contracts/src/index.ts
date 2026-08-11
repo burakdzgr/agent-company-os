@@ -159,6 +159,22 @@ export {
   type RealtimeClientOptions,
 } from "./realtime-client.js";
 export {
+  ApprovalBriefSchema,
+  ApprovalKindSchema,
+  ApprovalStatusSchema,
+  ApprovalUrgencySchema,
+  ApprovalRiskSchema,
+  ApprovalChainEntrySchema,
+  ApprovalSchema,
+  ApprovalDetailSchema,
+  ApprovalListQuerySchema,
+  ApprovalVerdictRequestSchema,
+  type ApprovalBrief,
+  type Approval,
+  type ApprovalDetail,
+  type ApprovalVerdictRequest,
+} from "./approvals.js";
+export {
   AgentSchema,
   AgentStatusSchema,
   SenioritySchema,

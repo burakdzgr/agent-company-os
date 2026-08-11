@@ -61,10 +61,41 @@ async function main(): Promise<void> {
         });
       },
     };
+    app.approvalSignalPort = async ({ workflowId, approvalId, verdict, note }) => {
+      try {
+        await temporalClient.workflow
+          .getHandle(workflowId)
+          .signal("approvalVerdict", { approvalId, verdict, note });
+        return true;
+      } catch (err) {
+        // workflow already finished/cancelled — the DB verdict stays authoritative (19 §7)
+        app.log.warn({ err, workflowId, approvalId }, "approvalVerdict signal undeliverable");
+        return false;
+      }
+    };
     app.log.info("comms delivery signal port attached (Temporal)");
   } catch (err) {
     app.log.error({ err }, "Temporal unavailable — comms delivery signalling disabled");
   }
+
+  // approval expiry + reminder sweep (19 §6, T35): every 30s; expired rows
+  // deliver verdict `expired` (= rejected semantics) into waiting workflows
+  const { sweepApprovals } = await import("@acos/db");
+  const sweepDb = createDb(pool);
+  const approvalSweep = setInterval(() => {
+    void (async () => {
+      const result = await sweepApprovals(sweepDb, guardedDb);
+      for (const expired of result.expired) {
+        if (expired.workflowId && app.approvalSignalPort) {
+          await app.approvalSignalPort({
+            workflowId: expired.workflowId,
+            approvalId: expired.approvalId,
+            verdict: "expired",
+          });
+        }
+      }
+    })().catch((err) => app.log.error({ err }, "approval sweep failed"));
+  }, 30_000);
 
   const nats = await natsConnect({ servers: config.nats.url }).catch((err: unknown) => {
     app.log.error({ err }, "NATS unavailable at boot — outbox relay disabled");
@@ -88,6 +119,7 @@ async function main(): Promise<void> {
   }
 
   const close = async () => {
+    clearInterval(approvalSweep);
     await relay?.stop();
     await dlq?.stop();
     await nats?.close().catch(() => {});

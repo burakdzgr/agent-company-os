@@ -20,6 +20,7 @@ import { EventsView } from "./features/events/EventsView.js";
 import { OfficeView } from "./features/office/OfficeView.js";
 import { TasksView } from "./features/tasks/TasksView.js";
 import { CommunicationView } from "./features/comms/CommunicationView.js";
+import { ApprovalsView } from "./features/approvals/ApprovalsView.js";
 
 const rootRoute = createRootRoute();
 
@@ -110,6 +111,12 @@ const commsRoute = createRoute({
   component: CommunicationView,
 });
 
+const approvalsRoute = createRoute({
+  getParentRoute: () => companyRoute,
+  path: "approvals",
+  component: ApprovalsView,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
@@ -123,6 +130,7 @@ const routeTree = rootRoute.addChildren([
     officeRoute,
     tasksRoute,
     commsRoute,
+    approvalsRoute,
   ]),
 ]);
 

@@ -39,3 +39,10 @@ export {
 } from "./catalog/governance.js";
 export { OfficeAvatarMovedV1 } from "./catalog/office.js";
 import "./catalog/marketing.js";
+export {
+  ApprovalBriefSchema,
+  ApprovalBriefOptionSchema,
+  ApprovalBriefCostSchema,
+  hasTranscriptMarkers,
+  type ApprovalBrief,
+} from "./briefs.js";

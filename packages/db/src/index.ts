@@ -82,3 +82,13 @@ export {
   TEAM_WIP_MULTIPLIER,
   type DelegationResult,
 } from "./delegation.js";
+export {
+  ApprovalsService,
+  ApprovalError,
+  sweepApprovals,
+  type ApprovalRow,
+  type ChainEntry,
+  type CreateApprovalInput,
+  type ApprovalVerdictResult,
+  type SweepResult,
+} from "./approvals.js";

@@ -1,0 +1,295 @@
+// Approval Center (19 §11, 24 §6, T35): pending inbox sorted urgency-first
+// with time-to-expiry bars, the 11 typed brief fields in fixed order (no raw
+// markdown passthrough — 19 §10), options comparison table, endorsement
+// chain timeline, one-click verdicts (note required for REJECT / REQUEST
+// EXECUTIVE REVIEW) and a History tab over decided requests.
+import { useState } from "react";
+import { useParams } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AcosApiError } from "@acos/contracts/client";
+import type { Approval, ApprovalDetail } from "@acos/contracts";
+import { Button, Card, MoneyText, StatusPill, Textarea, cn, type PillTone } from "@acos/ui";
+import { api, keys } from "../../lib/api.js";
+
+const URGENCY_TONE: Record<Approval["urgency"], PillTone> = {
+  critical: "danger",
+  high: "warn",
+  normal: "neutral",
+  low: "neutral",
+};
+const STATUS_TONE: Record<Approval["status"], PillTone> = {
+  pending: "warn",
+  approved: "ok",
+  rejected: "danger",
+  needs_review: "accent",
+  expired: "neutral",
+};
+
+function ExpiryBar({ approval }: { approval: Approval }) {
+  const created = new Date(approval.createdAt).getTime();
+  const expires = new Date(approval.expiresAt).getTime();
+  const now = Date.now();
+  const ratio = Math.min(Math.max((now - created) / Math.max(expires - created, 1), 0), 1);
+  const hoursLeft = Math.max(Math.round((expires - now) / 3_600_000), 0);
+  return (
+    <div className="flex items-center gap-2" title={`expires ${new Date(expires).toLocaleString()}`}>
+      <div className="h-1.5 w-24 overflow-hidden rounded bg-ink-100">
+        <div
+          className={cn("h-full", ratio > 0.85 ? "bg-red-500" : ratio > 0.5 ? "bg-amber-500" : "bg-emerald-500")}
+          style={{ width: `${Math.round(ratio * 100)}%` }}
+        />
+      </div>
+      <span className="text-xs text-ink-400">{hoursLeft}h left</span>
+    </div>
+  );
+}
+
+const BRIEF_SECTIONS: Array<{ key: "request" | "reason" | "recommendation" | "risk" | "impact" | "urgency"; label: string }> = [
+  { key: "request", label: "Request" },
+  { key: "reason", label: "Reason" },
+  { key: "recommendation", label: "Recommendation" },
+  { key: "risk", label: "Risk" },
+  { key: "impact", label: "Impact" },
+  { key: "urgency", label: "Urgency" },
+];
+
+function BriefPanel({ detail }: { detail: ApprovalDetail }) {
+  const brief = detail.brief;
+  return (
+    <div className="space-y-3 text-sm">
+      {BRIEF_SECTIONS.slice(0, 2).map(({ key, label }) => (
+        <section key={key}>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">{label}</h4>
+          <p className="whitespace-pre-wrap text-ink-800">{brief[key]}</p>
+        </section>
+      ))}
+      <section>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+          Attempted autonomously
+        </h4>
+        <ul className="list-disc pl-5 text-ink-800">
+          {brief.attempted.map((item, i) => (
+            <li key={i}>{item}</li>
+          ))}
+        </ul>
+      </section>
+      <section>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">Options</h4>
+        <table className="mt-1 w-full text-left text-xs">
+          <thead>
+            <tr className="text-ink-500">
+              <th className="py-1 pr-2 font-medium">Option</th>
+              <th className="py-1 pr-2 font-medium">Pros</th>
+              <th className="py-1 pr-2 font-medium">Cons</th>
+              <th className="py-1 font-medium">Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {brief.options.map((option, i) => (
+              <tr key={i} className="border-t border-ink-100 align-top">
+                <td className="py-1 pr-2 text-ink-800">{option.option}</td>
+                <td className="py-1 pr-2 text-ink-600">{option.pros || "—"}</td>
+                <td className="py-1 pr-2 text-ink-600">{option.cons || "—"}</td>
+                <td className="py-1 text-ink-800">
+                  <MoneyText cents={option.cost_cents} currency={brief.cost.currency} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      {BRIEF_SECTIONS.slice(2).map(({ key, label }) => (
+        <section key={key}>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">{label}</h4>
+          <p className="whitespace-pre-wrap text-ink-800">{brief[key]}</p>
+        </section>
+      ))}
+      <section className="flex flex-wrap gap-4 text-xs text-ink-600">
+        <span>
+          Cost: <MoneyText cents={brief.cost.amount_cents} currency={brief.cost.currency} />
+          {brief.cost.period ? ` / ${brief.cost.period}` : ""}
+        </span>
+        {brief.cost.budget_line && <span>Budget line: {brief.cost.budget_line}</span>}
+        <span>Deadline: {brief.deadline ? new Date(brief.deadline).toLocaleString() : "—"}</span>
+      </section>
+    </div>
+  );
+}
+
+function ChainTimeline({ detail }: { detail: ApprovalDetail }) {
+  return (
+    <ol className="space-y-2 border-l border-ink-200 pl-4 text-sm">
+      {detail.chain.map((entry, i) => (
+        <li key={i} className="relative">
+          <span className="absolute -left-[1.15rem] top-1.5 h-2 w-2 rounded-full bg-ink-400" />
+          <span className="font-medium text-ink-800">{entry.verdict}</span>
+          <span className="ml-2 text-xs text-ink-400">{new Date(entry.at).toLocaleString()}</span>
+          {entry.note && <p className="text-ink-600">{entry.note}</p>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function ApprovalCard({
+  approval,
+  companyId,
+}: {
+  approval: Approval;
+  companyId: string;
+}) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const detail = useQuery({
+    queryKey: [companyId, "approvals", "detail", approval.id],
+    queryFn: () => api.approvals.get(companyId, approval.id),
+    enabled: open,
+  });
+
+  const verdict = useMutation({
+    mutationFn: (v: "approved" | "rejected" | "needs_review") =>
+      api.approvals.verdict(companyId, approval.id, {
+        verdict: v,
+        ...(note.trim() && { note: note.trim() }),
+      }),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: [companyId, "approvals"] });
+    },
+    onError: (err) => {
+      setError(err instanceof AcosApiError ? `${err.problem.code}: ${err.problem.detail}` : String(err));
+    },
+  });
+
+  const pending = approval.status === "pending";
+  const needsNote = note.trim().length === 0;
+
+  return (
+    <Card className="p-4" data-testid={`approval-${approval.id}`}>
+      <button className="flex w-full items-start justify-between gap-3 text-left" onClick={() => setOpen(!open)}>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill tone={STATUS_TONE[approval.status]}>{approval.status}</StatusPill>
+            <StatusPill tone="neutral">{approval.kind}</StatusPill>
+            <StatusPill tone={URGENCY_TONE[approval.urgency]}>{approval.urgency}</StatusPill>
+            <span className="truncate font-medium text-ink-900">{approval.title}</span>
+          </div>
+          <p className="mt-1 text-xs text-ink-500">
+            #{approval.number} · requested by {approval.requesterName ?? "unknown agent"} ·{" "}
+            {new Date(approval.createdAt).toLocaleString()}
+            {approval.costCents !== null && approval.costCents > 0 && (
+              <>
+                {" · "}
+                <MoneyText cents={approval.costCents} currency={approval.brief.cost.currency} />
+              </>
+            )}
+          </p>
+        </div>
+        {pending && <ExpiryBar approval={approval} />}
+      </button>
+
+      {open && (
+        <div className="mt-4 space-y-4 border-t border-ink-100 pt-4">
+          {detail.data ? (
+            <>
+              <BriefPanel detail={detail.data} />
+              <div>
+                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                  Endorsement chain
+                </h4>
+                <ChainTimeline detail={detail.data} />
+              </div>
+              {detail.data.task && (
+                <p className="text-xs text-ink-600">
+                  Linked task: TASK-{detail.data.task.number} · {detail.data.task.title} (
+                  {detail.data.task.status})
+                </p>
+              )}
+              {detail.data.decisionNote && (
+                <p className="text-sm text-ink-700">
+                  <span className="font-medium">Decision note:</span> {detail.data.decisionNote}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-ink-400">Loading brief…</p>
+          )}
+
+          {pending && (
+            <div className="space-y-2">
+              <Textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Decision note (required for REJECT / REQUEST EXECUTIVE REVIEW)"
+                rows={2}
+                name="decisionNote"
+              />
+              {error && <p className="text-xs text-red-600">{error}</p>}
+              <div className="flex gap-2">
+                <Button onClick={() => verdict.mutate("approved")} disabled={verdict.isPending} data-testid="approve">
+                  APPROVE
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => verdict.mutate("rejected")}
+                  disabled={verdict.isPending || needsNote}
+                  data-testid="reject"
+                >
+                  REJECT
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => verdict.mutate("needs_review")}
+                  disabled={verdict.isPending || needsNote}
+                  data-testid="needs-review"
+                >
+                  REQUEST EXECUTIVE REVIEW
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function ApprovalsView() {
+  const { companyId } = useParams({ from: "/c/$companyId" });
+  const [tab, setTab] = useState<"inbox" | "history">("inbox");
+
+  const list = useQuery({
+    queryKey: keys.approvals(companyId, tab),
+    queryFn: () =>
+      tab === "inbox"
+        ? api.approvals.list(companyId, { status: "pending" })
+        : api.approvals.list(companyId, { limit: 100 }),
+  });
+
+  const items = (list.data ?? []).filter((a) => (tab === "inbox" ? a.status === "pending" : true));
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-4">
+      <div className="flex items-center gap-2">
+        <h1 className="flex-1 text-lg font-semibold text-ink-900">Approval Center</h1>
+        {(["inbox", "history"] as const).map((t) => (
+          <Button key={t} variant={tab === t ? "primary" : "ghost"} onClick={() => setTab(t)} data-testid={`tab-${t}`}>
+            {t === "inbox" ? "Inbox" : "History"}
+          </Button>
+        ))}
+      </div>
+      {items.map((approval) => (
+        <ApprovalCard key={approval.id} approval={approval} companyId={companyId} />
+      ))}
+      {items.length === 0 && (
+        <Card className="p-8 text-center text-sm text-ink-400">
+          {tab === "inbox"
+            ? "No pending approvals — escalations from agents land here as structured briefs."
+            : "No decided approvals yet."}
+        </Card>
+      )}
+    </div>
+  );
+}

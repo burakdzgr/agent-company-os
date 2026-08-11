@@ -28,6 +28,7 @@ import { EventsReadService } from "./modules/events/read.js";
 import { registerTaskRoutes } from "./modules/tasks/routes.js";
 import { TasksService, TaskStateService } from "./modules/tasks/service.js";
 import { registerCommsRoutes } from "./modules/comms/routes.js";
+import { registerApprovalRoutes, type ApprovalSignalPort } from "./modules/approvals/routes.js";
 import type { SignalPort } from "@acos/db";
 import { RealtimeGateway } from "./modules/realtime/gateway.js";
 import { createOfficeProjector } from "./modules/office/wiring.js";
@@ -44,6 +45,8 @@ declare module "fastify" {
     attachOfficeNats: ((nats: import("nats").NatsConnection) => void) | null;
     /** Temporal-backed message delivery — attached by main.ts when up (T33). */
     commsSignalPort: SignalPort | null;
+    /** Temporal-backed approvalVerdict delivery — attached by main.ts (T35). */
+    approvalSignalPort: ApprovalSignalPort | null;
   }
 }
 
@@ -243,6 +246,15 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     },
     companiesSvc,
     signalPort: () => app.commsSignalPort,
+  });
+  app.decorate("approvalSignalPort", null);
+  await registerApprovalRoutes(app, {
+    guardedDb: () => {
+      if (!options.guardedDb) throw new ApiError("internal", "approvals not wired");
+      return options.guardedDb;
+    },
+    companiesSvc,
+    approvalSignal: () => app.approvalSignalPort,
   });
 
   // ---------- /ws gateway (T23; 21 §4, 22 §2–8) ----------

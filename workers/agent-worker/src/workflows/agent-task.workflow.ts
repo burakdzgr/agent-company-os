@@ -382,6 +382,36 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
         durationMs: Date.now() - stepStart,
       });
 
+      // escalate = Approval Engine wait (19 §7, T35): the workflow blocks
+      // durably on the Founder verdict until the derived expiry; on silence
+      // it closes the approval itself (expired ≡ rejected — nothing
+      // irreversible proceeds). The verdict reaches the next working set as
+      // a [signal:approvalVerdict=…] marker.
+      if (
+        action.type === "escalate" &&
+        typeof observation.approvalId === "string" &&
+        observation.approvalStatus === "pending"
+      ) {
+        const untilExpiry = new Date(String(observation.expiresAt)).getTime() - Date.now();
+        await condition(
+          () => signals.approvalVerdict !== null || signals.cancelled !== null,
+          Math.max(untilExpiry, 1),
+        );
+        if (signals.cancelled !== null) {
+          outcome = "abandoned";
+          break;
+        }
+        if (signals.approvalVerdict === null) {
+          const { status } = await activities.expireApprovalActivity({
+            ...ref,
+            approvalId: observation.approvalId,
+          });
+          signals.approvalVerdict = { verdict: status, note: undefined };
+        }
+        await activities.resumeFromWaitActivity({ ...ref });
+        continue;
+      }
+
       if (action.type === "request_review") {
         outcome = "review_requested";
         break;

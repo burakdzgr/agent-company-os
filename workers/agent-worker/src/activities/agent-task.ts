@@ -6,6 +6,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { uuidv5 } from "@acos/domain";
 import { parseEventPayload } from "@acos/events";
 import {
+  ApprovalError,
+  ApprovalsService,
   ChannelService,
   CostService,
   DelegationService,
@@ -88,6 +90,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
   const tasksService = new TasksService(guardedDb);
   const delegationService = new DelegationService(guardedDb, tasksService, taskState);
   const costService = new CostService(guardedDb);
+  const approvalsService = new ApprovalsService(guardedDb);
 
   return {
     /** 08 §1: mark the pre-created session running; task started + presence. */
@@ -389,6 +392,100 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
             throw err;
           }
         }
+        case "escalate": {
+          // Approval Engine entry (19 §7, T35): compose the 11-field brief
+          // from the action + task context (canonical 08 §4 escalate carries
+          // a subset — missing fields are filled with explicit placeholders,
+          // recorded deviation from 19 §10's action-carries-brief ideal),
+          // create the pending approval idempotently, park the task; the
+          // workflow then blocks on approvalVerdict until the derived expiry.
+          const [task] = await guardedDb
+            .select()
+            .from(tasks)
+            .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
+          if (!task) return { ok: false, error: "TASK_NOT_FOUND" };
+          const [session] = await guardedDb
+            .select({ workflowId: agentSessions.workflowId })
+            .from(agentSessions)
+            .where(and(eq(agentSessions.companyId, ctx.companyId), eq(agentSessions.id, input.sessionId)));
+          const options = action.options.slice(0, 10).map((o) => ({
+            option: o.option.slice(0, 500),
+            pros: "",
+            cons: o.risk.slice(0, 500),
+            cost_cents: 0,
+          }));
+          while (options.length < 2) {
+            options.push({
+              option: options.length === 0 ? "Proceed as requested" : "Do not proceed",
+              pros: options.length === 0 ? "unblocks the task" : "no cost or risk incurred",
+              cons: options.length === 0 ? "carries the stated risk" : "the request stays unfulfilled",
+              cost_cents: 0,
+            });
+          }
+          const urgency =
+            task.priority === "P0" ? "critical" : task.priority === "P1" ? "high" : "normal";
+          const brief = {
+            title: `Approval: ${task.title}`.slice(0, 120),
+            request: action.reason.slice(0, 1200),
+            reason: action.reason.slice(0, 1200),
+            attempted:
+              action.attempted.length > 0
+                ? action.attempted.map((a) => a.slice(0, 500))
+                : ["(no autonomous attempts recorded by the agent)"],
+            options,
+            recommendation: action.recommendation.slice(0, 1200) || "(none given)",
+            risk: `${task.risk} — escalated from TASK-${task.number}`,
+            cost: { amount_cents: 0, currency: "USD" },
+            impact: `Approved: TASK-${task.number} ("${task.title}") proceeds. Rejected: the agent adjusts the plan or abandons.`.slice(0, 1200),
+            urgency: `${urgency} — derived from task priority ${task.priority}`,
+            deadline: task.deadline?.toISOString() ?? null,
+          };
+          try {
+            const { row, created } = await approvalsService.create(ctx, {
+              id: uuidv5("approval", input.stepId),
+              kind: "other",
+              brief,
+              requestedByAgentId: input.agentId,
+              risk: task.risk,
+              urgency,
+              deadline: task.deadline,
+              taskId: input.taskId,
+              workflowId: session?.workflowId ?? undefined,
+            });
+            if (created) {
+              await guardedDb.transaction((tx) =>
+                emitDomainEvent(tx, ctx, {
+                  type: "agent.escalated",
+                  actor: { kind: "agent", id: input.agentId },
+                  taskId: input.taskId,
+                  agentId: input.agentId,
+                  payload: {
+                    reason: action.reason,
+                    attempted: action.attempted,
+                    recommendation: action.recommendation,
+                  },
+                }),
+              );
+            }
+            if (task.status === "IN_PROGRESS") {
+              await taskState.transition(ctx, input.taskId, "WAITING", {
+                kind: "agent",
+                agentId: input.agentId,
+              }, { note: `awaiting approval ${row.id}` });
+            }
+            return {
+              ok: true,
+              approvalId: row.id,
+              approvalStatus: row.status,
+              expiresAt: approvalsService.expiresAt(row).toISOString(),
+            };
+          } catch (err) {
+            if (err instanceof ApprovalError) {
+              return { ok: false, error: err.code, detail: err.message };
+            }
+            throw err;
+          }
+        }
         case "think":
           return { ok: true, thought: true };
         case "complete_task":
@@ -580,6 +677,18 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       if (current?.status === "WAITING") {
         await taskState.transition(ctx, input.taskId, "IN_PROGRESS", { kind: "system" });
       }
+    },
+
+    /** Workflow-timer expiry fallback (19 §6/§7): if the wait on the verdict
+     *  times out at the derived expiry, the workflow closes the approval
+     *  itself. Idempotent against the server sweep — whoever commits first
+     *  wins; the returned status is the settled truth for the next step. */
+    async expireApprovalActivity(input: SessionRef & { approvalId: string }): Promise<{
+      status: string;
+    }> {
+      const ctx = companyContext(input.companyId);
+      const { row } = await approvalsService.expire(ctx, input.approvalId);
+      return { status: row.status };
     },
 
     /** Inbox triage (08 §7): cheap model classifies items act|queue|ignore;

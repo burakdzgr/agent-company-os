@@ -23,7 +23,7 @@ export const reviewVerdictSignal =
     "reviewVerdict",
   );
 export const approvalVerdictSignal =
-  defineSignal<[{ approvalId: string; verdict: "approved" | "rejected" | "needs_review"; note?: string }]>(
+  defineSignal<[{ approvalId: string; verdict: "approved" | "rejected" | "needs_review" | "expired"; note?: string }]>(
     "approvalVerdict",
   );
 export const managerDirectiveSignal =

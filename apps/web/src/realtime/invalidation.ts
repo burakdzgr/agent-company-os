@@ -39,5 +39,8 @@ export function invalidationKeysFor(cid: string, event: Event): QueryKey[] {
   if (type === "agent.message.sent" || type.startsWith("channel.")) {
     return [[cid, "channels"]];
   }
+  if (type.startsWith("approval.")) {
+    return [[cid, "approvals"]]; // prefix — inbox, history and detail queries
+  }
   return [];
 }

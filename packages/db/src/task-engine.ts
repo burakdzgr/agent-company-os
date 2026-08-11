@@ -28,6 +28,7 @@ export type TaskRow = typeof tasks.$inferSelect;
 export type TaskActorInput =
   | { kind: "founder" }
   | { kind: "system" }
+  | { kind: "approval_engine" } // APPROVAL→DONE/REJECTED only (07 §5, T35)
   | { kind: "agent"; agentId: string };
 
 export class TaskEngineError extends Error {
@@ -380,7 +381,20 @@ export class TaskStateService {
     actor: TaskActorInput,
     opts: { note?: string | undefined } = {},
   ): Promise<TaskRow> {
-    return this.db.transaction(async (tx) => {
+    return this.db.transaction((tx) => this.transitionInTx(tx, ctx, taskId, to, actor, opts));
+  }
+
+  /** Same single write path, composable into a caller's transaction (T35:
+   *  the Approval Engine settles a parked task atomically with the verdict). */
+  async transitionInTx(
+    tx: Tx,
+    ctx: CompanyContext,
+    taskId: string,
+    to: TaskStatus,
+    actor: TaskActorInput,
+    opts: { note?: string | undefined } = {},
+  ): Promise<TaskRow> {
+    {
       const [task] = await tx
         .select()
         .from(tasks)
@@ -407,10 +421,12 @@ export class TaskStateService {
         .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)))
         .returning();
 
+      // envelope actor enum is agent|founder|system (10 §4) — the
+      // approval_engine class acts as `system` in the event record
       const byActor =
         actor.kind === "agent"
           ? { kind: "agent" as const, id: actor.agentId }
-          : { kind: actor.kind, id: null };
+          : { kind: actor.kind === "approval_engine" ? ("system" as const) : actor.kind, id: null };
       await emitDomainEvent(tx, ctx, {
         type: "task.status.changed",
         actor: byActor,
@@ -436,7 +452,7 @@ export class TaskStateService {
       }
       if (to === "DONE") await this.resolveDependents(tx, ctx, taskId);
       return updated!;
-    });
+    }
   }
 
   /**
@@ -562,7 +578,7 @@ export class TaskStateService {
       const eventActor =
         actor.kind === "agent"
           ? { kind: "agent" as const, id: actor.agentId }
-          : { kind: actor.kind, id: null };
+          : { kind: actor.kind === "approval_engine" ? ("system" as const) : actor.kind, id: null };
       if (from === "PLANNED") {
         await emitDomainEvent(tx, ctx, {
           type: "task.status.changed",
@@ -605,6 +621,7 @@ export class TaskStateService {
   ): Promise<TaskActorKind[]> {
     if (actor.kind === "founder") return ["founder"];
     if (actor.kind === "system") return ["system"];
+    if (actor.kind === "approval_engine") return ["approval_engine"];
     const agentId = actor.agentId;
     const classes: TaskActorKind[] = [];
     if (task.ownerAgentId === agentId) classes.push("owner");
