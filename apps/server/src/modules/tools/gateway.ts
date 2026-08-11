@@ -93,6 +93,17 @@ export interface ToolInvokeResponse {
 /** Execution seam per sandboxLevel/scopes — implemented in T40 (sandbox-
  *  manager / egress proxy / adapters); tests inject fakes. */
 export interface ToolDispatchPort {
+  /**
+   * Optional environment preparation (workspace provisioning, image pulls)
+   * — runs BEFORE the tool's execution window under its own generous cap:
+   * `timeoutMs` is the EXECUTION timeout (17 §2), not a provisioning budget.
+   */
+  prepare?(req: {
+    ctx: CompanyContext;
+    tool: ToolDefinition;
+    agentId: string;
+    taskId: string | null;
+  }): Promise<void>;
   dispatch(req: {
     ctx: CompanyContext;
     tool: ToolDefinition;
@@ -104,6 +115,9 @@ export interface ToolDispatchPort {
     credentials: Record<string, string>;
   }): Promise<{ output: unknown; costCents?: number; resultSummary?: string }>;
 }
+
+/** Workspace provisioning allowance (first-touch clone + image pull). */
+const PREPARE_TIMEOUT_MS = 600_000;
 
 export type CredentialResolver = (
   ctx: CompanyContext,
@@ -505,6 +519,19 @@ export class ToolGateway {
     const started = this.now().getTime();
     let result: { output: unknown; costCents?: number; resultSummary?: string };
     try {
+      // provisioning (first-touch worktree + container) is NOT billed to the
+      // tool's execution timeout — it runs under its own allowance
+      if (this.dispatchPort.prepare) {
+        await withTimeout(
+          this.dispatchPort.prepare({
+            ctx,
+            tool: def,
+            agentId: agent.id,
+            taskId: req.taskId ?? null,
+          }),
+          PREPARE_TIMEOUT_MS,
+        );
+      }
       result = await withTimeout(
         this.dispatchPort.dispatch({
           ctx,

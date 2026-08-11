@@ -169,6 +169,19 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
   }
 
   return {
+    // first-touch provisioning (bare repo + worktree clone + image pull +
+    // container) happens here, OUTSIDE the tool's execution timeout window
+    async prepare({ ctx: rawCtx, tool, agentId, taskId }) {
+      const needsWorkspace = ["analysis", "coding", "testing"].includes(tool.sandboxLevel);
+      if (!needsWorkspace || !taskId) return;
+      await workspaceFor(
+        companyContext(rawCtx.companyId),
+        agentId,
+        taskId,
+        tool.sandboxLevel as IsolationLevel,
+      );
+    },
+
     async dispatch({ ctx: rawCtx, tool, input, agentId, taskId }) {
       const ctx = companyContext(rawCtx.companyId);
       const args = input as Record<string, unknown>;
@@ -181,6 +194,7 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
         throw new DispatchError(`${tool.name} needs a task context (workspace tools are per-task)`);
       }
       const level = tool.sandboxLevel as IsolationLevel;
+      // fast path after prepare(): the live in_use row is returned as-is
       const ws = await workspaceFor(ctx, agentId, taskId, level);
 
       switch (tool.name) {

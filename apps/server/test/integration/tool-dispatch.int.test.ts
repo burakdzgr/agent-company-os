@@ -219,7 +219,7 @@ describe.skipIf(!runnable)("gateway → dispatch → real workspace (T40 accepta
       taskId,
     });
     expect(res.decision).toBe("allow");
-    expect(res.status).toBe("succeeded");
+    expect(res.status, `dispatch error: ${res.error ?? res.reason ?? "none"}`).toBe("succeeded");
     expect((res.output as { created: boolean }).created).toBe(true);
 
     // T38 control plane did the provisioning: row + branch + events
@@ -242,7 +242,7 @@ describe.skipIf(!runnable)("gateway → dispatch → real workspace (T40 accepta
       taskId,
     });
     expect(res.decision).toBe("allow");
-    expect(res.status).toBe("succeeded");
+    expect(res.status, `dispatch error: ${res.error ?? res.reason ?? "none"}`).toBe("succeeded");
     const output = res.output as {
       exitCode: number;
       stdoutTail: string;
@@ -285,7 +285,8 @@ describe.skipIf(!runnable)("gateway → dispatch → real workspace (T40 accepta
       input: { command: "node -e \"process.exit(3)\"", timeoutSec: 60 },
       taskId,
     });
-    expect(res.status).toBe("succeeded"); // dispatch worked; the EXIT CODE is the result
+    // dispatch worked; the EXIT CODE is the result
+    expect(res.status, `dispatch error: ${res.error ?? res.reason ?? "none"}`).toBe("succeeded");
     expect((res.output as { exitCode: number }).exitCode).toBe(3);
   }, 600_000);
 });
