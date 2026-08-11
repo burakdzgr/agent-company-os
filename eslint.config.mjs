@@ -101,6 +101,26 @@ export default tseslint.config(
       ],
     },
   },
+  // ADR-015 boundary: no AI SDK type/function crosses the adapter layer —
+  // only packages/llm/src/adapters/** may import `ai` / `@ai-sdk/*`.
+  {
+    files: ["**/*.ts", "**/*.tsx"],
+    ignores: ["packages/llm/src/adapters/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: ["crewai", "crewai/*"], message: "Agent frameworks are banned in core (ADR-004)." },
+            { group: ["langchain", "langchain/*"], message: "Agent frameworks are banned in core (ADR-004)." },
+            { group: ["langgraph", "langgraph/*"], message: "Agent frameworks are banned in core (ADR-004)." },
+            { group: ["@langchain/*"], message: "Agent frameworks are banned in core (ADR-004)." },
+            { group: ["ai", "ai/*", "@ai-sdk/*"], message: "AI SDK stays inside packages/llm adapters — use the @acos/llm port (ADR-015)." },
+          ],
+        },
+      ],
+    },
+  },
   // Office lint rule (29-MVP-PLAN.md §6.3, 23-VIRTUAL-OFFICE.md §4.1): the
   // office module renders exclusively projector instructions — no fake motion.
   // Animation APIs (rAF, timers, Pixi imports) are banned everywhere in the
