@@ -56,3 +56,17 @@ export {
   type OrgEdge,
   type EscalationChain,
 } from "./org.js";
+export {
+  AgentSchema,
+  AgentStatusSchema,
+  SenioritySchema,
+  BindingPurposeSchema,
+  HireAgentRequestSchema,
+  UpdateAgentRequestSchema,
+  LifecycleActionRequestSchema,
+  ModelBindingSchema,
+  SetModelBindingRequestSchema,
+  AgentSessionSchema,
+  type Agent,
+  type ModelBinding,
+} from "./agents.js";

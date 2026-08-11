@@ -20,6 +20,8 @@ import { registerCompanyRoutes } from "./modules/companies/routes.js";
 import { CompanyService } from "./modules/companies/service.js";
 import { registerOrgRoutes } from "./modules/org/routes.js";
 import { OrgService } from "./modules/org/service.js";
+import { registerAgentRoutes } from "./modules/agents/routes.js";
+import { AgentsService } from "./modules/agents/service.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -177,7 +179,17 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   };
 
   await registerCompanyRoutes(app, companiesSvc);
+  let agentsService: AgentsService | null = null;
+  const agentsSvc = (): AgentsService => {
+    if (!agentsService) {
+      if (!options.guardedDb) throw new ApiError("internal", "agents not wired");
+      agentsService = new AgentsService(options.guardedDb, orgSvc());
+    }
+    return agentsService;
+  };
+
   await registerOrgRoutes(app, orgSvc, companiesSvc);
+  await registerAgentRoutes(app, agentsSvc, companiesSvc);
 
   // Domain modules (28 §2) — stubs now; routes land with T16+.
   for (const [name, plugin] of Object.entries(moduleStubs)) {

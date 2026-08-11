@@ -24,7 +24,7 @@ export type EdgeKind =
 
 const UNIT_EDGE_KINDS = new Set<EdgeKind>(["member_of", "leads"]);
 
-async function orgLock(tx: Tx, ctx: CompanyContext): Promise<void> {
+export async function orgLockInTx(tx: Tx, ctx: CompanyContext): Promise<void> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${"org:" + ctx.companyId}))`);
 }
 
@@ -38,7 +38,7 @@ export class OrgService {
     input: { name: string; slug: string; kind: UnitKind; parentId?: string | null | undefined },
   ) {
     return this.db.transaction(async (tx) => {
-      await orgLock(tx, ctx);
+      await orgLockInTx(tx, ctx);
       if (input.parentId) await this.assertUnitParentAcyclic(tx, ctx, null, input.parentId);
       const [unit] = await tx
         .insert(orgUnits)
@@ -70,7 +70,7 @@ export class OrgService {
 
   async moveUnit(ctx: CompanyContext, unitId: string, parentId: string | null) {
     return this.db.transaction(async (tx) => {
-      await orgLock(tx, ctx);
+      await orgLockInTx(tx, ctx);
       if (parentId) await this.assertUnitParentAcyclic(tx, ctx, unitId, parentId);
       const [unit] = await tx
         .update(orgUnits)
@@ -172,7 +172,24 @@ export class OrgService {
     },
   ) {
     return this.db.transaction(async (tx) => {
-      await orgLock(tx, ctx);
+      await orgLockInTx(tx, ctx);
+      return this.createEdgeInTx(tx, ctx, input);
+    });
+  }
+
+  /** Caller must hold the org advisory lock (orgLockInTx). */
+  async createEdgeInTx(
+    tx: Tx,
+    ctx: CompanyContext,
+    input: {
+      fromAgentId: string;
+      kind: EdgeKind;
+      toAgentId?: string | null | undefined;
+      toUnitId?: string | null | undefined;
+      actorAgentId?: string | null | undefined;
+    },
+  ) {
+    {
 
       if (input.kind === "reports_to") {
         await this.assertReportsToAcyclic(tx, ctx, input.fromAgentId, input.toAgentId!);
@@ -213,7 +230,7 @@ export class OrgService {
         });
       }
       return inserted[0]!;
-    });
+    }
   }
 
   /** 04 §2: walk UP from the proposed manager; reaching the agent = cycle. */
