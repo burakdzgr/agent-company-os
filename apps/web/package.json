@@ -28,6 +28,7 @@
     "@tanstack/react-router": "^1.170.25",
     "cytoscape": "^3.34.0",
     "cytoscape-dagre": "^4.0.0",
+    "pixi.js": "^8.6.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.14"

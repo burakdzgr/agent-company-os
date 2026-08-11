@@ -1,22 +1,28 @@
-// presenceStore (24 §4): latest-wins presence/office state from the
-// presence:<companyId> topic. Real content arrives with the office projector
-// (T25/T26); the store already speaks snapshot-then-delta.
+// presenceStore (24 §4): latest-wins presence state from the
+// presence:<companyId> topic — snapshot seeds it, office.status.changed
+// deltas keep the badge map fresh. Agent Monitor cards read badges here
+// (no polling, 24 §6.2).
 import { create } from "zustand";
+import type { PresenceBadge, PresenceState } from "@acos/contracts";
 
-export interface PresenceSnapshot {
-  layoutVersion: number;
-  agents: unknown[];
-  interactions: unknown[];
-}
-
-interface PresenceState {
-  snapshot: PresenceSnapshot | null;
-  applySnapshot: (snapshot: PresenceSnapshot) => void;
+interface PresenceStoreState {
+  snapshot: PresenceState | null;
+  badges: Record<string, PresenceBadge>;
+  applySnapshot: (snapshot: PresenceState) => void;
+  setBadge: (agentId: string, badge: PresenceBadge) => void;
   reset: () => void;
 }
 
-export const usePresence = create<PresenceState>()((set) => ({
+export const usePresence = create<PresenceStoreState>()((set) => ({
   snapshot: null,
-  applySnapshot: (snapshot) => set({ snapshot }),
-  reset: () => set({ snapshot: null }),
+  badges: {},
+  applySnapshot: (snapshot) =>
+    set({
+      snapshot,
+      badges: Object.fromEntries(snapshot.agents.map((a) => [a.agentId, a.badge])),
+    }),
+  setBadge: (agentId, badge) => set((s) => ({ badges: { ...s.badges, [agentId]: badge } })),
+  reset: () => set({ snapshot: null, badges: {} }),
 }));
+
+export type { PresenceState };

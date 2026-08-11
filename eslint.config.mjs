@@ -101,4 +101,32 @@ export default tseslint.config(
       ],
     },
   },
+  // Office lint rule (29-MVP-PLAN.md §6.3, 23-VIRTUAL-OFFICE.md §4.1): the
+  // office module renders exclusively projector instructions — no fake motion.
+  // Animation APIs (rAF, timers, Pixi imports) are banned everywhere in the
+  // module except the Pixi bridge and the headless engine it drives.
+  {
+    files: ["apps/web/src/features/office/**/*"],
+    ignores: [
+      "apps/web/src/features/office/OfficeCanvas.tsx",
+      "apps/web/src/features/office/sceneState.ts",
+      "apps/web/src/features/office/*.test.ts",
+    ],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        { name: "requestAnimationFrame", message: "Office motion originates ONLY from projector instructions (no fake animation — 23 §4.1). Animate in the Pixi bridge." },
+        { name: "setInterval", message: "No timer-driven office motion (23 §4.1)." },
+        { name: "setTimeout", message: "No timer-driven office motion (23 §4.1)." },
+      ],
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: ["pixi.js", "pixi.js/*", "@pixi/*", "gsap", "gsap/*"], message: "Only the Pixi bridge (OfficeCanvas) may touch rendering/animation APIs (23 §7)." },
+          ],
+        },
+      ],
+    },
+  },
 );

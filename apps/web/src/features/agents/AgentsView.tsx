@@ -1,15 +1,26 @@
-// Agent grid (24 §6.2) — presence badges arrive with T24/T26; until then the
-// lifecycle status pill stands in.
+// Agent Monitor grid (24 §6.2): live presence badges from presenceStore
+// (WS-fed, no polling) next to the lifecycle status pill.
 import { useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { AgentAvatar, AgentStatusPill, Button, Card, Select } from "@acos/ui";
+import { AgentAvatar, AgentStatusPill, Button, Card, Select, StatusPill } from "@acos/ui";
 import { api, keys } from "../../lib/api.js";
+import { usePresence } from "../../stores/presence.js";
 import { HireWizard } from "./HireWizard.js";
+
+const BADGE_TONE = {
+  WORKING: "ok",
+  COMMUNICATING: "accent",
+  REVIEWING: "accent",
+  ESCALATING: "danger",
+  BLOCKED: "danger",
+  OFFLINE: "neutral",
+} as const;
 
 export function AgentsView() {
   const { companyId } = useParams({ from: "/c/$companyId" });
   const agents = useQuery({ queryKey: keys.agents(companyId), queryFn: () => api.agents.list(companyId) });
+  const badges = usePresence((s) => s.badges);
   const [statusFilter, setStatusFilter] = useState("");
   const [hireOpen, setHireOpen] = useState(false);
 
@@ -61,8 +72,17 @@ export function AgentsView() {
                       {agent.displayNumber} · {agent.seniority} · L{agent.autonomyLevel}
                     </p>
                   </div>
-                  <span className="ml-auto">
+                  <span className="ml-auto flex flex-col items-end gap-1">
                     <AgentStatusPill status={agent.status} />
+                    {badges[agent.id] && (
+                      <span data-testid={`presence-${agent.id}`}>
+                        <StatusPill
+                          tone={BADGE_TONE[badges[agent.id] as keyof typeof BADGE_TONE] ?? "neutral"}
+                        >
+                          {badges[agent.id]}
+                        </StatusPill>
+                      </span>
+                    )}
                   </span>
                 </div>
               </Card>

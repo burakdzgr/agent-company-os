@@ -4,11 +4,17 @@
 // only WS consumers — components read stores/queries, never the socket.
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { EventSchema, type Event, type RealtimeStatus } from "@acos/contracts";
+import {
+  EventSchema,
+  PresenceStateSchema,
+  type Event,
+  type RealtimeStatus,
+} from "@acos/contracts";
 import { getRealtimeClient } from "./client.js";
 import { invalidationKeysFor } from "./invalidation.js";
 import { useEventTicker } from "../stores/eventTicker.js";
-import { usePresence, type PresenceSnapshot } from "../stores/presence.js";
+import { usePresence } from "../stores/presence.js";
+import { useOfficeStore } from "../stores/office.js";
 
 export function useRealtimeStatus(): RealtimeStatus {
   const [status, setStatus] = useState<RealtimeStatus>(() => getRealtimeClient().getStatus());
@@ -21,12 +27,17 @@ export function RealtimeDispatcher({ companyId }: { companyId: string }) {
   const pushEvents = useEventTicker((s) => s.push);
   const resetTicker = useEventTicker((s) => s.reset);
   const applySnapshot = usePresence((s) => s.applySnapshot);
+  const setBadge = usePresence((s) => s.setBadge);
   const resetPresence = usePresence((s) => s.reset);
+  const officeSnapshot = useOfficeStore((s) => s.applySnapshot);
+  const officeEnqueue = useOfficeStore((s) => s.enqueue);
+  const officeReset = useOfficeStore((s) => s.reset);
 
   useEffect(() => {
     const client = getRealtimeClient();
     resetTicker();
     resetPresence();
+    officeReset();
 
     const unsubscribeEvents = client.subscribe(`events:${companyId}`, (batch) => {
       const parsed: Event[] = [];
@@ -49,16 +60,40 @@ export function RealtimeDispatcher({ companyId }: { companyId: string }) {
 
     const unsubscribePresence = client.subscribe(`presence:${companyId}`, (batch, meta) => {
       if (meta.kind === "snapshot" && batch[0]) {
-        applySnapshot(batch[0] as PresenceSnapshot);
+        const parsed = PresenceStateSchema.safeParse(batch[0]);
+        if (parsed.success) {
+          applySnapshot(parsed.data);
+          officeSnapshot(parsed.data);
+        }
+        return;
       }
-      // deltas (office.* instructions) are consumed by officeStore with T26
+      // deltas: office.* instructions → officeStore (invariant enforced there);
+      // status changes also refresh the Agent Monitor badge map
+      for (const instruction of batch) {
+        officeEnqueue(instruction);
+        const status = instruction as { type?: string; agentId?: string; badge?: string };
+        if (status.type === "office.status.changed" && status.agentId && status.badge) {
+          setBadge(status.agentId, status.badge as never);
+        }
+      }
     });
 
     return () => {
       unsubscribeEvents();
       unsubscribePresence();
     };
-  }, [companyId, queryClient, pushEvents, resetTicker, applySnapshot, resetPresence]);
+  }, [
+    companyId,
+    queryClient,
+    pushEvents,
+    resetTicker,
+    applySnapshot,
+    setBadge,
+    resetPresence,
+    officeSnapshot,
+    officeEnqueue,
+    officeReset,
+  ]);
 
   return null;
 }

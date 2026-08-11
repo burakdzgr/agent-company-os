@@ -182,6 +182,30 @@ describe("RealtimeClient scripted frame sequences (T24)", () => {
     expect(second).toEqual([1]); // detached handler sees nothing further
   });
 
+  it("delivers presence deltas that carry choreoSeq instead of seq (office.*)", () => {
+    const presenceTopic = "presence:018f0000-0000-7000-8000-000000000001";
+    FakeSocket.instances = [];
+    const client = new RealtimeClient({
+      url: "ws://test/ws",
+      webSocketImpl: FakeSocket,
+      backoffDelayMs: () => 0,
+    });
+    const received: unknown[] = [];
+    client.subscribe(presenceTopic, (events) => received.push(...events));
+    const socket = FakeSocket.instances[0]!;
+    socket.open();
+    const instruction = {
+      type: "office.status.changed",
+      choreoSeq: 7,
+      causeEventId: "evt-1",
+      causeSeq: 3,
+      agentId: "a1",
+      badge: "WORKING",
+    };
+    socket.frame({ topic: presenceTopic, seq: 1, events: [instruction] });
+    expect(received).toEqual([instruction]); // NOT filtered by the events-seq guard
+  });
+
   it("delivers presence snapshots with snapshot meta", () => {
     const presenceTopic = "presence:018f0000-0000-7000-8000-000000000001";
     FakeSocket.instances = [];

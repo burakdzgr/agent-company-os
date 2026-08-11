@@ -9,7 +9,7 @@ import { useEventTicker } from "../stores/eventTicker.js";
 import { RealtimeDispatcher, useRealtimeStatus } from "../realtime/RealtimeDispatcher.js";
 
 const NAV_ITEMS: Array<{ label: string; path?: string }> = [
-  { label: "OFFICE" },
+  { label: "OFFICE", path: "/c/$companyId/office" },
   { label: "TASKS" },
   { label: "AGENTS", path: "/c/$companyId/agents" },
   { label: "PROJECTS" },

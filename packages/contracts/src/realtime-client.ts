@@ -228,11 +228,12 @@ export class RealtimeClient {
     }
     if (!Array.isArray(frame.events)) return;
 
-    const batch = (frame.events as Array<{ seq: number }>).filter(
-      (e) => typeof e?.seq === "number",
-    );
     const parsed = parseTopic(topic);
     if (parsed?.kind === "events") {
+      // domain envelopes carry their per-company seq; anything else is noise
+      const batch = (frame.events as Array<{ seq: number }>).filter(
+        (e) => typeof e?.seq === "number",
+      );
       // duplicates / regressions are suppressed — handlers never see them
       const fresh = batch.filter((e) => state.lastSeq === null || e.seq > state.lastSeq);
       if (fresh.length === 0) return;
@@ -250,10 +251,11 @@ export class RealtimeClient {
       this.dispatch(state, fresh, { topic, seq: state.lastSeq, kind: "events" });
       return;
     }
-    // presence deltas: latest-wins semantics, no gap healing
+    // presence deltas (office.* instructions): latest-wins, delivered as-is —
+    // they carry choreoSeq, not the events-table seq, so no seq filtering here
     const seq = typeof frame.seq === "number" ? frame.seq : 0;
     state.lastSeq = seq;
-    this.dispatch(state, batch, { topic, seq, kind: "events" });
+    this.dispatch(state, frame.events as unknown[], { topic, seq, kind: "events" });
   }
 
   private dispatch(state: TopicState, events: unknown[], meta: FrameMeta): void {
