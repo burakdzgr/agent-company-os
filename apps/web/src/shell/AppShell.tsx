@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Button, Select, cn } from "@acos/ui";
 import { api, keys } from "../lib/api.js";
 import { useUiPrefs } from "../stores/uiPrefs.js";
+import { useEventTicker } from "../stores/eventTicker.js";
+import { RealtimeDispatcher, useRealtimeStatus } from "../realtime/RealtimeDispatcher.js";
 
 const NAV_ITEMS: Array<{ label: string; path?: string }> = [
   { label: "OFFICE" },
@@ -17,7 +19,7 @@ const NAV_ITEMS: Array<{ label: string; path?: string }> = [
   { label: "COMMUNICATION" },
   { label: "TERMINALS" },
   { label: "APPROVALS" },
-  { label: "EVENTS" },
+  { label: "EVENTS", path: "/c/$companyId/events" },
   { label: "REPORTS" },
   { label: "COSTS" },
   { label: "SETTINGS" },
@@ -29,6 +31,8 @@ export function AppShell() {
   const { navCollapsed, toggleNav } = useUiPrefs();
   const companies = useQuery({ queryKey: keys.companies, queryFn: api.companies.list });
   const me = useQuery({ queryKey: keys.me, queryFn: api.auth.me });
+  const wsStatus = useRealtimeStatus();
+  const lastEvent = useEventTicker((s) => s.events[0]);
 
   async function logout() {
     await api.auth.logout();
@@ -107,8 +111,24 @@ export function AppShell() {
         </main>
       </div>
 
-      <footer className="border-t border-ink-200 bg-white px-4 py-1 text-xs text-ink-400">
-        Event ticker lands with T24 (WS replay).
+      <RealtimeDispatcher companyId={companyId} />
+      <footer
+        className="flex items-center gap-3 border-t border-ink-200 bg-white px-4 py-1 text-xs text-ink-400"
+        data-testid="status-bar"
+      >
+        <span
+          className={cn(
+            "font-medium",
+            wsStatus === "open" ? "text-ok" : wsStatus === "closed_auth" ? "text-danger" : "",
+          )}
+        >
+          ws: {wsStatus}
+        </span>
+        {lastEvent && (
+          <span className="truncate" data-testid="ticker-last">
+            #{lastEvent.seq} {lastEvent.type}
+          </span>
+        )}
       </footer>
     </div>
   );

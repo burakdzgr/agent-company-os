@@ -94,6 +94,15 @@ export {
   type EventsDataFrame,
 } from "./realtime.js";
 export {
+  RealtimeClient,
+  type CursorStore,
+  type WebSocketLike,
+  type RealtimeStatus,
+  type FrameMeta,
+  type FrameHandler,
+  type RealtimeClientOptions,
+} from "./realtime-client.js";
+export {
   AgentSchema,
   AgentStatusSchema,
   SenioritySchema,
