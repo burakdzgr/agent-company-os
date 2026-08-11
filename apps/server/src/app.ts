@@ -2,6 +2,7 @@
 // problem+json error envelope, OpenAPI 3.1 via @fastify/swagger, one plugin
 // per domain module. buildApp does NO IO — boot wiring lives in main.ts.
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
+import cookie from "@fastify/cookie";
 import swagger from "@fastify/swagger";
 import {
   serializerCompiler,
@@ -10,8 +11,18 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import { problemFor, type ErrorCode } from "@acos/contracts";
+import type { Db } from "@acos/db";
 import { registerHealthRoutes, type HealthCheckers } from "./modules/health/index.js";
 import { moduleStubs } from "./modules/index.js";
+import { registerAuthRoutes } from "./modules/auth/routes.js";
+import { AuthService, CSRF_COOKIE, SESSION_COOKIE, type UserRow } from "./modules/auth/service.js";
+
+declare module "fastify" {
+  interface FastifyRequest {
+    principal: { kind: "user"; user: UserRow; scopes: string[] | null } | null;
+    requireUser(): UserRow;
+  }
+}
 
 /** Domain errors carrying a stable API error code (21 §2.5). */
 export class ApiError extends Error {
@@ -28,6 +39,9 @@ export interface BuildAppOptions {
   healthCheckers: HealthCheckers;
   version?: string;
   logger?: boolean;
+  /** Absent only for OpenAPI generation — handlers throw if hit without it. */
+  db?: Db;
+  masterKey?: string;
 }
 
 export type App = FastifyInstance;
@@ -40,6 +54,51 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
 
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  await app.register(cookie);
+
+  // ---------- principal resolution + CSRF (18 §2, 21 §2.2) ----------
+  let authService: AuthService | null = null;
+  const auth = (): AuthService => {
+    if (!authService) {
+      if (!options.db || !options.masterKey) throw new ApiError("internal", "auth not wired");
+      authService = new AuthService(options.db, options.masterKey);
+    }
+    return authService;
+  };
+
+  app.decorateRequest("principal", null);
+  app.decorateRequest("requireUser", function (this: { principal: { user: UserRow } | null }) {
+    if (!this.principal) throw new ApiError("unauthenticated", "authentication required");
+    return this.principal.user;
+  });
+
+  app.addHook("preHandler", async (request) => {
+    const bearer = request.headers.authorization;
+    if (bearer?.startsWith("Bearer acos_pat_")) {
+      const verified = await auth().verifyPat(bearer.slice("Bearer ".length));
+      if (verified) request.principal = { kind: "user", user: verified.user, scopes: verified.scopes };
+      return;
+    }
+    const sessionToken = request.cookies?.[SESSION_COOKIE];
+    if (sessionToken) {
+      const user = await auth().verifySession(sessionToken);
+      if (user) {
+        request.principal = { kind: "user", user, scopes: null };
+        // CSRF double-submit for cookie-session mutations (18 §2). Auth
+        // bootstrap routes (login/setup/logout) are exempt by design.
+        const mutating = !["GET", "HEAD", "OPTIONS"].includes(request.method);
+        const exempt = ["/api/v1/auth/login", "/api/v1/auth/setup", "/api/v1/auth/logout"];
+        if (mutating && !exempt.includes(request.url.split("?")[0]!)) {
+          const cookieToken = request.cookies?.[CSRF_COOKIE];
+          const headerToken = request.headers["x-csrf-token"];
+          if (!cookieToken || headerToken !== cookieToken) {
+            throw new ApiError("forbidden", "missing or mismatched CSRF token");
+          }
+        }
+      }
+    }
+  });
 
   await app.register(swagger, {
     openapi: {
@@ -93,6 +152,7 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   app.get("/healthz", () => ({ status: "ok", service: "server" }));
 
   await registerHealthRoutes(app, options.healthCheckers, options.version ?? "0.0.0");
+  await registerAuthRoutes(app, auth);
 
   // Domain modules (28 §2) — stubs now; routes land with T16+.
   for (const [name, plugin] of Object.entries(moduleStubs)) {

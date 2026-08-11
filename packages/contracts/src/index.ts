@@ -14,3 +14,20 @@ export {
   type HealthResponse,
   type DependencyStatus,
 } from "./health.js";
+export {
+  SessionUserSchema,
+  SetupStatusSchema,
+  SetupRequestSchema,
+  LoginRequestSchema,
+  LoginResponseSchema,
+  TotpRequiredResponseSchema,
+  PatCreateRequestSchema,
+  PatCreatedSchema,
+  PatListItemSchema,
+  TotpEnableRequestSchema,
+  TotpEnableResponseSchema,
+  TotpConfirmRequestSchema,
+  TotpDisableRequestSchema,
+  OkSchema,
+  type SessionUser,
+} from "./auth.js";

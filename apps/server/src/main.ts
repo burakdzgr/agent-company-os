@@ -1,7 +1,7 @@
 // Boot sequence (T15, 28 §2): config → migrate under advisory lock → routes.
 import { Pool } from "pg";
 import { loadConfigOrExit } from "@acos/config";
-import { runMigrations } from "@acos/db";
+import { createDb, runMigrations } from "@acos/db";
 import { buildApp } from "./app.js";
 import { buildCheckers } from "./checkers.js";
 
@@ -12,6 +12,8 @@ async function main(): Promise<void> {
   const pool = new Pool({ connectionString: config.database.url });
 
   const app = await buildApp({
+    db: createDb(pool),
+    masterKey: config.security.masterKey,
     healthCheckers: buildCheckers({
       pool,
       natsUrl: config.nats.url,
