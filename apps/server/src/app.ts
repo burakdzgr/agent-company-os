@@ -29,6 +29,11 @@ import { registerTaskRoutes } from "./modules/tasks/routes.js";
 import { TasksService, TaskStateService } from "./modules/tasks/service.js";
 import { registerCommsRoutes } from "./modules/comms/routes.js";
 import { registerApprovalRoutes, type ApprovalSignalPort } from "./modules/approvals/routes.js";
+import { registerToolGatewayRoutes } from "./modules/tools/routes.js";
+import { ToolGateway, type ToolDispatchPort } from "./modules/tools/gateway.js";
+import { unsealSecret } from "./modules/auth/crypto.js";
+import { secrets } from "@acos/db/schema";
+import { and, eq } from "drizzle-orm";
 import type { SignalPort } from "@acos/db";
 import { RealtimeGateway } from "./modules/realtime/gateway.js";
 import { createOfficeProjector } from "./modules/office/wiring.js";
@@ -49,6 +54,9 @@ declare module "fastify" {
     approvalSignalPort: ApprovalSignalPort | null;
     /** Assignment → agentTaskWorkflow start (09 §4) — attached by main.ts (T36). */
     agentWorkflowStarter: import("./modules/workflows/client.js").AgentWorkflowStarter | null;
+    /** Tool execution seam (17 §4 step 7) — attached by T40 wiring; null ⇒
+     *  allow-decisions dispatch-fail (still audited). */
+    toolDispatchPort: ToolDispatchPort | null;
   }
 }
 
@@ -71,6 +79,8 @@ export interface BuildAppOptions {
   db?: Db;
   guardedDb?: GuardedDb;
   masterKey?: string;
+  /** Shared bearer for /internal/* routes (18 §2) — workers ↔ gateway. */
+  internalApiToken?: string;
 }
 
 export type App = FastifyInstance;
@@ -258,6 +268,47 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     },
     companiesSvc,
     approvalSignal: () => app.approvalSignalPort,
+  });
+
+  // ---------- Tool Gateway (T39; 17 §4, S3 single choke point) ----------
+  app.decorate("toolDispatchPort", null);
+  let toolGateway: ToolGateway | null = null;
+  const toolGatewaySvc = (): ToolGateway => {
+    if (!toolGateway) {
+      if (!options.guardedDb) throw new ApiError("internal", "tool gateway not wired");
+      const guardedDb = options.guardedDb;
+      toolGateway = new ToolGateway({
+        db: guardedDb,
+        // late-bound so T40 wiring (or tests) can attach after buildApp
+        dispatch: {
+          dispatch: (invocation) => {
+            if (!app.toolDispatchPort) {
+              return Promise.reject(new Error("tool dispatch not wired (lands with T40)"));
+            }
+            return app.toolDispatchPort.dispatch(invocation);
+          },
+        },
+        // S2: sealed-box secrets resolved server-side at dispatch time only
+        resolveCredential: async (ctx, name) => {
+          if (!options.masterKey) return null;
+          const [row] = await guardedDb
+            .select()
+            .from(secrets)
+            .where(and(eq(secrets.companyId, ctx.companyId), eq(secrets.name, name)))
+            .limit(1);
+          if (!row) return null;
+          return unsealSecret(options.masterKey, Buffer.from(row.ciphertext as Uint8Array));
+        },
+      });
+    }
+    return toolGateway;
+  };
+  registerToolGatewayRoutes(app, {
+    gateway: toolGatewaySvc,
+    internalApiToken: () => {
+      if (!options.internalApiToken) throw new ApiError("internal", "internal token not wired");
+      return options.internalApiToken;
+    },
   });
 
   // ---------- /ws gateway (T23; 21 §4, 22 §2–8) ----------

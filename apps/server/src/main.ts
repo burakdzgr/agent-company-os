@@ -28,6 +28,7 @@ async function main(): Promise<void> {
     db: createDb(pool),
     guardedDb,
     masterKey: config.security.masterKey,
+    internalApiToken: config.security.internalApiToken,
     healthCheckers: buildCheckers({
       pool,
       natsUrl: config.nats.url,

@@ -1,6 +1,36 @@
 export const packageName = "@acos/tools" as const;
 
 export {
+  DEFAULT_RATE_LIMITS,
+  rateLimitFor,
+  matchesToolPattern,
+  elevateRisk,
+  scrubSecretEnv,
+  type ToolScope,
+  type ToolSandboxLevel,
+  type ToolDefinition,
+  type ToolCostEstimate,
+  type ToolRateLimit,
+} from "./contract.js";
+export {
+  MVP_TOOLS,
+  fsRead,
+  fsWrite,
+  fsSearch,
+  gitCommit,
+  gitBranch,
+  gitDiff,
+  gitMerge,
+  terminalRun,
+  dbInspect,
+  webFetch,
+  webSearch,
+  taskQuery,
+  memorySearch,
+} from "./definitions.js";
+export { toolRegistry, buildRegistry, getTool, listTools } from "./registry.js";
+
+export {
   ISOLATION_LEVELS,
   ISOLATION_LIMITS,
   WORKSPACE_NETWORK,

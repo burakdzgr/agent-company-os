@@ -19,6 +19,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@acos/domain": "workspace:*"
+    "@acos/domain": "workspace:*",
+    "zod": "^4.4.3"
   }
 }

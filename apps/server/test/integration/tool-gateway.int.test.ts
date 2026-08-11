@@ -1,0 +1,639 @@
+// T39 acceptance: the authorize suite (allow / deny×2 / require_approval +
+// constraints) against the real chain — identity → registry/schema →
+// tool_permissions grants → constraints → policy bands → budget → the ONE
+// domain authorize() — with the invariant that EVERY decision leaves an
+// audit row (tool_invocations; identity failures land in audit_log), S2
+// scrubbing + server-side credential injection, taint elevation (S5), rate
+// limiting and idempotent replay.
+import { randomUUID } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Pool } from "pg";
+import { and, eq } from "drizzle-orm";
+import {
+  companyContext,
+  createDb,
+  createGuardedDb,
+  runMigrations,
+  type CompanyContext,
+  type Db,
+  type GuardedDb,
+} from "@acos/db";
+import {
+  agents,
+  auditLog,
+  events,
+  orgEdges,
+  orgUnits,
+  policies,
+  positions,
+  secrets,
+  tasks,
+  toolInvocations,
+  toolPermissions,
+  users,
+} from "@acos/db/schema";
+import { buildApp, type App } from "../../src/app.js";
+import {
+  ToolGateway,
+  type ToolDispatchPort,
+  type ToolInvokeResponse,
+} from "../../src/modules/tools/gateway.js";
+import { sealSecret, unsealSecret } from "../../src/modules/auth/crypto.js";
+import { startPostgres, type StartedPostgreSqlContainer } from "./helpers";
+
+const MASTER_KEY = Buffer.alloc(32, 9).toString("base64");
+const INTERNAL_TOKEN = "internal-test-token-0123456789";
+const ok = async () => {};
+const SHA = (c: string) => c.repeat(40);
+
+let container: StartedPostgreSqlContainer;
+let pool: Pool;
+let db: Db;
+let guardedDb: GuardedDb;
+let app: App;
+let gateway: ToolGateway;
+let ctx: CompanyContext;
+let companyId = "";
+let sessionCookie = "";
+let csrfToken = "";
+let DEV = "";
+let LEAD = "";
+let CEO = "";
+let PAUSED = "";
+let positionId = "";
+let unitId = "";
+let taskTightBudget = "";
+let taskFree = "";
+
+interface DispatchCall {
+  tool: string;
+  input: Record<string, unknown>;
+  credentials: Record<string, string>;
+}
+const dispatched: DispatchCall[] = [];
+
+const fakePort: ToolDispatchPort = {
+  dispatch: async ({ tool, input, credentials }) => {
+    dispatched.push({ tool: tool.name, input: input as Record<string, unknown>, credentials });
+    switch (tool.name) {
+      case "fs.read":
+        return {
+          output: { kind: "file", content: "hello", truncated: false, byteSize: 5, provenance: "workspace" },
+          resultSummary: "read 5 bytes",
+        };
+      case "fs.write":
+        return {
+          output: { byteSize: 1, created: true, lockConflicts: [], provenance: "workspace" },
+        };
+      case "git.branch":
+        return { output: { pushed: true, remoteHead: SHA("a"), provenance: "workspace" } };
+      case "git.merge":
+        return {
+          output: { merged: true, mergeCommitSha: SHA("b"), conflict: null, provenance: "workspace" },
+          costCents: 2,
+        };
+      case "terminal.run":
+        return {
+          output: {
+            exitCode: 0,
+            stdoutTail: "ok",
+            stderrTail: "",
+            durationMs: 10,
+            terminalSessionId: randomUUID(),
+            provenance: "workspace",
+          },
+          costCents: 5,
+        };
+      case "web.search":
+        return { output: { results: [], provenance: "web" } };
+      default:
+        throw new Error(`fake port has no handler for ${tool.name}`);
+    }
+  },
+};
+
+async function invocationRow(id: string) {
+  const [row] = await db
+    .select()
+    .from(toolInvocations)
+    .where(eq(toolInvocations.id, id));
+  return row!;
+}
+
+async function eventsOfType(type: string) {
+  return db
+    .select()
+    .from(events)
+    .where(and(eq(events.companyId, companyId), eq(events.type, type)))
+    .orderBy(events.seq);
+}
+
+async function grant(
+  toolName: string,
+  subjectKind: "agent" | "position" | "org_unit",
+  subjectId: string,
+  constraints: Record<string, unknown> = {},
+) {
+  await db.insert(toolPermissions).values({
+    companyId,
+    toolName,
+    subjectKind,
+    subjectId,
+    constraints,
+  });
+}
+
+beforeAll(async () => {
+  container = await startPostgres();
+  await runMigrations(container.getConnectionUri());
+  pool = new Pool({ connectionString: container.getConnectionUri() });
+  db = createDb(pool);
+  guardedDb = createGuardedDb(pool);
+  app = await buildApp({
+    healthCheckers: { postgres: ok, nats: ok, temporal: ok },
+    logger: false,
+    db,
+    guardedDb,
+    masterKey: MASTER_KEY,
+    internalApiToken: INTERNAL_TOKEN,
+  });
+  app.toolDispatchPort = fakePort;
+  await app.ready();
+
+  const setup = await app.inject({
+    method: "POST",
+    url: "/api/v1/auth/setup",
+    payload: { email: "founder@t39.local", password: "correct-horse-battery", displayName: "F" },
+  });
+  for (const c of setup.cookies) {
+    if (c.name === "acos_session") sessionCookie = c.value;
+    if (c.name === "acos_csrf") csrfToken = c.value;
+  }
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/v1/companies",
+    headers: {
+      cookie: `acos_session=${sessionCookie}; acos_csrf=${csrfToken}`,
+      "x-csrf-token": csrfToken,
+    },
+    payload: { name: "GatewayCo", slug: "gatewayco" },
+  });
+  companyId = created.json().id;
+  ctx = companyContext(companyId);
+
+  gateway = new ToolGateway({
+    db: guardedDb,
+    dispatch: fakePort,
+    resolveCredential: async (c, name) => {
+      const [row] = await guardedDb
+        .select()
+        .from(secrets)
+        .where(and(eq(secrets.companyId, c.companyId), eq(secrets.name, name)))
+        .limit(1);
+      if (!row) return null;
+      return unsealSecret(MASTER_KEY, Buffer.from(row.ciphertext as Uint8Array));
+    },
+  });
+
+  const [unit] = await db
+    .insert(orgUnits)
+    .values({ companyId, kind: "team", name: "Backend", slug: "backend" })
+    .returning();
+  unitId = unit!.id;
+  const [position] = await db
+    .insert(positions)
+    .values({ companyId, title: "Dev", seniorityTrack: ["mid"], defaultRole: "member" })
+    .returning();
+  positionId = position!.id;
+  const hire = async (name: string, employeeNumber: number, autonomyLevel: number, status = "active") =>
+    (
+      await db
+        .insert(agents)
+        .values({
+          companyId,
+          employeeNumber,
+          name,
+          status,
+          positionId,
+          orgUnitId: unitId,
+          seniority: "mid",
+          autonomyLevel,
+          persona: `${name}.`,
+        })
+        .returning()
+    )[0]!.id;
+  DEV = await hire("Dana Dev", 1, 2);
+  LEAD = await hire("Lena Lead", 2, 3);
+  CEO = await hire("Cem CEO", 3, 5);
+  PAUSED = await hire("Paula Paused", 4, 2, "paused");
+  for (const agentId of [DEV, LEAD, CEO]) {
+    await db.insert(orgEdges).values({ companyId, fromAgentId: agentId, kind: "member_of", toUnitId: unitId });
+  }
+
+  const [tight] = await db
+    .insert(tasks)
+    .values({
+      companyId,
+      number: 1,
+      kind: "task",
+      title: "Tight budget task",
+      objective: "x",
+      status: "IN_PROGRESS",
+      ownerAgentId: DEV,
+      budgetCents: 100,
+      spentCents: 90,
+    })
+    .returning();
+  taskTightBudget = tight!.id;
+  const [free] = await db
+    .insert(tasks)
+    .values({
+      companyId,
+      number: 2,
+      kind: "task",
+      title: "Free task",
+      objective: "x",
+      status: "IN_PROGRESS",
+      ownerAgentId: DEV,
+    })
+    .returning();
+  taskFree = free!.id;
+}, 240_000);
+
+afterAll(async () => {
+  await app?.close();
+  await pool?.end();
+  await container?.stop();
+});
+
+describe("authorize suite (17 §4; accept: allow / deny×2 / require_approval)", () => {
+  it("ALLOW: granted R0 within autonomy → dispatched, output validated, audited, cost-free", async () => {
+    await grant("fs.read", "agent", DEV);
+    const res = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "fs.read",
+      input: { path: "src/index.ts" },
+      taskId: taskFree,
+    });
+    expect(res.decision).toBe("allow");
+    expect(res.status).toBe("succeeded");
+    expect((res.output as { content: string }).content).toBe("hello");
+    expect(dispatched.at(-1)).toMatchObject({ tool: "fs.read" });
+
+    const row = await invocationRow(res.invocationId!);
+    expect(row).toMatchObject({
+      toolName: "fs.read",
+      decision: "allow",
+      status: "succeeded",
+      riskClass: "R0",
+      agentId: DEV,
+    });
+    expect(row.finishedAt).not.toBeNull();
+    expect((await eventsOfType("tool.invocation.requested")).length).toBeGreaterThan(0);
+    expect((await eventsOfType("tool.invocation.completed")).length).toBe(1);
+  });
+
+  it("DENY 1 — no grant: fail-closed with an audit row + denied event", async () => {
+    const res = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "fs.write",
+      input: { path: "apps/web/x.ts", content: "x" },
+    });
+    expect(res.decision).toBe("deny");
+    expect(res.reason).toBe("NO_PERMISSION_GRANT");
+    const row = await invocationRow(res.invocationId!);
+    expect(row.status).toBe("denied");
+    expect((await eventsOfType("tool.invocation.denied")).length).toBe(1);
+  });
+
+  it("DENY 2 — grant constraint violated: pathPrefixes reject a foreign path (position-level grant)", async () => {
+    await grant("fs.write", "position", positionId, { pathPrefixes: ["apps/web/", "packages/ui/"] });
+    const denied = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "fs.write",
+      input: { path: "packages/db/schema.ts", content: "nope" },
+    });
+    expect(denied.decision).toBe("deny");
+    expect(denied.reason).toContain("GRANT_CONSTRAINT_VIOLATED");
+    expect(denied.reason).toContain("path_not_in_prefixes:packages/db/schema.ts");
+    expect((await invocationRow(denied.invocationId!)).status).toBe("denied");
+
+    // the same grant allows the owned subtree — structured denial ≠ blanket deny
+    const allowed = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "fs.write",
+      input: { path: "apps/web/pages/login.tsx", content: "ok" },
+    });
+    expect(allowed.decision).toBe("allow");
+    expect(allowed.status).toBe("succeeded");
+  });
+
+  it("REQUIRE_APPROVAL: R2 above an L2 agent's cap escalates to the manager; L5 executes", async () => {
+    await grant("git.merge", "agent", DEV);
+    await grant("git.merge", "agent", CEO);
+    const dev = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "git.merge",
+      input: { taskId: taskFree, branch: "task/1-x", expectedHeadSha: SHA("c") },
+    });
+    expect(dev.decision).toBe("require_approval");
+    expect(dev.approver).toBe("manager");
+    expect((await invocationRow(dev.invocationId!)).status).toBe("awaiting_approval");
+
+    const ceo = await gateway.invoke(ctx, {
+      agentId: CEO,
+      toolName: "git.merge",
+      input: { taskId: taskFree, branch: "task/1-x", expectedHeadSha: SHA("c") },
+    });
+    expect(ceo.decision).toBe("allow");
+    expect(ceo.status).toBe("succeeded");
+    expect(ceo.costCents).toBe(2);
+  });
+
+  it("branchPattern constraint: pushing main is denied, task/* passes (17 §4.2 ex. 3)", async () => {
+    await grant("git.branch", "agent", DEV, { branchPattern: "^task/" });
+    const main = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "git.branch",
+      input: { branch: "main" },
+    });
+    expect(main.decision).toBe("deny");
+    expect(main.reason).toContain("branch_not_allowed:main");
+
+    const task = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "git.branch",
+      input: { branch: "task/81-fix-login" },
+    });
+    expect(task.decision).toBe("allow");
+  });
+
+  it("spend caps: default deny; onCapExceeded=escalate degrades into approval (17 §4.2 ex. 2)", async () => {
+    await grant("terminal.run", "agent", DEV, { spendCapCents: 5 });
+    await grant("terminal.run", "agent", LEAD, { spendCapCents: 5, onCapExceeded: "escalate" });
+    // estimate = ceil(1800/60) = 30¢ > 5¢ cap
+    const denied = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "terminal.run",
+      input: { command: "npm run build", timeoutSec: 1800 },
+    });
+    expect(denied.decision).toBe("deny");
+    expect(denied.reason).toContain("spend_cap_exceeded");
+
+    const escalated = await gateway.invoke(ctx, {
+      agentId: LEAD,
+      toolName: "terminal.run",
+      input: { command: "npm run build", timeoutSec: 1800 },
+    });
+    expect(escalated.decision).toBe("require_approval");
+    expect(escalated.approver).toBe("manager");
+    expect((await invocationRow(escalated.invocationId!)).status).toBe("awaiting_approval");
+  });
+
+  it("budget layer: a hard task budget denies when the estimate exceeds the remainder", async () => {
+    // DEV's terminal.run grant caps spend at 5¢ — use a small timeout so the
+    // constraint passes (1¢) and add a task with only 10¢ headroom but an
+    // estimate above it via a longer window on LEAD's escalating grant?
+    // Simpler: LEAD has no cap violation at 60s (1¢ ≤ 5¢) and the tight task
+    // has 10¢ left — push the estimate over with 1800s via a fresh grant.
+    await grant("terminal.run", "agent", CEO);
+    const res = await gateway.invoke(ctx, {
+      agentId: CEO,
+      toolName: "terminal.run",
+      input: { command: "npm test", timeoutSec: 1800 }, // 30¢ > 10¢ remaining
+      taskId: taskTightBudget,
+    });
+    expect(res.decision).toBe("deny");
+    expect(res.reason).toContain("BUDGET_EXCEEDED");
+    expect((await invocationRow(res.invocationId!)).status).toBe("denied");
+  });
+
+  it("policy deny short-circuits an existing grant (18 §4.2 band order)", async () => {
+    await grant("web.fetch", "agent", DEV);
+    await db.insert(policies).values({
+      companyId,
+      name: "no-web-fetch",
+      kind: "tool",
+      effect: "deny",
+      rule: { actionPattern: "web.fetch" },
+    });
+    const res = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "web.fetch",
+      input: { url: "https://registry.npmjs.org/react" },
+    });
+    expect(res.decision).toBe("deny");
+    expect(res.reason).toContain("POLICY_DENY:no-web-fetch");
+  });
+
+  it("taint elevation (S5/17 §7.4): tainted R2 becomes R3 — Founder unless a standing allow policy covers it", async () => {
+    const withoutPolicy = await gateway.invoke(ctx, {
+      agentId: CEO,
+      toolName: "git.merge",
+      input: { taskId: taskFree, branch: "task/1-x", expectedHeadSha: SHA("d") },
+      tainted: true,
+    });
+    expect(withoutPolicy.riskClass).toBe("R3");
+    expect(withoutPolicy.elevatedFrom).toBe("R2");
+    expect(withoutPolicy.decision).toBe("require_approval");
+    expect(withoutPolicy.approver).toBe("founder");
+    const audited = await invocationRow(withoutPolicy.invocationId!);
+    expect(audited.riskClass).toBe("R3");
+    expect((audited.input as { __elevatedFrom?: string }).__elevatedFrom).toBe("R2");
+
+    // a standing allow policy satisfies the R3 clause (steps 6–7) but the S5
+    // external-influence review (06 §2 step 8) still holds: a tainted R2+
+    // action can NEVER end at plain allow — injected instructions can at most
+    // cause a MORE-reviewed action (17 §7.4). The approver drops from
+    // founder to manager; the elevation stays on the audit row.
+    await db.insert(policies).values({
+      companyId,
+      name: "standing-merge-line",
+      kind: "standing_approval",
+      effect: "allow",
+      rule: { actionPattern: "git.merge", condition: { maxCostCents: 100 } },
+    });
+    const withPolicy = await gateway.invoke(ctx, {
+      agentId: CEO,
+      toolName: "git.merge",
+      input: { taskId: taskFree, branch: "task/1-x", expectedHeadSha: SHA("d") },
+      tainted: true,
+    });
+    expect(withPolicy.decision).toBe("require_approval");
+    expect(withPolicy.approver).toBe("manager");
+    expect((await invocationRow(withPolicy.invocationId!)).status).toBe("awaiting_approval");
+  });
+});
+
+describe("audit is unconditional (accept: audit row always written)", () => {
+  it("unknown tool, invalid input, unknown agent, paused agent — every path leaves a row", async () => {
+    const before = (await db.select().from(toolInvocations)).length;
+
+    const unknownTool = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "no.such.tool",
+      input: {},
+    });
+    expect(unknownTool.reason).toBe("TOOL_NOT_REGISTERED");
+    const badInput = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "fs.read",
+      input: { path: "" },
+    });
+    expect(badInput.reason).toContain("INVALID_INPUT");
+    expect((await db.select().from(toolInvocations)).length).toBe(before + 2);
+
+    // identity failures cannot reference an agent FK — they land in audit_log
+    const ghost = await gateway.invoke(ctx, {
+      agentId: randomUUID(),
+      toolName: "fs.read",
+      input: { path: "x" },
+    });
+    expect(ghost.reason).toBe("IDENTITY_INVALID");
+    expect(ghost.invocationId).toBeNull();
+    const paused = await gateway.invoke(ctx, {
+      agentId: PAUSED,
+      toolName: "fs.read",
+      input: { path: "x" },
+    });
+    expect(paused.reason).toBe("IDENTITY_INVALID");
+    const identityRows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.companyId, companyId), eq(auditLog.action, "tool.invoke.identity_denied")));
+    expect(identityRows.length).toBe(2);
+  });
+
+  it("R2+ decisions mirror into audit_log (S7)", async () => {
+    const rows = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.companyId, companyId), eq(auditLog.action, "tool.invoke.allow")));
+    expect(rows.length).toBeGreaterThan(0); // CEO's merges above
+  });
+});
+
+describe("S2: scrubbing + server-side credential injection", () => {
+  it("credential-looking env keys never reach the audit row or dispatch", async () => {
+    const res = await gateway.invoke(ctx, {
+      agentId: LEAD,
+      toolName: "terminal.run",
+      input: {
+        command: "npm test",
+        timeoutSec: 60, // 1¢ ≤ LEAD's 5¢ cap
+        env: { PATH: "/usr/bin", GITHUB_TOKEN: "ghp_leak", DB_PASSWORD: "x" },
+      },
+    });
+    expect(res.decision).toBe("allow");
+    const row = await invocationRow(res.invocationId!);
+    const env = (row.input as { env: Record<string, string> }).env;
+    expect(env).toEqual({ PATH: "/usr/bin" });
+    expect(JSON.stringify(row.input)).not.toContain("ghp_leak");
+    expect(JSON.stringify(dispatched.at(-1)!.input)).not.toContain("ghp_leak");
+  });
+
+  it("credentialRefs resolve from sealed-box secrets at dispatch only — absent from audit", async () => {
+    const [founder] = await db.select().from(users).where(eq(users.email, "founder@t39.local"));
+    await db.insert(secrets).values({
+      companyId,
+      name: "search.api_key",
+      scope: "integration",
+      ciphertext: await sealSecret(MASTER_KEY, "s3cret-search-key"),
+      createdByUserId: founder!.id,
+    });
+    await grant("web.search", "agent", DEV);
+    const res = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "web.search",
+      input: { query: "fastify zod" },
+    });
+    expect(res.decision).toBe("allow");
+    expect(dispatched.at(-1)!.credentials).toEqual({ "search.api_key": "s3cret-search-key" });
+    const row = await invocationRow(res.invocationId!);
+    expect(JSON.stringify(row.input)).not.toContain("s3cret-search-key");
+    expect(JSON.stringify(row.resultSummary ?? "")).not.toContain("s3cret-search-key");
+  });
+});
+
+describe("rate limiting + idempotency", () => {
+  it("the per-agent token bucket denies with retryAfterSec and audits the throttle", async () => {
+    await grant("git.merge", "agent", LEAD);
+    const results: ToolInvokeResponse[] = [];
+    for (let i = 0; i < 4; i += 1) {
+      results.push(
+        await gateway.invoke(ctx, {
+          agentId: LEAD,
+          toolName: "git.merge", // perAgentPerMin 3
+          input: { taskId: taskFree, branch: "task/1-x", expectedHeadSha: SHA("e") },
+        }),
+      );
+    }
+    expect(results.slice(0, 3).every((r) => r.decision === "allow")).toBe(true);
+    const throttled = results[3]!;
+    expect(throttled.decision).toBe("deny");
+    expect(throttled.reason).toContain("RATE_LIMITED");
+    expect(throttled.retryAfterSec).toBeGreaterThan(0);
+    expect((await invocationRow(throttled.invocationId!)).status).toBe("denied");
+    expect((await eventsOfType("tool.rate.throttled")).length).toBe(1);
+  });
+
+  it("idempotencyKey replays the recorded result without a second invocation row", async () => {
+    const key = `attempt-${randomUUID()}`;
+    const first = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "fs.read",
+      input: { path: "src/app.ts" },
+      idempotencyKey: key,
+    });
+    expect(first.status).toBe("succeeded");
+    const rowsBefore = (await db.select().from(toolInvocations)).length;
+    const replay = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "fs.read",
+      input: { path: "src/app.ts" },
+      idempotencyKey: key,
+    });
+    expect(replay.replayed).toBe(true);
+    expect(replay.invocationId).toBe(first.invocationId);
+    expect((await db.select().from(toolInvocations)).length).toBe(rowsBefore);
+  });
+});
+
+describe("internal HTTP surface (17 §1)", () => {
+  it("rejects without the internal bearer (401) and never via session/PAT", async () => {
+    const noAuth = await app.inject({
+      method: "POST",
+      url: "/internal/v1/tools/invoke",
+      payload: { companyId, agentId: DEV, toolName: "fs.read", input: { path: "x" } },
+    });
+    expect(noAuth.statusCode).toBe(401);
+    const sessionOnly = await app.inject({
+      method: "POST",
+      url: "/internal/v1/tools/invoke",
+      headers: {
+        cookie: `acos_session=${sessionCookie}; acos_csrf=${csrfToken}`,
+        "x-csrf-token": csrfToken,
+      },
+      payload: { companyId, agentId: DEV, toolName: "fs.read", input: { path: "x" } },
+    });
+    expect(sessionOnly.statusCode).toBe(401);
+  });
+
+  it("invokes end-to-end with the internal token (workers' path)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/internal/v1/tools/invoke",
+      headers: { authorization: `Bearer ${INTERNAL_TOKEN}` },
+      payload: {
+        companyId,
+        agentId: DEV,
+        toolName: "fs.read",
+        input: { path: "src/main.ts" },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ToolInvokeResponse;
+    expect(body.decision).toBe("allow");
+    expect(body.status).toBe("succeeded");
+  });
+});
