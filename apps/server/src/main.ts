@@ -43,6 +43,7 @@ async function main(): Promise<void> {
   let relay: OutboxRelay | null = null;
   let dlq: DlqHandler | null = null;
   if (nats) {
+    app.realtime?.attachNats(nats); // /ws live fanout (T23)
     await provisionJetStream(nats);
     relay = new OutboxRelay({
       connectionString: config.database.url,

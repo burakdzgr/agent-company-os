@@ -4,6 +4,7 @@
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import swagger from "@fastify/swagger";
+import websocket from "@fastify/websocket";
 import {
   serializerCompiler,
   validatorCompiler,
@@ -24,11 +25,15 @@ import { registerAgentRoutes } from "./modules/agents/routes.js";
 import { AgentsService } from "./modules/agents/service.js";
 import { registerEventRoutes } from "./modules/events/routes.js";
 import { EventsReadService } from "./modules/events/read.js";
+import { RealtimeGateway } from "./modules/realtime/gateway.js";
 
 declare module "fastify" {
   interface FastifyRequest {
     principal: { kind: "user"; user: UserRow; scopes: string[] | null } | null;
     requireUser(): UserRow;
+  }
+  interface FastifyInstance {
+    realtime: RealtimeGateway | null;
   }
 }
 
@@ -202,6 +207,49 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   await registerOrgRoutes(app, orgSvc, companiesSvc);
   await registerAgentRoutes(app, agentsSvc, companiesSvc);
   await registerEventRoutes(app, eventsSvc, companiesSvc);
+
+  // ---------- /ws gateway (T23; 21 §4, 22 §2–8) ----------
+  await app.register(websocket, { options: { maxPayload: 131_072 } }); // 128 KB (22 §8)
+  const gateway = options.guardedDb
+    ? new RealtimeGateway(options.guardedDb, {
+        verifySession: (token) => auth().verifySession(token),
+        membership: (userId, companyId) => companiesSvc().membership(userId, companyId),
+      })
+    : null;
+  app.decorate("realtime", gateway);
+  gateway?.start();
+  app.addHook("onClose", async () => {
+    await gateway?.stop();
+  });
+
+  app.get("/ws", { websocket: true, schema: { hide: true } }, (socket, request) => {
+    void (async () => {
+      if (!gateway) return socket.close(4401, "gateway not wired");
+      // session cookie (browsers) — resolved by the global preHandler — or
+      // ?pat= for CLI with read:events minimum (21 §4.1)
+      if (request.principal) {
+        if (request.principal.scopes && !request.principal.scopes.includes("read:events")) {
+          return socket.close(4401, "pat lacks read:events");
+        }
+        const sessionToken = request.cookies?.[SESSION_COOKIE] ?? null;
+        return gateway.handleConnection(socket, {
+          userId: request.principal.user.id,
+          sessionToken: request.principal.scopes === null ? sessionToken : null,
+        });
+      }
+      const pat = (request.query as { pat?: string }).pat;
+      if (pat) {
+        const verified = await auth().verifyPat(pat).catch(() => null);
+        if (verified && verified.scopes.includes("read:events")) {
+          return gateway.handleConnection(socket, {
+            userId: verified.user.id,
+            sessionToken: null,
+          });
+        }
+      }
+      socket.close(4401, "unauthenticated");
+    })();
+  });
 
   // Domain modules (28 §2) — stubs now; routes land with T16+.
   for (const [name, plugin] of Object.entries(moduleStubs)) {
