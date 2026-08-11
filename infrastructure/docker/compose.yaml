@@ -165,6 +165,10 @@ services:
       NATS_URL: nats://nats:4222
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: acos
+      # Dev fallbacks — override via .env in any real install (prod overlay requires them).
+      MASTER_KEY: ${MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
     depends_on:
       postgres:
         condition: service_healthy
