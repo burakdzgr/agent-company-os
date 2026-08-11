@@ -57,6 +57,17 @@ export {
   type EscalationChain,
 } from "./org.js";
 export {
+  EventActorSchema,
+  EventSchema,
+  EventListQuerySchema,
+  EventListResponseSchema,
+  EventReplayQuerySchema,
+  EventReplayResponseSchema,
+  type Event,
+  type EventListResponse,
+  type EventReplayResponse,
+} from "./events.js";
+export {
   AgentSchema,
   AgentStatusSchema,
   SenioritySchema,

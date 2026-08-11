@@ -2,9 +2,10 @@
 // with the on-write forest/cycle check (per-company advisory lock + recursive
 // CTE), escalation-chain walk ending at the virtual Founder, read models.
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { withOutbox, type CompanyContext, type GuardedDb, type Tx } from "@acos/db";
+import { type CompanyContext, type GuardedDb, type Tx } from "@acos/db";
 import { orgUnits, positions } from "@acos/db/schema";
 import { orgEdges } from "@acos/db/schema";
+import { emitDomainEvent } from "../events/emit.js";
 
 export class OrgCycleError extends Error {
   constructor(message: string) {
@@ -56,7 +57,7 @@ export class OrgService {
           : input.kind === "team"
             ? "team.created"
             : "org.unit.created";
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type,
         actor: { kind: "founder", id: null },
         payload:
@@ -78,7 +79,7 @@ export class OrgService {
         .where(and(eq(orgUnits.companyId, ctx.companyId), eq(orgUnits.id, unitId)))
         .returning();
       if (!unit) return undefined;
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: "org.unit.updated",
         actor: { kind: "founder", id: null },
         payload: { orgUnitId: unitId, diff: { parentId } },
@@ -138,7 +139,7 @@ export class OrgService {
           description: input.description ?? null,
         })
         .returning();
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: "position.created",
         actor: { kind: "founder", id: null },
         payload: { positionId: position!.id, title: position!.title, seniorityTrack: input.seniorityTrack },
@@ -216,7 +217,7 @@ export class OrgService {
 
       const inserted = await tx.insert(orgEdges).values(rows).returning();
       for (const edge of inserted) {
-        await withOutbox(tx, ctx, {
+        await emitDomainEvent(tx, ctx, {
           type: "org.edge.created",
           actor: { kind: input.actorAgentId ? "agent" : "founder", id: input.actorAgentId ?? null },
           agentId: edge.fromAgentId,
@@ -279,10 +280,10 @@ export class OrgService {
         )
         .returning();
       if (!edge) return undefined;
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: "org.edge.ended",
         actor: { kind: "founder", id: null },
-        payload: { edgeId: edge.id },
+        payload: { edgeId: edge.id, endedAt: edge.endedAt?.toISOString() },
       });
       return edge;
     });

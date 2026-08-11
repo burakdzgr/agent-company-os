@@ -4,11 +4,11 @@
 import { and, eq, isNull } from "drizzle-orm";
 import {
   companyContext,
-  withOutbox,
   type CompanyContext,
   type GuardedDb,
 } from "@acos/db";
 import { companies, companyMembers, companySettings } from "@acos/db/schema";
+import { emitDomainEvent } from "../events/emit.js";
 
 export type CompanyRow = typeof companies.$inferSelect;
 export type CompanySettingsRow = typeof companySettings.$inferSelect;
@@ -40,10 +40,15 @@ export class CompanyService {
         userId: input.createdByUserId,
         role: "founder",
       });
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: "company.created",
         actor: { kind: "founder", id: null },
         payload: { name: input.name, currency: input.currency },
+      });
+      await emitDomainEvent(tx, ctx, {
+        type: "company.member.added",
+        actor: { kind: "founder", id: null },
+        payload: { userId: input.createdByUserId, role: "founder" },
       });
       return company!;
     });
@@ -105,7 +110,7 @@ export class CompanyService {
         .set(cleaned)
         .where(eq(companySettings.companyId, ctx.companyId))
         .returning();
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: "company.settings.updated",
         actor: { kind: "founder", id: null },
         payload: { diff: cleaned },

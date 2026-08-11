@@ -22,6 +22,8 @@ import { registerOrgRoutes } from "./modules/org/routes.js";
 import { OrgService } from "./modules/org/service.js";
 import { registerAgentRoutes } from "./modules/agents/routes.js";
 import { AgentsService } from "./modules/agents/service.js";
+import { registerEventRoutes } from "./modules/events/routes.js";
+import { EventsReadService } from "./modules/events/read.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -188,8 +190,18 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     return agentsService;
   };
 
+  let eventsReadService: EventsReadService | null = null;
+  const eventsSvc = (): EventsReadService => {
+    if (!eventsReadService) {
+      if (!options.guardedDb) throw new ApiError("internal", "events not wired");
+      eventsReadService = new EventsReadService(options.guardedDb);
+    }
+    return eventsReadService;
+  };
+
   await registerOrgRoutes(app, orgSvc, companiesSvc);
   await registerAgentRoutes(app, agentsSvc, companiesSvc);
+  await registerEventRoutes(app, eventsSvc, companiesSvc);
 
   // Domain modules (28 §2) — stubs now; routes land with T16+.
   for (const [name, plugin] of Object.entries(moduleStubs)) {

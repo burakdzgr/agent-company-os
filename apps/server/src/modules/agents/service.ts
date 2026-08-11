@@ -5,7 +5,6 @@ import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { agentMachine, formatEmployeeNumber } from "@acos/domain";
 import {
   nextSequenceValue,
-  withOutbox,
   type CompanyContext,
   type GuardedDb,
 } from "@acos/db";
@@ -17,6 +16,7 @@ import {
   orgEdges,
 } from "@acos/db/schema";
 import { OrgService, orgLockInTx } from "../org/service.js";
+import { emitDomainEvent } from "../events/emit.js";
 
 export type AgentRow = typeof agents.$inferSelect;
 export type BindingRow = typeof agentModelBindings.$inferSelect;
@@ -124,7 +124,7 @@ export class AgentsService {
         });
       }
 
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: "agent.hired",
         actor: { kind: "founder", id: null },
         agentId: agent!.id,
@@ -138,7 +138,7 @@ export class AgentsService {
         },
       });
       if (input.activate) {
-        await withOutbox(tx, ctx, {
+        await emitDomainEvent(tx, ctx, {
           type: "agent.started",
           actor: { kind: "founder", id: null },
           agentId: agent!.id,
@@ -173,7 +173,7 @@ export class AgentsService {
         .set({ status: to })
         .where(and(eq(agents.companyId, ctx.companyId), eq(agents.id, agentId)))
         .returning();
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: eventType,
         actor: { kind: "founder", id: null },
         agentId,
@@ -284,13 +284,13 @@ export class AgentsService {
             or(eq(orgEdges.fromAgentId, agentId), eq(orgEdges.toAgentId, agentId)),
           ),
         )
-        .returning({ id: orgEdges.id });
+        .returning({ id: orgEdges.id, endedAt: orgEdges.endedAt });
       for (const edge of ended) {
-        await withOutbox(tx, ctx, {
+        await emitDomainEvent(tx, ctx, {
           type: "org.edge.ended",
           actor: { kind: "founder", id: null },
           agentId,
-          payload: { edgeId: edge.id, reason: "offboarding" },
+          payload: { edgeId: edge.id, endedAt: edge.endedAt?.toISOString(), reason: "offboarding" },
         });
       }
 
@@ -314,7 +314,7 @@ export class AgentsService {
         .set({ status: "offboarded", employment })
         .where(and(eq(agents.companyId, ctx.companyId), eq(agents.id, agentId)))
         .returning();
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: "agent.offboarded",
         actor: { kind: "founder", id: null },
         agentId,
@@ -342,7 +342,7 @@ export class AgentsService {
         .where(and(eq(agents.companyId, ctx.companyId), eq(agents.id, agentId)))
         .returning();
       if (!updated) return undefined;
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: "agent.updated",
         actor: { kind: "founder", id: null },
         agentId,
@@ -415,7 +415,7 @@ export class AgentsService {
               ...values,
             })
             .returning();
-      await withOutbox(tx, ctx, {
+      await emitDomainEvent(tx, ctx, {
         type: "agent.model.binding.changed",
         actor: { kind: "founder", id: null },
         agentId,

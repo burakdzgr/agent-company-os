@@ -32,6 +32,27 @@ import {
   type Agent,
   type ModelBinding,
 } from "../agents.js";
+import {
+  EventSchema,
+  EventListResponseSchema,
+  EventReplayResponseSchema,
+  type Event,
+  type EventListResponse,
+  type EventReplayResponse,
+} from "../events.js";
+
+export interface EventListFilters {
+  types?: string[];
+  actorKind?: "agent" | "founder" | "system";
+  actorId?: string;
+  taskId?: string;
+  projectId?: string;
+  agentId?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+  cursor?: string;
+}
 
 export class AcosApiError extends Error {
   constructor(public readonly problem: ProblemJson) {
@@ -182,6 +203,33 @@ export function createAcosClient(options: AcosClientOptions) {
         z
           .array(AgentSessionSchema)
           .parse(await get(`/api/v1/companies/${companyId}/agents/${agentId}/sessions`)),
+    },
+    events: {
+      list: async (companyId: string, filters: EventListFilters = {}): Promise<EventListResponse> => {
+        const search = new URLSearchParams();
+        for (const type of filters.types ?? []) search.append("types", type);
+        for (const key of ["actorKind", "actorId", "taskId", "projectId", "agentId", "from", "to", "cursor"] as const) {
+          const value = filters[key];
+          if (value !== undefined) search.set(key, value);
+        }
+        if (filters.limit !== undefined) search.set("limit", String(filters.limit));
+        const qs = search.toString();
+        return EventListResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/events${qs ? `?${qs}` : ""}`),
+        );
+      },
+      replay: async (
+        companyId: string,
+        afterSeq: number,
+        limit?: number,
+      ): Promise<EventReplayResponse> =>
+        EventReplayResponseSchema.parse(
+          await get(
+            `/api/v1/companies/${companyId}/events/replay?afterSeq=${afterSeq}${limit !== undefined ? `&limit=${limit}` : ""}`,
+          ),
+        ),
+      get: async (companyId: string, eventId: string): Promise<Event> =>
+        EventSchema.parse(await get(`/api/v1/companies/${companyId}/events/${eventId}`)),
     },
   };
 }

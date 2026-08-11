@@ -129,7 +129,8 @@ describe("companies module (T17)", () => {
         sql`${events.companyId} = ${companyId} AND ${events.type} = 'company.settings.updated'`,
       );
     expect(eventRows).toHaveLength(1);
-    expect(eventRows[0]!.seq).toBe(2); // gap-free continuation
+    // seq 1 = company.created, 2 = company.member.added (T22), 3 = settings.updated
+    expect(eventRows[0]!.seq).toBe(3); // gap-free continuation
   });
 
   it("non-members get 404 (no existence leaks — 21 §2.3)", async () => {
