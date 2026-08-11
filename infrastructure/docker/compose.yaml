@@ -168,6 +168,8 @@ services:
       # e2e/demo profile: LLM_MODE=scripted swaps in the deterministic fake
       # ModelRouter (32 §6); empty = live providers from model_providers rows.
       LLM_MODE: ${LLM_MODE:-}
+      # use_tool → Tool Gateway internal HTTP (T40, S3)
+      SERVER_INTERNAL_URL: http://server:3000
       # Dev fallbacks — override via .env in any real install (prod overlay requires them).
       MASTER_KEY: ${MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
       SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
@@ -201,14 +203,16 @@ services:
       NODE_ENV: ${NODE_ENV:-production}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       HEALTH_PORT: "3021"
-      NATS_URL: nats://nats:4222
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: acos
-      SANDBOX_MANAGER_URL: http://sandbox-manager:3010
+      # every tool effect goes through the gateway (S3) — the execution plane
+      # never talks to sandbox-manager or the DB directly (T40)
+      SERVER_INTERNAL_URL: http://server:3000
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
     depends_on:
-      nats:
-        condition: service_healthy
       temporal:
+        condition: service_healthy
+      server:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3021/healthz > /dev/null"]

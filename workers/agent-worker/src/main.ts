@@ -91,6 +91,8 @@ async function buildLiveRouter(pool: Pool, guardedDb: GuardedDb, config: Config)
 
 async function run(): Promise<void> {
   const config = loadConfigOrExit(process.env);
+  // Tool Gateway endpoint (17 §1): compose-internal, never the public proxy
+  const serverInternalUrl = process.env.SERVER_INTERNAL_URL ?? "http://server:3000";
 
   const port = Number(process.env.HEALTH_PORT ?? 3020);
   let ready = false;
@@ -149,6 +151,23 @@ async function run(): Promise<void> {
         }).catch((err: unknown) => {
           if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") throw err;
         });
+      },
+      // use_tool → Tool Gateway internal HTTP (T40; S3 single choke point)
+      invokeTool: async (req) => {
+        const res = await fetch(`${serverInternalUrl}/internal/v1/tools/invoke`, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${config.security.internalApiToken}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(req),
+        });
+        if (!res.ok) {
+          throw new Error(`tool gateway transport failure: ${res.status}`);
+        }
+        return (await res.json()) as Awaited<
+          ReturnType<NonNullable<Parameters<typeof createAgentTaskActivities>[0]["invokeTool"]>>
+        >;
       },
     }),
   };

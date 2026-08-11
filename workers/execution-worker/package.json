@@ -24,6 +24,11 @@
     "@acos/domain": "workspace:*",
     "@acos/tools": "workspace:*",
     "@acos/config": "workspace:*",
-    "@acos/contracts": "workspace:*"
+    "@acos/contracts": "workspace:*",
+    "@temporalio/activity": "^1.13.0",
+    "@temporalio/worker": "^1.13.0"
+  },
+  "devDependencies": {
+    "@temporalio/testing": "^1.13.0"
   }
 }

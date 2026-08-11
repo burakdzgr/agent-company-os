@@ -44,6 +44,40 @@ async function emitDomainEvent(tx: Tx, ctx: CompanyContext, input: NewEventInput
   return appended!;
 }
 
+/**
+ * The canonical 32 §6.1 script tool names → registry tools (T40, recorded
+ * mapping): scripted sessions speak `write_file`/`run_command`; the gateway
+ * registry speaks `fs.write`/`terminal.run`. Live models are prompted with
+ * registry names directly, so unknown names pass through untouched and the
+ * gateway fail-closes on them.
+ */
+export function mapToolCall(
+  tool: string,
+  input: unknown,
+): { toolName: string; input: unknown } {
+  const args = (input ?? {}) as Record<string, unknown>;
+  switch (tool) {
+    case "write_file":
+      return {
+        toolName: "fs.write",
+        input: {
+          path: args.path,
+          content:
+            typeof args.content === "string"
+              ? args.content
+              : `// ${String(args.contentRef ?? "generated")}`,
+        },
+      };
+    case "run_command":
+    case "run_tests":
+      return { toolName: "terminal.run", input: { command: args.command ?? "npm test" } };
+    case "read_file":
+      return { toolName: "fs.read", input: { path: args.path } };
+    default:
+      return { toolName: tool, input: args };
+  }
+}
+
 export interface AgentTaskActivityDeps {
   guardedDb: GuardedDb;
   router: ModelRouter;
@@ -55,6 +89,29 @@ export interface AgentTaskActivityDeps {
    *  delegation the child owner's agentTaskWorkflow starts. Best-effort —
    *  REJECT_DUPLICATE double-starts are swallowed by the implementation. */
   startAgentWorkflow?: ((input: { companyId: string; agentId: string; taskId: string }) => Promise<void>) | undefined;
+  /** use_tool → Tool Gateway internal HTTP (17 §4, T40). Absent in narrow
+   *  scripted tests: the pre-T40 stub observation is preserved so guard and
+   *  loop suites stay deterministic without a gateway. */
+  invokeTool?:
+    | ((req: {
+        companyId: string;
+        agentId: string;
+        taskId: string;
+        agentSessionId?: string | undefined;
+        toolName: string;
+        input: unknown;
+        idempotencyKey: string;
+      }) => Promise<{
+        invocationId: string | null;
+        decision: string;
+        status: string;
+        reason: string | null;
+        output?: unknown;
+        error?: string | undefined;
+        costCents?: number | undefined;
+        retryAfterSec?: number | undefined;
+      }>)
+    | undefined;
 }
 
 export interface SessionRef {
@@ -325,9 +382,40 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           return { ok: true, status: updated.status, reviewRequested: true };
         }
         case "use_tool": {
-          // Tool Gateway (T39) + execution queue (T40) replace this stub; the
-          // observation shape matches what scripted branches key on
-          return { ok: true, tool: action.tool, exitCode: 0, stub: true, input: action.input };
+          // T40: every tool effect traverses the Tool Gateway (S3) — it
+          // authorizes, audits, dispatches into the task workspace and
+          // records cost. The observation keeps the exitCode shape scripted
+          // branches key on ([lastExitCode:n]). Without a wired gateway
+          // (narrow tests) the pre-T40 stub observation is preserved.
+          if (!deps.invokeTool) {
+            return { ok: true, tool: action.tool, exitCode: 0, stub: true, input: action.input };
+          }
+          const mapped = mapToolCall(action.tool, action.input);
+          const res = await deps.invokeTool({
+            companyId: input.companyId,
+            agentId: input.agentId,
+            taskId: input.taskId,
+            agentSessionId: input.sessionId,
+            toolName: mapped.toolName,
+            input: mapped.input,
+            // deterministic per step ⇒ Temporal retries replay the result
+            idempotencyKey: `tool:${input.stepId}`,
+          });
+          const output = (res.output ?? {}) as { exitCode?: number };
+          const exitCode =
+            res.status === "succeeded" ? (output.exitCode ?? 0) : (output.exitCode ?? 1);
+          return {
+            ok: res.status === "succeeded",
+            tool: action.tool,
+            decision: res.decision,
+            status: res.status,
+            exitCode,
+            ...(res.output !== undefined && { output: res.output }),
+            ...(res.reason !== null && { reason: res.reason }),
+            ...(res.error !== undefined && { error: res.error }),
+            ...(res.costCents !== undefined && { costCents: res.costCents }),
+            ...(res.retryAfterSec !== undefined && { retryAfterSec: res.retryAfterSec }),
+          };
         }
         case "send_message": {
           // sentinel channel = the agent's own task thread (T36)

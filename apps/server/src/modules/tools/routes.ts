@@ -4,23 +4,13 @@
 // against the DB by the gateway. No session/PAT path exists here, the route
 // is hidden from OpenAPI, and the reverse proxy never exposes /internal/*.
 import { timingSafeEqual } from "node:crypto";
-import { z } from "zod";
 import type { FastifyInstance } from "fastify";
+import { ToolInvokeWireRequestSchema } from "@acos/contracts";
 import { companyContext } from "@acos/db";
 import type { ToolGateway } from "./gateway.js";
 
-export const ToolInvokeBodySchema = z.object({
-  companyId: z.uuid(),
-  agentId: z.uuid(),
-  toolName: z.string().min(1).max(128),
-  input: z.unknown(),
-  taskId: z.uuid().optional(),
-  agentSessionId: z.uuid().optional(),
-  workspaceId: z.uuid().optional(),
-  tainted: z.boolean().optional(),
-  scopeRelation: z.enum(["own_team", "own_department", "company", "external"]).optional(),
-  idempotencyKey: z.string().min(8).max(200).optional(),
-});
+/** The wire schema lives in @acos/contracts (shared with worker clients). */
+export const ToolInvokeBodySchema = ToolInvokeWireRequestSchema;
 
 function bearerOk(header: string | undefined, token: string): boolean {
   if (!header?.startsWith("Bearer ")) return false;

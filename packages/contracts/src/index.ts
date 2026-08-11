@@ -185,6 +185,12 @@ export {
   type ProvisionWorktreeResponse,
 } from "./sandbox.js";
 export {
+  ToolInvokeWireRequestSchema,
+  ToolInvokeWireResponseSchema,
+  type ToolInvokeWireRequest,
+  type ToolInvokeWireResponse,
+} from "./tool-invoke.js";
+export {
   ApprovalBriefSchema,
   ApprovalKindSchema,
   ApprovalStatusSchema,

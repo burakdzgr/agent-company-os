@@ -37,6 +37,15 @@ async function main(): Promise<void> {
     version: process.env.npm_package_version ?? "0.0.0",
   });
 
+  // Tool Gateway dispatch arm (T40): workspace tools execute via
+  // sandbox-manager; the gateway stays the only caller (S3)
+  const { createSandboxDispatchPort } = await import("./modules/tools/dispatch.js");
+  app.toolDispatchPort = createSandboxDispatchPort({
+    guardedDb,
+    sandboxManagerUrl: config.sandbox.managerUrl,
+    internalApiToken: config.security.internalApiToken,
+  });
+
   // message delivery signalling (11 §4.4, T33): best-effort Temporal client —
   // messages stay durable without it, agents just poll their thread slice
   try {
