@@ -106,10 +106,22 @@ async function run(): Promise<void> {
 
   const pool = new Pool({ connectionString: config.database.url });
   const guardedDb = createGuardedDb(pool);
-  const { router, routingFor } =
-    process.env.LLM_MODE === "scripted"
-      ? await buildScriptedRouter(pool)
-      : await buildLiveRouter(pool, guardedDb, config);
+  // migrations run in the server's boot — retry briefly on a fresh database
+  // (compose also orders worker after server-healthy; this covers races)
+  let routerDeps: RouterDeps | null = null;
+  for (let attempt = 1; attempt <= 10 && !routerDeps; attempt++) {
+    try {
+      routerDeps =
+        process.env.LLM_MODE === "scripted"
+          ? await buildScriptedRouter(pool)
+          : await buildLiveRouter(pool, guardedDb, config);
+    } catch (err) {
+      if (attempt === 10) throw err;
+      console.log(JSON.stringify({ msg: "router bootstrap retry", attempt, err: String(err) }));
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  }
+  const { router, routingFor } = routerDeps!;
 
   const activities = {
     ...trivialActivities,
