@@ -159,6 +159,22 @@ export {
   type RealtimeClientOptions,
 } from "./realtime-client.js";
 export {
+  IsolationLevelSchema,
+  WorkspaceMountSchema,
+  CreateWorkspaceRequestSchema,
+  WorkspaceSchema,
+  ExecRequestSchema,
+  ExecResultSchema,
+  ExecStreamAckSchema,
+  TerminalFrameSchema as SandboxTerminalFrameSchema,
+  WorkspaceListSchema,
+  type CreateWorkspaceRequest,
+  type Workspace,
+  type ExecRequest,
+  type ExecResult,
+  type SandboxTerminalFrame,
+} from "./sandbox.js";
+export {
   ApprovalBriefSchema,
   ApprovalKindSchema,
   ApprovalStatusSchema,

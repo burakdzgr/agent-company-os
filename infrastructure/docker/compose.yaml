@@ -230,6 +230,9 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SANDBOX_MANAGER_PORT: "3010"
       NATS_URL: nats://nats:4222
+      DATA_DIR: /data
+      # shared internal bearer — execution-worker authenticates with the same token
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
     volumes:
       # S1: the ONLY service that mounts the Docker socket.
       - "${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock"

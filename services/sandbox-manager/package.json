@@ -16,14 +16,20 @@
     "build": "tsc -b",
     "typecheck": "tsc -b",
     "lint": "eslint src",
-    "test": "vitest run",
+    "test": "vitest run src",
     "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "test:integration": "vitest run test/integration"
   },
   "dependencies": {
     "@acos/config": "workspace:*",
     "@acos/contracts": "workspace:*",
     "@acos/tools": "workspace:*",
-    "fastify": "^5.11.3"
+    "dockerode": "^4.0.2",
+    "fastify": "^5.11.3",
+    "nats": "^2.29.3"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.31"
   }
 }
