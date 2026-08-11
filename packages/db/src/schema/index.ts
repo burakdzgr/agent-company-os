@@ -6,3 +6,12 @@ export * from "./companies.js";
 export * from "./org.js";
 // Migration 0003
 export * from "./agents.js";
+export * from "./projects.js";
+export * from "./tasks.js";
+export * from "./events.js";
+export * from "./communication.js";
+export * from "./memory.js";
+export * from "./skills.js";
+export * from "./governance.js";
+export * from "./workspaces-costs.js";
+export * from "./marketing.js";
