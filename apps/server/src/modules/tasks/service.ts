@@ -435,6 +435,7 @@ export class TaskStateService {
       reason?: string | undefined;
     },
     actor: TaskActorInput,
+    opts: { force?: boolean | undefined } = {},
   ): Promise<TaskRow> {
     const role = input.role ?? "owner";
     return this.db.transaction(async (tx) => {
@@ -480,11 +481,19 @@ export class TaskStateService {
         return task; // no-op
       }
 
+      let forced = false;
       if (isReassignment && task.reassignmentCount >= 3) {
-        throw new TaskEngineError(
-          "TASK_REASSIGNMENT_LIMIT",
-          "reassignment limit (3) reached — manager intervention required (07 §8)",
-        );
+        // 07 §8: only Manager+ with an explicit force_reassign override
+        // (audited via the task.reassigned note) may move it again
+        const classes = await this.actorClasses(tx, ctx, actor, task);
+        const managerial = classes.includes("manager") || classes.includes("founder");
+        if (!opts.force || !managerial) {
+          throw new TaskEngineError(
+            "TASK_REASSIGNMENT_LIMIT",
+            "reassignment limit (3) reached — manager intervention required (07 §8)",
+          );
+        }
+        forced = true;
       }
 
       await tx
@@ -507,7 +516,8 @@ export class TaskStateService {
         reason: input.reason ?? null,
       });
 
-      const reassignmentCount = task.reassignmentCount + (isReassignment ? 1 : 0);
+      // a forced move keeps the count at the cap (DB CHECK <= 3)
+      const reassignmentCount = task.reassignmentCount + (isReassignment && !forced ? 1 : 0);
       const [updated] = await tx
         .update(tasks)
         .set({
@@ -546,6 +556,7 @@ export class TaskStateService {
             fromAgentId: previousOwner ?? undefined,
             toAgentId: input.agentId,
             reassignmentCount,
+            ...(forced && { note: "force_reassign override" }),
           },
         });
       }
