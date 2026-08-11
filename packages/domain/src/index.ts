@@ -4,7 +4,7 @@ export * from "./state-machines/index.js";
 export * from "./policies/index.js";
 
 export { DomainError } from "./errors.js";
-export { uuidv7, isUuid, isUuidv7, uuidv7Timestamp, type Uuidv7Options } from "./ids.js";
+export { uuidv7, uuidv5, isUuid, isUuidv7, uuidv7Timestamp, type Uuidv7Options } from "./ids.js";
 
 // Value objects
 export {

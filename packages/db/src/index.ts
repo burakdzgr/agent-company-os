@@ -45,3 +45,12 @@ export type Db = NodePgDatabase<typeof schema>;
 export function createDb(pool: Pool): Db {
   return drizzle(pool, { schema });
 }
+export {
+  TaskEngineError,
+  TasksService,
+  TaskStateService,
+  formatTaskNumber,
+  // repositories/tasks.js already claims TaskRow — alias the engine's row type
+  type TaskRow as TaskEngineRow,
+  type TaskActorInput,
+} from "./task-engine.js";

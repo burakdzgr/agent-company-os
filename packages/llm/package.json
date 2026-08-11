@@ -8,10 +8,15 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./agent-action": {
+      "types": "./dist/agent-action.d.ts",
+      "default": "./dist/agent-action.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"

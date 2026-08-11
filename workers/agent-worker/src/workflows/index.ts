@@ -21,3 +21,9 @@ export async function pingWorkflow(input: PingInput): Promise<string> {
   const echoed = await echoActivity(input.note);
   return `pong:${input.companyId}:${echoed}`;
 }
+
+export {
+  agentTaskWorkflow,
+  type AgentTaskInput,
+  type AgentTaskOutcome,
+} from "./agent-task.workflow.js";
