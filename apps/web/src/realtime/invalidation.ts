@@ -18,6 +18,7 @@ export function invalidationKeysFor(cid: string, event: Event): QueryKey[] {
       invalidated.push(keys.agentBindings(cid, agentId));
     if (type.startsWith("agent.session") && agentId)
       invalidated.push(keys.agentSessions(cid, agentId));
+    if (type === "agent.task.assigned") invalidated.push([cid, "tasks"]);
     return invalidated;
   }
   if (
@@ -31,6 +32,9 @@ export function invalidationKeysFor(cid: string, event: Event): QueryKey[] {
   }
   if (type.startsWith("company.")) {
     return [[cid, "settings"], keys.companies];
+  }
+  if (type.startsWith("task.")) {
+    return [[cid, "tasks"]]; // prefix — list, dag and detail queries all match
   }
   return [];
 }

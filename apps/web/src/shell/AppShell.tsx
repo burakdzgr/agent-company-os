@@ -10,7 +10,7 @@ import { RealtimeDispatcher, useRealtimeStatus } from "../realtime/RealtimeDispa
 
 const NAV_ITEMS: Array<{ label: string; path?: string }> = [
   { label: "OFFICE", path: "/c/$companyId/office" },
-  { label: "TASKS" },
+  { label: "TASKS", path: "/c/$companyId/tasks" },
   { label: "AGENTS", path: "/c/$companyId/agents" },
   { label: "PROJECTS" },
   { label: "MEMORY" },

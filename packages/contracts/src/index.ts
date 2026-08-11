@@ -94,6 +94,28 @@ export {
   type EventsDataFrame,
 } from "./realtime.js";
 export {
+  TASK_NEXT_STATUSES,
+  TaskKindSchema,
+  TaskPrioritySchema,
+  TaskStatusSchema,
+  TaskRiskLevelSchema,
+  TaskSchema,
+  CreateTaskRequestSchema,
+  UpdateTaskRequestSchema,
+  TaskTransitionRequestSchema,
+  TaskListQuerySchema,
+  CreateDependencyRequestSchema,
+  TaskDependencySchema,
+  TaskDependenciesResponseSchema,
+  CreateAssignmentRequestSchema,
+  TaskAssignmentSchema,
+  TaskTreeNodeSchema,
+  type Task,
+  type TaskAssignment,
+  type TaskDependency,
+  type TaskTreeNode,
+} from "./tasks.js";
+export {
   CellSchema,
   OfficeDeskSchema,
   OfficeZoneSchema,

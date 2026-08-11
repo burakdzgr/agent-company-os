@@ -25,6 +25,8 @@ import { registerAgentRoutes } from "./modules/agents/routes.js";
 import { AgentsService } from "./modules/agents/service.js";
 import { registerEventRoutes } from "./modules/events/routes.js";
 import { EventsReadService } from "./modules/events/read.js";
+import { registerTaskRoutes } from "./modules/tasks/routes.js";
+import { TasksService, TaskStateService } from "./modules/tasks/service.js";
 import { RealtimeGateway } from "./modules/realtime/gateway.js";
 import { createOfficeProjector } from "./modules/office/wiring.js";
 import type { OfficeProjector } from "./modules/office/projector.js";
@@ -208,9 +210,27 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     return eventsReadService;
   };
 
+  let tasksService: TasksService | null = null;
+  const tasksSvc = (): TasksService => {
+    if (!tasksService) {
+      if (!options.guardedDb) throw new ApiError("internal", "tasks not wired");
+      tasksService = new TasksService(options.guardedDb);
+    }
+    return tasksService;
+  };
+  let taskStateService: TaskStateService | null = null;
+  const taskStateSvc = (): TaskStateService => {
+    if (!taskStateService) {
+      if (!options.guardedDb) throw new ApiError("internal", "tasks not wired");
+      taskStateService = new TaskStateService(options.guardedDb);
+    }
+    return taskStateService;
+  };
+
   await registerOrgRoutes(app, orgSvc, companiesSvc);
   await registerAgentRoutes(app, agentsSvc, companiesSvc);
   await registerEventRoutes(app, eventsSvc, companiesSvc);
+  await registerTaskRoutes(app, tasksSvc, taskStateSvc, companiesSvc);
 
   // ---------- /ws gateway (T23; 21 §4, 22 §2–8) ----------
   await app.register(websocket, { options: { maxPayload: 131_072 } }); // 128 KB (22 §8)

@@ -40,6 +40,16 @@ import {
   type EventListResponse,
   type EventReplayResponse,
 } from "../events.js";
+import {
+  TaskSchema,
+  TaskAssignmentSchema,
+  TaskDependenciesResponseSchema,
+  TaskDependencySchema,
+  TaskTreeNodeSchema,
+  type Task,
+  type TaskAssignment,
+  type TaskTreeNode,
+} from "../tasks.js";
 
 export interface EventListFilters {
   types?: string[];
@@ -203,6 +213,83 @@ export function createAcosClient(options: AcosClientOptions) {
         z
           .array(AgentSessionSchema)
           .parse(await get(`/api/v1/companies/${companyId}/agents/${agentId}/sessions`)),
+    },
+    tasks: {
+      list: async (
+        companyId: string,
+        filters: Record<string, string | string[] | undefined> = {},
+      ): Promise<Task[]> => {
+        const search = new URLSearchParams();
+        for (const [key, value] of Object.entries(filters)) {
+          if (value === undefined) continue;
+          for (const v of Array.isArray(value) ? value : [value]) search.append(key, v);
+        }
+        const qs = search.toString();
+        return z
+          .array(TaskSchema)
+          .parse(await get(`/api/v1/companies/${companyId}/tasks${qs ? `?${qs}` : ""}`));
+      },
+      create: async (
+        companyId: string,
+        body: {
+          kind: string;
+          title: string;
+          objective: string;
+          parentId?: string;
+          projectId?: string;
+          priority?: string;
+          risk?: string;
+          successCriteria?: string[];
+          budgetCents?: number;
+          deadline?: string;
+          orgUnitId?: string;
+        },
+      ): Promise<Task> =>
+        TaskSchema.parse(await post(`/api/v1/companies/${companyId}/tasks`, body)),
+      get: async (companyId: string, taskId: string): Promise<Task> =>
+        TaskSchema.parse(await get(`/api/v1/companies/${companyId}/tasks/${taskId}`)),
+      update: async (companyId: string, taskId: string, body: Record<string, unknown>): Promise<Task> =>
+        TaskSchema.parse(
+          await request("PATCH", `/api/v1/companies/${companyId}/tasks/${taskId}`, body),
+        ),
+      transition: async (
+        companyId: string,
+        taskId: string,
+        body: { to: string; reason?: string },
+      ): Promise<Task> =>
+        TaskSchema.parse(
+          await post(`/api/v1/companies/${companyId}/tasks/${taskId}/transitions`, body),
+        ),
+      tree: async (companyId: string, taskId: string): Promise<{ root: TaskTreeNode }> =>
+        z
+          .object({ root: TaskTreeNodeSchema })
+          .parse(await get(`/api/v1/companies/${companyId}/tasks/${taskId}/tree`)),
+      dependencies: async (companyId: string, taskId: string) =>
+        TaskDependenciesResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/tasks/${taskId}/dependencies`),
+        ),
+      dag: async (companyId: string) =>
+        z
+          .object({ edges: z.array(TaskDependencySchema) })
+          .parse(await get(`/api/v1/companies/${companyId}/tasks/dag`)),
+      addDependency: async (companyId: string, taskId: string, dependsOnTaskId: string) =>
+        TaskDependencySchema.parse(
+          await post(`/api/v1/companies/${companyId}/tasks/${taskId}/dependencies`, {
+            dependsOnTaskId,
+          }),
+        ),
+      assignments: async (companyId: string, taskId: string): Promise<TaskAssignment[]> =>
+        z
+          .array(TaskAssignmentSchema)
+          .parse(await get(`/api/v1/companies/${companyId}/tasks/${taskId}/assignments`)),
+      assign: async (
+        companyId: string,
+        taskId: string,
+        body: { agentId: string; role?: "owner" | "reviewer" | "qa" | "collaborator"; reason?: string },
+      ): Promise<Task> =>
+        TaskSchema.parse(
+          await post(`/api/v1/companies/${companyId}/tasks/${taskId}/assignments`, body),
+        ),
     },
     events: {
       list: async (companyId: string, filters: EventListFilters = {}): Promise<EventListResponse> => {
