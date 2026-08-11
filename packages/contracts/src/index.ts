@@ -39,3 +39,20 @@ export {
   type Company,
   type CompanySettings,
 } from "./companies.js";
+export {
+  UnitKindSchema,
+  EdgeKindSchema,
+  OrgUnitSchema,
+  CreateOrgUnitRequestSchema,
+  MoveOrgUnitRequestSchema,
+  PositionSchema,
+  CreatePositionRequestSchema,
+  OrgEdgeSchema,
+  CreateOrgEdgeRequestSchema,
+  EscalationChainSchema,
+  TeamRosterEntrySchema,
+  type OrgUnit,
+  type Position,
+  type OrgEdge,
+  type EscalationChain,
+} from "./org.js";

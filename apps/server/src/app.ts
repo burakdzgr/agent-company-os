@@ -18,6 +18,8 @@ import { registerAuthRoutes } from "./modules/auth/routes.js";
 import { AuthService, CSRF_COOKIE, SESSION_COOKIE, type UserRow } from "./modules/auth/service.js";
 import { registerCompanyRoutes } from "./modules/companies/routes.js";
 import { CompanyService } from "./modules/companies/service.js";
+import { registerOrgRoutes } from "./modules/org/routes.js";
+import { OrgService } from "./modules/org/service.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -165,7 +167,17 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
 
   await registerHealthRoutes(app, options.healthCheckers, options.version ?? "0.0.0");
   await registerAuthRoutes(app, auth);
+  let orgService: OrgService | null = null;
+  const orgSvc = (): OrgService => {
+    if (!orgService) {
+      if (!options.guardedDb) throw new ApiError("internal", "org not wired");
+      orgService = new OrgService(options.guardedDb);
+    }
+    return orgService;
+  };
+
   await registerCompanyRoutes(app, companiesSvc);
+  await registerOrgRoutes(app, orgSvc, companiesSvc);
 
   // Domain modules (28 §2) — stubs now; routes land with T16+.
   for (const [name, plugin] of Object.entries(moduleStubs)) {
