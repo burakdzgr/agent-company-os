@@ -1,4 +1,4 @@
-// T12 acceptance: all 11 migrations apply in order; row-level insert/read on
+// T12 acceptance (+0012 from T21): all 12 migrations apply in order; row-level insert/read on
 // EVERY table — dark Phase-2 tables included.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
@@ -86,11 +86,11 @@ async function insertBase(): Promise<void> {
 }
 
 describe("migrations 0001–0011 + row-level coverage of every table (T12)", () => {
-  it("applies all 11 migrations", async () => {
+  it("applies all 12 migrations", async () => {
     const { rows } = await client.query(
       'SELECT count(*)::int AS n FROM drizzle."__drizzle_migrations"',
     );
-    expect(rows[0].n).toBe(11);
+    expect(rows[0].n).toBe(12);
   });
 
   it("inserts and reads a row in every table", async () => {
@@ -314,6 +314,12 @@ describe("migrations 0001–0011 + row-level coverage of every table (T12)", () 
     await client.query(
       `INSERT INTO metric_snapshots (id, company_id, content_item_id, platform, captured_at, views) VALUES (gen_random_uuid(), $1,$2,'instagram', now(), 1000)`,
       [U.company, U.contentItem],
+    );
+
+    // ---- 0012 consumer offsets ----
+    await client.query(
+      `INSERT INTO consumer_offsets (consumer, company_id, last_seq) VALUES ('office-projector', $1, 1)`,
+      [U.company],
     );
 
     // every table now has ≥1 row
