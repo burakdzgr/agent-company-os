@@ -15,3 +15,5 @@ export * from "./skills.js";
 export * from "./governance.js";
 export * from "./workspaces-costs.js";
 export * from "./marketing.js";
+// Migration 0012
+export * from "./consumer-offsets.js";

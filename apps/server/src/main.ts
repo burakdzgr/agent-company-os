@@ -2,7 +2,11 @@
 import { Pool } from "pg";
 import { loadConfigOrExit } from "@acos/config";
 import { createDb, createGuardedDb, runMigrations } from "@acos/db";
+import { connect as natsConnect } from "nats";
 import { buildApp } from "./app.js";
+import { provisionJetStream } from "./modules/events/jetstream.js";
+import { OutboxRelay } from "./modules/events/relay.js";
+import { DlqHandler } from "./modules/events/dlq.js";
 import { buildCheckers } from "./checkers.js";
 
 async function main(): Promise<void> {
@@ -32,7 +36,29 @@ async function main(): Promise<void> {
     version: process.env.npm_package_version ?? "0.0.0",
   });
 
+  const nats = await natsConnect({ servers: config.nats.url }).catch((err: unknown) => {
+    app.log.error({ err }, "NATS unavailable at boot — outbox relay disabled");
+    return null;
+  });
+  let relay: OutboxRelay | null = null;
+  let dlq: DlqHandler | null = null;
+  if (nats) {
+    await provisionJetStream(nats);
+    relay = new OutboxRelay({
+      connectionString: config.database.url,
+      nats,
+      onError: (err) => app.log.error({ err }, "outbox relay error"),
+    });
+    await relay.start();
+    dlq = new DlqHandler(nats, createDb(pool));
+    await dlq.start();
+    app.log.info("outbox relay + DLQ handler started");
+  }
+
   const close = async () => {
+    await relay?.stop();
+    await dlq?.stop();
+    await nats?.close().catch(() => {});
     await app.close();
     await pool.end();
     process.exit(0);
