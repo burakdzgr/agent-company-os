@@ -15,11 +15,14 @@ import {
 } from "@acos/contracts";
 import type { DockerSandbox } from "./docker.js";
 import type { GitWorkspaces } from "./git.js";
+import { readLogTail, readLogText } from "./terminal-log.js";
 
 export interface AppDeps {
   sandbox: DockerSandbox;
   git: GitWorkspaces;
   internalApiToken: string;
+  /** DATA_DIR/terminals — rolling logs for ring fallback + downloads (T41). */
+  terminalsDir?: string;
   logger?: boolean;
 }
 
@@ -66,9 +69,14 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       }
       const { workspaceId } = request.params;
       if (parsed.data.sessionId) {
-        // streaming: ack now, frames flow over NATS; the exec runs in the
-        // background and its terminal session carries the output
         const session = deps.sandbox.newTerminalSession(parsed.data.sessionId);
+        if (parsed.data.waitForResult) {
+          // T41: frames stream live over NATS `term.<id>` WHILE the caller
+          // awaits the buffered result — the tool path wants both
+          const result = await deps.sandbox.exec(workspaceId, parsed.data, session);
+          return reply.status(200).send(result);
+        }
+        // fire-and-forget streaming: ack now, frames flow over NATS
         void deps.sandbox
           .exec(workspaceId, parsed.data, session)
           .catch((err) => app.log.error({ err, workspaceId }, "streaming exec failed"));
@@ -76,6 +84,48 @@ export function buildApp(deps: AppDeps): FastifyInstance {
       }
       const result: ExecResult = await deps.sandbox.exec(workspaceId, parsed.data);
       return reply.status(200).send(result);
+    },
+  );
+
+  // --- Terminal replay + scrollback (22 §5.2, T41) ---
+
+  app.get<{ Params: { sessionId: string } }>(
+    "/internal/v1/terminals/:sessionId/ring",
+    async (request, reply) => {
+      const { sessionId } = request.params;
+      const live = deps.sandbox.terminalSession(sessionId);
+      if (live) {
+        return reply.send({
+          frames: live.ringFrames(),
+          currentSeq: live.currentSeq,
+          source: "ring",
+        });
+      }
+      if (deps.terminalsDir) {
+        const frames = await readLogTail(deps.terminalsDir, sessionId).catch(() => []);
+        if (frames.length > 0) {
+          return reply.send({
+            frames,
+            currentSeq: frames[frames.length - 1]!.seq,
+            source: "log",
+          });
+        }
+      }
+      return reply.send({ frames: [], currentSeq: 0, source: "none" });
+    },
+  );
+
+  app.get<{ Params: { sessionId: string } }>(
+    "/internal/v1/terminals/:sessionId/log",
+    async (request, reply) => {
+      if (!deps.terminalsDir) {
+        return reply.status(404).send({ code: "not_found", message: "no log storage" });
+      }
+      const text = await readLogText(deps.terminalsDir, request.params.sessionId).catch(() => null);
+      if (text === null) {
+        return reply.status(404).send({ code: "not_found", message: "no log for session" });
+      }
+      return reply.type("text/plain; charset=utf-8").send(text);
     },
   );
 

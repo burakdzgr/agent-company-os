@@ -3,18 +3,35 @@
 // is replayed from the events table and the stream continues live with no
 // gaps or duplicates. Plus: auth (cookie + ?pat=), topic authorization,
 // ping/pong, bad ops.
+import { createServer, type Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Pool } from "pg";
+import { eq } from "drizzle-orm";
 import { connect, type NatsConnection } from "nats";
 import WebSocket from "ws";
 import { createDb, createGuardedDb, runMigrations, type Db, type GuardedDb } from "@acos/db";
+import { projects, terminalSessions, users, workspaces } from "@acos/db/schema";
 import { buildApp, type App } from "../../src/app.js";
 import { OutboxRelay } from "../../src/modules/events/relay.js";
 import { ensureStream } from "../../src/modules/events/jetstream.js";
 import { startNats, startPostgres, type StartedPostgreSqlContainer } from "./helpers";
 
 const MASTER_KEY = Buffer.alloc(32, 11).toString("base64");
+const INTERNAL_TOKEN = "ws-internal-token-0123456789";
 const ok = async () => {};
+
+/** Mutable fake of sandbox-manager's ring endpoint (22 §5.2 source). */
+const ringState: { frames: { seq: number; ts: number; stream: string; data: string }[] } = {
+  frames: [],
+};
+const termFrame = (seq: number, text: string) => ({
+  seq,
+  ts: seq * 1000,
+  stream: "stdout",
+  data: Buffer.from(text).toString("base64"),
+});
+let ringServer: Server;
+let ringUrl = "";
 
 let pgContainer: StartedPostgreSqlContainer;
 let natsHandle: Awaited<ReturnType<typeof startNats>>;
@@ -103,10 +120,31 @@ beforeAll(async () => {
   [pgContainer, natsHandle] = await Promise.all([startPostgres(), startNats()]);
   await runMigrations(pgContainer.getConnectionUri());
   pool = new Pool({ connectionString: pgContainer.getConnectionUri() });
+  pool.on("error", () => {}); // teardown race: idle-client FATAL when the container stops
   db = createDb(pool);
   guardedDb = createGuardedDb(pool);
   nc = await connect({ servers: natsHandle.url });
   await ensureStream(await nc.jetstreamManager());
+
+  // fake sandbox-manager ring endpoint (T41) — mutable per-test state
+  ringServer = createServer((req, res) => {
+    const match = /^\/internal\/v1\/terminals\/([0-9a-f-]{36})\/ring$/.exec(req.url ?? "");
+    if (!match) {
+      res.writeHead(404).end();
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        frames: ringState.frames,
+        currentSeq: ringState.frames.at(-1)?.seq ?? 0,
+        source: "ring",
+      }),
+    );
+  });
+  await new Promise<void>((resolve) => ringServer.listen(0, "127.0.0.1", resolve));
+  const ringAddress = ringServer.address() as { port: number };
+  ringUrl = `http://127.0.0.1:${ringAddress.port}`;
 
   app = await buildApp({
     healthCheckers: { postgres: ok, nats: ok, temporal: ok },
@@ -114,6 +152,8 @@ beforeAll(async () => {
     db,
     guardedDb,
     masterKey: MASTER_KEY,
+    internalApiToken: INTERNAL_TOKEN,
+    sandboxManagerUrl: ringUrl,
   });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address() as { port: number };
@@ -145,6 +185,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await relay?.stop();
   await app?.close();
+  ringServer?.close();
   await nc?.close().catch(() => {});
   await pool?.end();
   await pgContainer?.stop();
@@ -280,5 +321,112 @@ describe("/ws gateway (T23)", () => {
     const bad = new WsProbe(undefined, `?pat=${scopeless.token}`);
     const { code } = await bad.closed;
     expect(code).toBe(4401);
+  });
+});
+
+describe("terminal:<sessionId> streaming (T41, 22 §5.2)", () => {
+  let sessionId = "";
+
+  /** Frames received on the terminal topic (they ride the `frames` key). */
+  const terminalSeqs = (probe: WsProbe, topic: string): number[] =>
+    probe.frames
+      .filter((f): f is { topic: string; frames: Array<{ seq: number }> } => {
+        const frame = f as { topic?: string; frames?: unknown };
+        return frame.topic === topic && Array.isArray(frame.frames);
+      })
+      .flatMap((f) => f.frames.map((x) => x.seq));
+
+  beforeAll(async () => {
+    // session → workspace → project → company auth chain (22 §8)
+    const [founder] = await db.select().from(users).where(eq(users.email, "founder@ws.local"));
+    const [project] = await db
+      .insert(projects)
+      .values({
+        companyId,
+        slug: "termproj",
+        name: "Terminal Project",
+        objectiveMd: "x",
+        createdByUserId: founder!.id,
+      })
+      .returning();
+    const [workspace] = await db
+      .insert(workspaces)
+      .values({
+        companyId,
+        projectId: project!.id,
+        isolationLevel: "coding",
+        image: "acos/workspace-node",
+        status: "in_use",
+      })
+      .returning();
+    const [session] = await db
+      .insert(terminalSessions)
+      .values({
+        companyId,
+        workspaceId: workspace!.id,
+        title: "npm install",
+        logPath: "/data/terminals/x.log",
+      })
+      .returning();
+    sessionId = session!.id;
+  });
+
+  it("subscribe → ring replay → live NATS frames; kill → resume replays the ring after_seq", async () => {
+    const topic = `terminal:${sessionId}`;
+    ringState.frames = [termFrame(1, "npm install\r\n"), termFrame(2, "added 1 package\r\n")];
+
+    // -- attach: ring replays first --
+    const probe = new WsProbe({ cookie: `acos_session=${sessionCookie}` });
+    await probe.expectFrame((f) => (f as { op?: string }).op === "hello");
+    probe.send({ op: "subscribe", topics: [topic] });
+    const subOk = await probe.expectFrame<{ current_seq: number }>(
+      (f) => (f as { op?: string }).op === "sub_ok",
+    );
+    expect(subOk.current_seq).toBe(2);
+    await probe.expectFrame(
+      (f) => Array.isArray((f as { frames?: unknown }).frames),
+    );
+    expect(terminalSeqs(probe, topic)).toEqual([1, 2]);
+
+    // -- live PTY flow: sandbox-manager publishes on term.<sessionId> --
+    const live = termFrame(3, "added 2 packages\r\n");
+    ringState.frames.push(live);
+    nc.publish(`term.${sessionId}`, JSON.stringify(live));
+    await probe.expectFrame(
+      (f) =>
+        Array.isArray((f as { frames?: Array<{ seq: number }> }).frames) &&
+        (f as { frames: Array<{ seq: number }> }).frames.some((x) => x.seq === 3),
+    );
+    expect(terminalSeqs(probe, topic)).toEqual([1, 2, 3]);
+
+    // -- WS kill → output continues → reconnect resumes from the ring --
+    probe.close();
+    ringState.frames.push(termFrame(4, "done in 3s\r\n"));
+
+    const resumed = new WsProbe({ cookie: `acos_session=${sessionCookie}` });
+    await resumed.expectFrame((f) => (f as { op?: string }).op === "hello");
+    resumed.send({ op: "resume", topic, after_seq: 3 });
+    await resumed.expectFrame((f) => (f as { op?: string }).op === "sub_ok");
+    await resumed.expectFrame(
+      (f) => Array.isArray((f as { frames?: unknown }).frames),
+    );
+    expect(terminalSeqs(resumed, topic)).toEqual([4]); // exactly the missed tail
+    resumed.close();
+  });
+
+  it("a resume older than the ring window gets an acknowledged gap notice", async () => {
+    const topic = `terminal:${sessionId}`;
+    ringState.frames = [termFrame(7, "late\r\n"), termFrame(8, "tail\r\n")];
+
+    const probe = new WsProbe({ cookie: `acos_session=${sessionCookie}` });
+    await probe.expectFrame((f) => (f as { op?: string }).op === "hello");
+    probe.send({ op: "resume", topic, after_seq: 2 });
+    const gap = await probe.expectFrame<{ from_seq: number; to_seq: number }>(
+      (f) => (f as { op?: string }).op === "gap",
+    );
+    expect(gap).toMatchObject({ from_seq: 3, to_seq: 6 }); // dropped range, acknowledged
+    await probe.expectFrame((f) => Array.isArray((f as { frames?: unknown }).frames));
+    expect(terminalSeqs(probe, topic)).toEqual([7, 8]);
+    probe.close();
   });
 });

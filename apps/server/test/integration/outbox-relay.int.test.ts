@@ -60,6 +60,7 @@ beforeAll(async () => {
   [pgContainer, natsHandle] = await Promise.all([startPostgres(), startNats()]);
   await runMigrations(pgContainer.getConnectionUri());
   pool = new Pool({ connectionString: pgContainer.getConnectionUri() });
+  pool.on("error", () => {}); // teardown race: idle-client FATAL when the container stops
   db = createDb(pool);
   nc = await connect({ servers: natsHandle.url });
   await ensureStream(await nc.jetstreamManager());

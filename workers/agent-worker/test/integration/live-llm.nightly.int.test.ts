@@ -61,6 +61,7 @@ describe.skipIf(!LIVE)("nightly: live-LLM toolless run (T36)", () => {
     [pgContainer, temporal] = await Promise.all([startPostgres(), startTemporal()]);
     await runMigrations(pgContainer.getConnectionUri());
     pool = new Pool({ connectionString: pgContainer.getConnectionUri() });
+    pool.on("error", () => {}); // teardown race: idle-client FATAL when the container stops
     db = createDb(pool);
     guardedDb = createGuardedDb(pool);
 

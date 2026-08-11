@@ -223,6 +223,9 @@ export class RealtimeClient {
       const fresh = frames.filter((f) => state.lastSeq === null || f.seq > state.lastSeq);
       if (fresh.length === 0) return;
       state.lastSeq = fresh[fresh.length - 1]!.seq;
+      // cursor persists so a reconnect resumes after_seq (ring replay, T41);
+      // terminal gaps are ACKNOWLEDGED (lossy contract) — never re-resume
+      this.persistCursor(topic, state);
       this.dispatch(state, fresh, { topic, seq: state.lastSeq, kind: "terminal" });
       return;
     }

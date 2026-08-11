@@ -84,10 +84,18 @@ class SandboxHttp {
   }
   exec(
     workspaceId: string,
-    input: { command: string[]; env?: Record<string, string>; timeoutMs: number; cwd?: string },
+    input: {
+      command: string[];
+      env?: Record<string, string>;
+      timeoutMs: number;
+      cwd?: string;
+      /** Stream PTY frames to NATS `term.<sessionId>` while awaiting (T41). */
+      sessionId?: string;
+    },
   ) {
     return this.request<ExecResult>("POST", `/internal/v1/workspaces/${workspaceId}/exec`, {
       env: {},
+      ...(input.sessionId && { waitForResult: true }),
       ...input,
     });
   }
@@ -158,13 +166,16 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
   async function execScript(
     workspaceId: string,
     script: string,
-    opts: { timeoutMs: number; env?: Record<string, string> } = { timeoutMs: 60_000 },
+    opts: { timeoutMs: number; env?: Record<string, string>; sessionId?: string } = {
+      timeoutMs: 60_000,
+    },
   ): Promise<ExecResult> {
     return http.exec(workspaceId, {
       command: ["/bin/sh", "-lc", script],
       cwd: "/work",
       timeoutMs: opts.timeoutMs,
       ...(opts.env && { env: opts.env }),
+      ...(opts.sessionId && { sessionId: opts.sessionId }),
     });
   }
 
@@ -210,6 +221,8 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
           try {
             const result = await execScript(ws.id, String(args.command), {
               timeoutMs: timeoutSec * 1000,
+              // live PTY frames on term.<sessionId> while we await (T41)
+              sessionId: session.id,
               env: {
                 // hardened rootfs is read-only — point every writer at /tmp
                 HOME: "/tmp",

@@ -167,6 +167,7 @@ export {
   ExecResultSchema,
   ExecStreamAckSchema,
   TerminalFrameSchema as SandboxTerminalFrameSchema,
+  TerminalRingResponseSchema,
   WorkspaceListSchema,
   TASK_BRANCH_PATTERN,
   WORKTREE_VOLUME_PATTERN,
@@ -179,6 +180,7 @@ export {
   type ExecRequest,
   type ExecResult,
   type SandboxTerminalFrame,
+  type TerminalRingResponse,
   type EnsureRepoRequest,
   type EnsureRepoResponse,
   type ProvisionWorktreeRequest,
@@ -190,6 +192,13 @@ export {
   type ToolInvokeWireRequest,
   type ToolInvokeWireResponse,
 } from "./tool-invoke.js";
+export {
+  TerminalSessionDtoSchema,
+  TerminalListQuerySchema,
+  TerminalListResponseSchema,
+  type TerminalSessionDto,
+  type TerminalListResponse,
+} from "./terminals.js";
 export {
   ApprovalBriefSchema,
   ApprovalKindSchema,

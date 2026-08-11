@@ -18,12 +18,20 @@ const workspace: Workspace = {
   createdAt: "2026-08-11T00:00:00.000Z",
 };
 
+const RING_SESSION = "018f0000-0000-7000-8000-00000000ea11";
+const ringFrames = [
+  { seq: 1, ts: 1000, stream: "stdout", data: Buffer.from("hello ").toString("base64") },
+  { seq: 2, ts: 2000, stream: "stdout", data: Buffer.from("world\n").toString("base64") },
+];
+
 const fakeSandbox = {
   createWorkspace: async () => workspace,
   list: async () => [workspace],
   exec: async () => ({ exitCode: 0, stdout: "ok\n", stderr: "", durationMs: 5, timedOut: false }),
   destroyWorkspace: async () => {},
   newTerminalSession: () => ({}) as never,
+  terminalSession: (id: string) =>
+    id === RING_SESSION ? { ringFrames: () => ringFrames, currentSeq: 2 } : undefined,
 } as unknown as DockerSandbox;
 
 const HEAD = "a".repeat(40);
@@ -186,5 +194,35 @@ describe("git model routes (T38)", () => {
       headers: auth,
     });
     expect(bad.statusCode).toBe(400);
+  });
+});
+
+describe("terminal ring/log routes (T41)", () => {
+  it("serves the live ring for a tracked session", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/internal/v1/terminals/${RING_SESSION}/ring`,
+      headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ source: "ring", currentSeq: 2 });
+    expect(res.json().frames).toHaveLength(2);
+  });
+
+  it("falls back to `none` for unknown sessions without log storage", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/internal/v1/terminals/018f0000-0000-7000-8000-00000000dead/ring",
+      headers: auth,
+    });
+    expect(res.json()).toMatchObject({ source: "none", frames: [], currentSeq: 0 });
+  });
+
+  it("requires the internal bearer on terminal routes too", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/internal/v1/terminals/${RING_SESSION}/ring`,
+    });
+    expect(res.statusCode).toBe(401);
   });
 });

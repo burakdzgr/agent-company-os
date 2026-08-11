@@ -43,6 +43,7 @@ beforeAll(async () => {
   container = await startPostgres();
   await runMigrations(container.getConnectionUri());
   pool = new Pool({ connectionString: container.getConnectionUri(), max: 10 });
+  pool.on("error", () => {}); // teardown race: idle-client FATAL when the container stops
   system = createDb(pool);
   guarded = createGuardedDb(pool);
 

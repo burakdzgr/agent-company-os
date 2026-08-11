@@ -43,8 +43,11 @@ export const ExecRequestSchema = z.object({
   command: z.array(z.string()).min(1),
   cwd: z.string().optional(),
   env: z.record(z.string(), z.string()).default({}),
-  /** Stream PTY frames to NATS `term.<sessionId>` instead of buffering. */
+  /** Stream PTY frames to NATS `term.<sessionId>` while executing. */
   sessionId: z.uuid().optional(),
+  /** With sessionId: await the result (frames still stream live) instead of
+   *  the fire-and-forget 202 ack (T41 — tools want frames AND the result). */
+  waitForResult: z.boolean().default(false),
   timeoutMs: z.number().int().min(1).max(3_600_000).default(120_000),
 });
 export type ExecRequest = z.infer<typeof ExecRequestSchema>;
@@ -74,6 +77,15 @@ export const TerminalFrameSchema = z.object({
   data: z.string(),
 });
 export type SandboxTerminalFrame = z.infer<typeof TerminalFrameSchema>;
+
+/** Ring/log replay for late subscribers (22 §5.2, T41): live ring when the
+ *  session is running, log-tail fallback after restarts. */
+export const TerminalRingResponseSchema = z.object({
+  frames: z.array(TerminalFrameSchema),
+  currentSeq: z.number().int(),
+  source: z.enum(["ring", "log", "none"]),
+});
+export type TerminalRingResponse = z.infer<typeof TerminalRingResponseSchema>;
 
 export const WorkspaceListSchema = z.array(WorkspaceSchema);
 

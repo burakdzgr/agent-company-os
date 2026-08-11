@@ -72,6 +72,9 @@ jobs:
       - name: Install Playwright chromium
         run: pnpm --filter @acos/web exec playwright install --with-deps chromium
 
+      - name: Build workspace image (acos/workspace-node, T41)
+        run: pnpm build:workspace-images
+
       - name: "Stage 5: boot full stack (Mode A)"
         run: docker compose -f infrastructure/docker/compose.yaml up -d --build --wait
 

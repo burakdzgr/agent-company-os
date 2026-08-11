@@ -51,6 +51,9 @@ export interface DockerSandboxDeps {
 export class DockerSandbox {
   private readonly docker: Docker;
   private readonly pulled = new Set<string>();
+  /** Live terminal sessions — ring source for late WS subscribers (22 §5.2). */
+  private readonly terminals = new Map<string, TerminalSession>();
+  private static readonly MAX_TRACKED_TERMINALS = 200;
 
   constructor(private readonly deps: DockerSandboxDeps) {
     this.docker = deps.docker;
@@ -140,8 +143,12 @@ export class DockerSandbox {
     let stdout = "";
     let stderr = "";
     if (tty) {
-      // PTY: one merged stream → frames on `term.<sessionId>`
-      stream.on("data", (chunk: Buffer) => session!.emit("stdout", chunk));
+      // PTY: one merged stream → frames on `term.<sessionId>` AND the
+      // buffered result (waitForResult callers need both, T41)
+      stream.on("data", (chunk: Buffer) => {
+        session!.emit("stdout", chunk);
+        stdout += chunk.toString("utf8");
+      });
     } else {
       const outS = new PassThrough();
       const errS = new PassThrough();
@@ -226,7 +233,26 @@ export class DockerSandbox {
   }
 
   newTerminalSession(sessionId: string): TerminalSession {
-    return new TerminalSession(sessionId, this.deps.transport, this.deps.logSink, this.deps.nowMs);
+    const existing = this.terminals.get(sessionId);
+    if (existing) return existing; // resumed exec keeps the seq monotonic
+    const session = new TerminalSession(
+      sessionId,
+      this.deps.transport,
+      this.deps.logSink,
+      this.deps.nowMs,
+    );
+    this.terminals.set(sessionId, session);
+    // bounded registry — evict oldest finished sessions (their scrollback
+    // stays in the rolling log)
+    if (this.terminals.size > DockerSandbox.MAX_TRACKED_TERMINALS) {
+      const oldest = this.terminals.keys().next().value;
+      if (oldest !== undefined) this.terminals.delete(oldest);
+    }
+    return session;
+  }
+
+  terminalSession(sessionId: string): TerminalSession | undefined {
+    return this.terminals.get(sessionId);
   }
 
   // ---------- helpers ----------

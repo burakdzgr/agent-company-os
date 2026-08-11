@@ -30,6 +30,7 @@ import { TasksService, TaskStateService } from "./modules/tasks/service.js";
 import { registerCommsRoutes } from "./modules/comms/routes.js";
 import { registerApprovalRoutes, type ApprovalSignalPort } from "./modules/approvals/routes.js";
 import { registerToolGatewayRoutes } from "./modules/tools/routes.js";
+import { registerTerminalRoutes } from "./modules/terminals/routes.js";
 import { ToolGateway, type ToolDispatchPort } from "./modules/tools/gateway.js";
 import { unsealSecret } from "./modules/auth/crypto.js";
 import { secrets } from "@acos/db/schema";
@@ -81,6 +82,8 @@ export interface BuildAppOptions {
   masterKey?: string;
   /** Shared bearer for /internal/* routes (18 §2) — workers ↔ gateway. */
   internalApiToken?: string;
+  /** sandbox-manager internal API — terminal ring/log source (22 §5.2, T41). */
+  sandboxManagerUrl?: string;
 }
 
 export type App = FastifyInstance;
@@ -311,6 +314,36 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     },
   });
 
+  // ---------- terminals (T41; 24 §6.9) ----------
+  const sandboxInternal =
+    options.sandboxManagerUrl && options.internalApiToken
+      ? { url: options.sandboxManagerUrl, token: options.internalApiToken }
+      : null;
+  const terminalRingSource = sandboxInternal
+    ? {
+        async ring(sessionId: string) {
+          const res = await fetch(
+            `${sandboxInternal.url}/internal/v1/terminals/${sessionId}/ring`,
+            { headers: { authorization: `Bearer ${sandboxInternal.token}` } },
+          );
+          if (!res.ok) throw new Error(`ring fetch failed (${res.status})`);
+          return (await res.json()) as {
+            frames: { seq: number; ts: number; stream: string; data: string }[];
+            currentSeq: number;
+            source: string;
+          };
+        },
+      }
+    : null;
+  await registerTerminalRoutes(app, {
+    guardedDb: () => {
+      if (!options.guardedDb) throw new ApiError("internal", "terminals not wired");
+      return options.guardedDb;
+    },
+    companiesSvc,
+    sandbox: () => sandboxInternal,
+  });
+
   // ---------- /ws gateway (T23; 21 §4, 22 §2–8) ----------
   await app.register(websocket, { options: { maxPayload: 131_072 } }); // 128 KB (22 §8)
   const office = options.guardedDb ? createOfficeProjector(options.guardedDb) : null;
@@ -322,6 +355,7 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
           membership: (userId, companyId) => companiesSvc().membership(userId, companyId),
         },
         office?.projector ?? null,
+        () => terminalRingSource,
       )
     : null;
   app.decorate("realtime", gateway);

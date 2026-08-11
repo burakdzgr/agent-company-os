@@ -44,6 +44,7 @@ beforeAll(async () => {
   container = await startPostgres();
   await runMigrations(container.getConnectionUri());
   pool = new Pool({ connectionString: container.getConnectionUri() });
+  pool.on("error", () => {}); // teardown race: idle-client FATAL when the container stops
   db = createDb(pool);
   app = await buildApp({
     healthCheckers: { postgres: ok, nats: ok, temporal: ok },

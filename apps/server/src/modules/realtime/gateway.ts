@@ -60,10 +60,21 @@ export interface PresenceSource {
   handleEvent(envelope: EventEnvelopeDto): Promise<unknown[]>;
 }
 
+/** Terminal replay source (22 §5.2, T41) — sandbox-manager's per-session
+ *  ring (or log tail after restarts), fetched over its internal API. */
+export interface TerminalRingSource {
+  ring(sessionId: string): Promise<{
+    frames: { seq: number; ts: number; stream: string; data: string }[];
+    currentSeq: number;
+    source: string;
+  }>;
+}
+
 export class RealtimeGateway {
   private readonly connections = new Map<string, Connection>();
   private nats: NatsConnection | null = null;
   private natsSub: Subscription | null = null;
+  private termSub: Subscription | null = null;
   private sweepTimer: NodeJS.Timeout | null = null;
   private presenceSeq = new Map<string, number>();
 
@@ -71,6 +82,7 @@ export class RealtimeGateway {
     private readonly db: GuardedDb,
     private readonly auth: GatewayAuth,
     private readonly presenceSource: PresenceSource | null = null,
+    private readonly terminalSource: (() => TerminalRingSource | null) | null = null,
   ) {}
 
   // ---------- lifecycle ----------
@@ -83,6 +95,21 @@ export class RealtimeGateway {
   /** Live fanout source — attached from main.ts once NATS is up (boot order). */
   attachNats(nats: NatsConnection): void {
     this.nats = nats;
+    // terminal PTY frames (22 §5.2): sandbox-manager → term.<sessionId> → WS
+    this.termSub = nats.subscribe("term.>");
+    void (async () => {
+      for await (const message of this.termSub!) {
+        try {
+          const sessionId = message.subject.slice("term.".length);
+          const frame = JSON.parse(new TextDecoder().decode(message.data)) as {
+            seq: number;
+          };
+          this.fanoutTerminalFrame(sessionId, frame);
+        } catch {
+          /* malformed frame — ignore (lossy stream) */
+        }
+      }
+    })();
     this.natsSub = nats.subscribe("co.>");
     void (async () => {
       for await (const message of this.natsSub!) {
@@ -120,9 +147,22 @@ export class RealtimeGateway {
     }
   }
 
+  /** One live frame → every subscriber of terminal:<sessionId> (seq-deduped).
+   *  Terminal data rides the `frames` key (22 §4) — distinct from `events`. */
+  private fanoutTerminalFrame(sessionId: string, frame: { seq: number }): void {
+    const topic = `terminal:${sessionId}`;
+    for (const connection of this.connections.values()) {
+      const sub = connection.subs.get(topic);
+      if (!sub || frame.seq <= sub.lastSentSeq) continue;
+      sub.lastSentSeq = frame.seq;
+      this.send(connection, { topic, seq: frame.seq, frames: [frame] });
+    }
+  }
+
   async stop(): Promise<void> {
     if (this.sweepTimer) clearInterval(this.sweepTimer);
     this.natsSub?.unsubscribe();
+    this.termSub?.unsubscribe();
     for (const connection of this.connections.values()) {
       connection.socket.close(WS_CLOSE_CODES.normal, "server shutdown");
     }
@@ -225,7 +265,7 @@ export class RealtimeGateway {
 
     if (parsed.kind === "events") return this.subscribeEvents(connection, topic, parsed, afterSeq);
     if (parsed.kind === "presence") return this.subscribePresence(connection, topic, parsed);
-    return this.subscribeTerminal(connection, topic, parsed);
+    return this.subscribeTerminal(connection, topic, parsed, afterSeq);
   }
 
   private async subscribeEvents(
@@ -320,17 +360,43 @@ export class RealtimeGateway {
     this.send(connection, { op: "snapshot", topic, seq, state });
   }
 
-  private subscribeTerminal(connection: Connection, topic: string, parsed: ParsedTopic): void {
-    // Frame source (sandbox-manager PTY via NATS term.<sessionId>) lands with
-    // T41; the topic subscribes now so auth + plumbing are exercised.
-    connection.subs.set(topic, {
+  /** 22 §5.2: ring (or log-tail) replay first, then the live NATS flow;
+   *  anything older than the replay window is an ACKNOWLEDGED gap. */
+  private async subscribeTerminal(
+    connection: Connection,
+    topic: string,
+    parsed: ParsedTopic,
+    afterSeq: number | null,
+  ): Promise<void> {
+    const source = this.terminalSource?.() ?? null;
+    const ring = source
+      ? await source
+          .ring(parsed.id)
+          .catch(() => ({ frames: [], currentSeq: 0, source: "none" }))
+      : { frames: [], currentSeq: 0, source: "none" };
+
+    const floor = afterSeq ?? 0;
+    const replayable = ring.frames.filter((f) => f.seq > floor);
+    const sub: TopicSub = {
       parsed,
       mode: "live",
-      lastSentSeq: 0,
+      lastSentSeq:
+        replayable.length > 0 ? replayable[replayable.length - 1]!.seq : Math.max(floor, ring.currentSeq),
       parked: [],
       authorizedAt: Date.now(),
-    });
-    this.send(connection, { op: "sub_ok", topic, current_seq: 0, mode: "live" });
+    };
+    connection.subs.set(topic, sub);
+    this.send(connection, { op: "sub_ok", topic, current_seq: ring.currentSeq, mode: "live" });
+
+    // frames older than the ring/log window are gone — tell the client so it
+    // renders a truncation marker instead of re-resuming (lossy by contract)
+    const oldestAvailable = replayable[0]?.seq;
+    if (oldestAvailable !== undefined && oldestAvailable > floor + 1) {
+      this.send(connection, { op: "gap", topic, from_seq: floor + 1, to_seq: oldestAvailable - 1 });
+    }
+    if (replayable.length > 0) {
+      this.send(connection, { topic, seq: sub.lastSentSeq, frames: replayable });
+    }
   }
 
   // ---------- authorization (22 §8) ----------

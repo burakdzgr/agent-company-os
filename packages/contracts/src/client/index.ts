@@ -58,6 +58,7 @@ import {
   type TaskAssignment,
   type TaskTreeNode,
 } from "../tasks.js";
+import { TerminalListResponseSchema, type TerminalListResponse } from "../terminals.js";
 
 export interface EventListFilters {
   types?: string[];
@@ -364,6 +365,23 @@ export function createAcosClient(options: AcosClientOptions) {
         ),
       get: async (companyId: string, eventId: string): Promise<Event> =>
         EventSchema.parse(await get(`/api/v1/companies/${companyId}/events/${eventId}`)),
+    },
+    terminals: {
+      list: async (
+        companyId: string,
+        filters: { status?: "active" | "closed"; limit?: number } = {},
+      ): Promise<TerminalListResponse> => {
+        const search = new URLSearchParams();
+        if (filters.status !== undefined) search.set("status", filters.status);
+        if (filters.limit !== undefined) search.set("limit", String(filters.limit));
+        const qs = search.toString();
+        return TerminalListResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/terminals${qs ? `?${qs}` : ""}`),
+        );
+      },
+      /** Full scrollback download URL (REST, founder/admin). */
+      logUrl: (companyId: string, sessionId: string): string =>
+        `${options.baseUrl}/api/v1/companies/${companyId}/terminals/${sessionId}/log`,
     },
     approvals: {
       list: async (

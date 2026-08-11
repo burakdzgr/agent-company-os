@@ -21,6 +21,7 @@ import { OfficeView } from "./features/office/OfficeView.js";
 import { TasksView } from "./features/tasks/TasksView.js";
 import { CommunicationView } from "./features/comms/CommunicationView.js";
 import { ApprovalsView } from "./features/approvals/ApprovalsView.js";
+import { TerminalsView } from "./features/terminals/TerminalsView.js";
 
 const rootRoute = createRootRoute();
 
@@ -117,6 +118,12 @@ const approvalsRoute = createRoute({
   component: ApprovalsView,
 });
 
+const terminalsRoute = createRoute({
+  getParentRoute: () => companyRoute,
+  path: "terminals",
+  component: TerminalsView,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
@@ -131,6 +138,7 @@ const routeTree = rootRoute.addChildren([
     tasksRoute,
     commsRoute,
     approvalsRoute,
+    terminalsRoute,
   ]),
 ]);
 

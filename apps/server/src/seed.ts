@@ -2,9 +2,9 @@
 // Founder user and "Acme Technologies" with default settings. Org, positions
 // and the 8 agents extend this in T18/T19.
 import { randomBytes } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
-import { companyContext, type GuardedDb } from "@acos/db";
-import { companies, users } from "@acos/db/schema";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { companyContext, type CompanyContext, type GuardedDb } from "@acos/db";
+import { companies, orgUnits, toolPermissions, users } from "@acos/db/schema";
 import { hashPassword } from "./modules/auth/crypto.js";
 import { CompanyService } from "./modules/companies/service.js";
 import { OrgService } from "./modules/org/service.js";
@@ -87,7 +87,11 @@ async function seedOrgAndAgents(db: GuardedDb, companyId: string): Promise<void>
       sql`SELECT count(*)::int AS n FROM agents WHERE company_id = ${companyId}`,
     )
   ).rows as [{ n: number }];
-  if (Number(n) > 0) return;
+  if (Number(n) > 0) {
+    // additive seed upgrades (T41 grants) still apply to existing installs
+    await seedToolGrants(db, ctx);
+    return;
+  }
 
   const org = new OrgService(db);
   const agentsService = new AgentsService(db, org);
@@ -222,4 +226,36 @@ async function seedOrgAndAgents(db: GuardedDb, companyId: string): Promise<void>
     persona: "QA and independent reviewer; never approves own work.",
     managerAgentId: em.id,
   });
+
+  await seedToolGrants(db, ctx);
+}
+
+const SEED_GRANT_UNIT_SLUGS = ["engineering", "backend", "frontend"];
+const SEED_GRANT_TOOLS = ["fs.*", "git.*", "terminal.run", "task.query", "memory.search"];
+
+/**
+ * Engineering-wide tool grants (T41; 17 §4.1 org_unit subject): the coding
+ * toolset for every engineer — granted per unit (member_of is direct, no
+ * tree inheritance in MVP); the gateway still applies autonomy × risk ×
+ * budget per call. Idempotent via the active-grant unique index, and safe
+ * to re-run on existing installs (additive seed upgrade).
+ */
+async function seedToolGrants(db: GuardedDb, ctx: CompanyContext): Promise<void> {
+  const units = await db
+    .select({ id: orgUnits.id })
+    .from(orgUnits)
+    .where(and(eq(orgUnits.companyId, ctx.companyId), inArray(orgUnits.slug, SEED_GRANT_UNIT_SLUGS)));
+  for (const unit of units) {
+    for (const toolName of SEED_GRANT_TOOLS) {
+      await db
+        .insert(toolPermissions)
+        .values({
+          companyId: ctx.companyId,
+          toolName,
+          subjectKind: "org_unit",
+          subjectId: unit.id,
+        })
+        .onConflictDoNothing();
+    }
+  }
 }

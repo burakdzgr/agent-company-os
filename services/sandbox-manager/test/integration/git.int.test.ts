@@ -36,7 +36,14 @@ const containers: string[] = [];
 async function ensureNetwork(): Promise<void> {
   const nets = await docker.listNetworks({ filters: { name: [WORKSPACE_NETWORK] } });
   if (nets.length === 0) {
-    await docker.createNetwork({ Name: WORKSPACE_NETWORK, Internal: true });
+    // mirror compose.yaml exactly (subnet = squid ACL) + the compose label so
+    // a later `compose up` adopts the network instead of refusing it
+    await docker.createNetwork({
+      Name: WORKSPACE_NETWORK,
+      Internal: true,
+      IPAM: { Config: [{ Subnet: "172.30.0.0/16" }] },
+      Labels: { "com.docker.compose.network": WORKSPACE_NETWORK },
+    });
   }
 }
 

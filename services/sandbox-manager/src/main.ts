@@ -71,11 +71,14 @@ async function main(): Promise<void> {
     }),
   );
 
+  const { sweepOldLogs } = await import("./terminal-log.js");
   const gc = setInterval(() => {
     void sandbox.gc(WORKSPACE_MAX_AGE_MS).catch((err) => console.error("gc failed", err));
+    // 7-day terminal log retention (_DECISIONS §16, T41)
+    void sweepOldLogs(terminalsDir).catch((err) => console.error("log sweep failed", err));
   }, GC_INTERVAL_MS);
 
-  const app = buildApp({ sandbox, git, internalApiToken });
+  const app = buildApp({ sandbox, git, internalApiToken, terminalsDir });
 
   const close = async () => {
     clearInterval(gc);

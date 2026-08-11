@@ -83,16 +83,23 @@ async function waitForHealthz(url: string, attempts = 60): Promise<void> {
 
 beforeAll(async () => {
   if (!runnable) return;
-  // the internal workspaces network is a compose prerequisite (27 §12)
+  // the internal workspaces network is a compose prerequisite (27 §12) — when
+  // absent, create it EXACTLY as compose.yaml defines it (subnet = squid ACL)
+  // with the compose label so a later `compose up` adopts it
   try {
     execSync("docker network inspect acos-workspaces", { stdio: "ignore" });
   } catch {
-    execSync("docker network create --internal acos-workspaces", { stdio: "ignore" });
+    execSync(
+      "docker network create --internal --subnet 172.30.0.0/16 " +
+        "--label com.docker.compose.network=acos-workspaces acos-workspaces",
+      { stdio: "ignore" },
+    );
   }
 
   container = await startPostgres();
   await runMigrations(container.getConnectionUri());
   pool = new Pool({ connectionString: container.getConnectionUri() });
+  pool.on("error", () => {}); // teardown race: idle-client FATAL when the container stops
   db = createDb(pool);
   guardedDb = createGuardedDb(pool);
 
