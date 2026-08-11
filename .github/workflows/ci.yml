@@ -54,6 +54,8 @@ jobs:
     needs: checks
     env:
       SEED_FOUNDER_PASSWORD: founder-ci-password
+      # deterministic fake ModelRouter for the whole e2e stack (32 §5/§6)
+      LLM_MODE: scripted
     steps:
       - uses: actions/checkout@v4
 

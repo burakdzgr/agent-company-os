@@ -73,6 +73,10 @@ async function main(): Promise<void> {
         return false;
       }
     };
+    const { createAgentWorkflowStarter } = await import("./modules/workflows/client.js");
+    app.agentWorkflowStarter = createAgentWorkflowStarter(temporalClient, (err, input) =>
+      app.log.warn({ err, ...input }, "agentTaskWorkflow start failed"),
+    );
     app.log.info("comms delivery signal port attached (Temporal)");
   } catch (err) {
     app.log.error({ err }, "Temporal unavailable — comms delivery signalling disabled");

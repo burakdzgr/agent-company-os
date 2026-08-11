@@ -36,7 +36,7 @@ import {
   tasks,
 } from "@acos/db/schema";
 import type { ModelRouter, RoutingContext, LlmMessage, LlmUsage } from "@acos/llm";
-import type { AgentAction } from "@acos/llm/agent-action";
+import { CONTEXT_SENTINEL_UUID, type AgentAction } from "@acos/llm/agent-action";
 
 async function emitDomainEvent(tx: Tx, ctx: CompanyContext, input: NewEventInput) {
   const payload = parseEventPayload(input.type, input.version ?? 1, input.payload ?? {});
@@ -51,6 +51,10 @@ export interface AgentTaskActivityDeps {
   routingFor(ctx: CompanyContext, agentId: string): Promise<RoutingContext>;
   /** Post-commit message delivery transport (11 §4.4); absent in narrow tests. */
   signalPort?: SignalPort | undefined;
+  /** Assignment → workflow start (09 §4 trigger, T36): after a successful
+   *  delegation the child owner's agentTaskWorkflow starts. Best-effort —
+   *  REJECT_DUPLICATE double-starts are swallowed by the implementation. */
+  startAgentWorkflow?: ((input: { companyId: string; agentId: string; taskId: string }) => Promise<void>) | undefined;
 }
 
 export interface SessionRef {
@@ -207,6 +211,8 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         | undefined;
       const markers = [
         `[role:${agentRow.defaultRole}]`,
+        `[agentName:${agentRow.name}]`,
+        `[ctxTask:${input.taskId}]`,
         `[taskFixture:${String(taskContext.taskFixture ?? "none")}]`,
         `[lastExitCode:${lastObservation?.exitCode ?? 0}]`,
         ...Object.entries(lastObservation?.signal ?? {}).map(([k, v]) => `[signal:${k}=${v}]`),
@@ -299,9 +305,11 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
     }): Promise<Record<string, unknown>> {
       const ctx = companyContext(input.companyId);
       const action = input.action;
+      // context sentinel (T36): "my current task" in task-ref positions
+      const selfTask = (id: string) => (id === CONTEXT_SENTINEL_UUID ? input.taskId : id);
       switch (action.type) {
         case "update_task_status": {
-          const updated = await taskState.transition(ctx, action.taskId, action.to, {
+          const updated = await taskState.transition(ctx, selfTask(action.taskId), action.to, {
             kind: "agent",
             agentId: input.agentId,
           }, { note: action.note });
@@ -310,7 +318,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         case "request_review": {
           // owner submits: IN_PROGRESS→REVIEW (07 §5); review row + reviewer
           // workflow land with T43/T33
-          const updated = await taskState.transition(ctx, action.taskId, "REVIEW", {
+          const updated = await taskState.transition(ctx, selfTask(action.taskId), "REVIEW", {
             kind: "agent",
             agentId: input.agentId,
           }, { note: action.summary });
@@ -322,9 +330,21 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           return { ok: true, tool: action.tool, exitCode: 0, stub: true, input: action.input };
         }
         case "send_message": {
+          // sentinel channel = the agent's own task thread (T36)
+          let channelId = action.channelId;
+          if (channelId === CONTEXT_SENTINEL_UUID) {
+            const thread = await guardedDb.transaction((tx) =>
+              channelService.provisionInTx(tx, ctx, {
+                kind: "task_thread",
+                taskId: input.taskId,
+                memberAgentIds: [input.agentId],
+              }),
+            );
+            channelId = thread.id;
+          }
           // the ONE send path (11 §0.2) + post-commit delivery via SignalPort
           const plan = await messageService.send(ctx, {
-            channelId: action.channelId,
+            channelId,
             senderAgentId: input.agentId,
             kind: action.kind === "text" ? "text" : action.kind,
             body: action.body,
@@ -356,7 +376,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           // in the next Working Set instead of crashing the loop (guard f)
           try {
             const child = await delegationService.createChildTask(ctx, input.agentId, {
-              parentTaskId: action.parentTaskId,
+              parentTaskId: selfTask(action.parentTaskId),
               kind: action.kind,
               title: action.title,
               objective: action.objective,
@@ -376,14 +396,35 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         }
         case "delegate_task": {
           try {
-            const result = await delegationService.delegateTask(
-              ctx,
-              input.agentId,
-              action.taskId,
-              action.toAgentId,
-            );
+            // sentinel task = the oldest unassigned child of the current
+            // task; sentinel target = @-mention in the note, else the
+            // least-loaded eligible direct report (T36)
+            let taskId = action.taskId;
+            if (taskId === CONTEXT_SENTINEL_UUID) {
+              const child = await delegationService.resolveNextChildTask(ctx, input.taskId);
+              if (!child) return { ok: false, error: "NO_UNASSIGNED_CHILD" };
+              taskId = child.id;
+            }
+            let toAgentId = action.toAgentId;
+            if (toAgentId === CONTEXT_SENTINEL_UUID) {
+              const target = await delegationService.resolveDelegateTarget(
+                ctx,
+                input.agentId,
+                action.note,
+              );
+              if (!target) return { ok: false, error: "NO_ELIGIBLE_DELEGATE" };
+              toAgentId = target;
+            }
+            const result = await delegationService.delegateTask(ctx, input.agentId, taskId, toAgentId);
+            if (result.ok && deps.startAgentWorkflow) {
+              // assignment triggers the owner's workflow (09 §4) —
+              // post-commit, best-effort; a duplicate start is swallowed
+              await deps
+                .startAgentWorkflow({ companyId: ctx.companyId, agentId: toAgentId, taskId })
+                .catch(() => {});
+            }
             return result.ok
-              ? { ok: true, delegated: true }
+              ? { ok: true, delegated: true, taskId, toAgentId }
               : { ok: false, error: result.reason, candidates: result.candidates };
           } catch (err) {
             if (err instanceof TaskEngineError) {

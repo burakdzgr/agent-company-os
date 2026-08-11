@@ -128,6 +128,8 @@ async function run(): Promise<void> {
   const clientConnection = await ClientConnection.connect({ address: config.temporal.address });
   const temporalClient = new Client({ connection: clientConnection, namespace: "acos" });
   const { createTemporalSignalPort } = await import("./delivery.js");
+  const { startAgentTaskWorkflow } = await import("./client.js");
+  const { uuidv7 } = await import("@acos/domain");
 
   const activities = {
     ...trivialActivities,
@@ -136,6 +138,18 @@ async function run(): Promise<void> {
       router,
       routingFor,
       signalPort: createTemporalSignalPort(temporalClient),
+      // delegation → child workflow start (09 §4, T36); duplicate = no-op
+      startAgentWorkflow: async ({ companyId, agentId, taskId }) => {
+        await startAgentTaskWorkflow(temporalClient, "agentTaskWorkflow", {
+          companyId,
+          agentId,
+          taskId,
+          sessionId: uuidv7(),
+          attempt: 1,
+        }).catch((err: unknown) => {
+          if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") throw err;
+        });
+      },
     }),
   };
 

@@ -165,6 +165,9 @@ services:
       NATS_URL: nats://nats:4222
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: acos
+      # e2e/demo profile: LLM_MODE=scripted swaps in the deterministic fake
+      # ModelRouter (32 §6); empty = live providers from model_providers rows.
+      LLM_MODE: ${LLM_MODE:-}
       # Dev fallbacks — override via .env in any real install (prod overlay requires them).
       MASTER_KEY: ${MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
       SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}

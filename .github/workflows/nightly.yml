@@ -1,0 +1,39 @@
+# Nightly live-model suite (32 §6 tier 3, T36): the toolless runtime against
+# a real provider, budget-capped. Regressions inform, never block merges —
+# this workflow is separate from ci.yml on purpose. Skips cleanly when the
+# ANTHROPIC_API_KEY secret is not configured (forks).
+name: nightly
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+jobs:
+  live-llm:
+    name: live-LLM toolless run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspaces
+        run: npx turbo run build
+
+      - name: Live-LLM nightly variant (skips without the secret)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY not configured — nightly live suite skipped."
+            exit 0
+          fi
+          LIVE_LLM=1 pnpm --filter @acos/agent-worker exec vitest run test/integration/live-llm.nightly.int.test.ts

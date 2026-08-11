@@ -32,9 +32,12 @@ test("tasks board: groom → assign; owner-only transition refused for the Found
   await page.getByTestId("transition-PLANNED").click();
   await expect(page.getByTestId("column-Planned").getByText(title)).toBeVisible({ timeout: 15_000 });
 
-  // assign an owner (PLANNED→ASSIGNED, Founder override)
+  // assign an owner (PLANNED→ASSIGNED, Founder override). Since T36 an
+  // assignment auto-starts the owner's workflow; Baran (QA/Reviewer) has no
+  // matching script in the scripted stack, so this card provably stays put —
+  // the members drive the delegation cascade in 08-objective-to-tasks.
   await page.getByTestId("column-Planned").getByText(title).click();
-  await page.selectOption('select[name="taskAssignee"]', { label: "Alex Demir" });
+  await page.selectOption('select[name="taskAssignee"]', { label: "Baran Çelik" });
   await page.getByTestId("assign-button").click();
   await expect(page.getByTestId("column-Assigned").getByText(title)).toBeVisible({
     timeout: 15_000,

@@ -105,6 +105,24 @@ export class DelegationService {
     const capacity = await this.capacityCheck(ctx, toAgentId);
     if (!capacity.ok) return capacity;
 
+    // a freshly decomposed child is DRAFT — the delegating manager grooms it
+    // through the single status writer (DRAFT→BACKLOG→PLANNED, both moves
+    // creator/manager-permitted per 07 §5) so the assign lands on PLANNED
+    // and the owner's workflow can start (T36)
+    const [current] = await this.db
+      .select({ status: tasks.status })
+      .from(tasks)
+      .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)));
+    if (!current) throw new TaskEngineError("TASK_NOT_FOUND", "task not found");
+    let status = current.status;
+    if (status === "DRAFT") {
+      await this.taskState.transition(ctx, taskId, "BACKLOG", { kind: "agent", agentId: managerAgentId }, { note: "delegation grooming" });
+      status = "BACKLOG";
+    }
+    if (status === "BACKLOG") {
+      await this.taskState.transition(ctx, taskId, "PLANNED", { kind: "agent", agentId: managerAgentId }, { note: "delegation grooming" });
+    }
+
     try {
       const task = await this.taskState.assign(
         ctx,
@@ -125,6 +143,68 @@ export class DelegationService {
       }
       throw err;
     }
+  }
+
+  // ---------- context-sentinel resolution (T36) ----------
+
+  /**
+   * "The next task to hand off": the oldest open, unowned child of the
+   * delegator's current task — each delegation consumes one child FIFO.
+   */
+  async resolveNextChildTask(ctx: CompanyContext, parentTaskId: string): Promise<TaskRow | null> {
+    const [child] = await this.db
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.companyId, ctx.companyId),
+          eq(tasks.parentId, parentTaskId),
+          isNull(tasks.ownerAgentId),
+          sql`${tasks.status} IN ('DRAFT','BACKLOG','PLANNED')`,
+        ),
+      )
+      .orderBy(tasks.number)
+      .limit(1);
+    return child ?? null;
+  }
+
+  /**
+   * "An eligible report": an explicit `@Name` mention wins; otherwise the
+   * least-loaded ACTIVE direct report (manages edge) the reporting-line rule
+   * permits, tie-broken by employee number. Deterministic, so scripted and
+   * live runs agree.
+   */
+  async resolveDelegateTarget(
+    ctx: CompanyContext,
+    managerAgentId: string,
+    note: string,
+  ): Promise<string | null> {
+    if (note.includes("@")) {
+      const active = await this.db
+        .select({ id: agents.id, name: agents.name })
+        .from(agents)
+        .where(and(eq(agents.companyId, ctx.companyId), eq(agents.status, "active")));
+      const named = active
+        .filter((a) => note.includes(`@${a.name}`))
+        .sort((a, b) => b.name.length - a.name.length)[0];
+      if (named) return named.id;
+    }
+    const reports = await this.db.execute(sql`
+      SELECT a.id, a.employee_number,
+        (SELECT count(*)::int FROM tasks t
+          WHERE t.company_id = ${ctx.companyId} AND t.owner_agent_id = a.id
+            AND t.status IN ('IN_PROGRESS','REVIEW','CHANGES_REQUESTED','QA_FAILED','REJECTED','ASSIGNED')) AS load
+      FROM org_edges e
+      JOIN agents a ON a.id = e.to_agent_id AND a.company_id = e.company_id
+      WHERE e.company_id = ${ctx.companyId} AND e.from_agent_id = ${managerAgentId}
+        AND e.kind = 'manages' AND e.ended_at IS NULL AND a.status = 'active'
+      ORDER BY load ASC, a.employee_number ASC
+    `);
+    for (const row of reports.rows as Array<{ id: string }>) {
+      const allowed = await this.mayDelegate(ctx, managerAgentId, row.id);
+      if (allowed.ok) return row.id;
+    }
+    return null;
   }
 
   // ---------- reporting-line rule (07 §6) ----------

@@ -77,6 +77,7 @@ export async function registerTaskRoutes(
   tasksSvc: () => TasksService,
   taskStateSvc: () => TaskStateService,
   companiesSvc: () => CompanyService,
+  agentWorkflowStarter?: () => import("../workflows/client.js").AgentWorkflowStarter | null,
 ) {
   const app = rawApp.withTypeProvider<ZodTypeProvider>();
 
@@ -356,6 +357,12 @@ export async function registerTaskRoutes(
       const task = await taskStateSvc()
         .assign(ctx, request.params.taskId, request.body, { kind: "founder" })
         .catch(mapTaskError);
+      // assignment triggers the owner's agentTaskWorkflow (09 §4, T36) —
+      // post-commit, best-effort; the DB assignment stays authoritative
+      const starter = agentWorkflowStarter?.();
+      if (starter && task.status === "ASSIGNED" && task.ownerAgentId) {
+        await starter({ companyId: ctx.companyId, taskId: task.id, agentId: task.ownerAgentId });
+      }
       return toApiTask(task);
     },
   );

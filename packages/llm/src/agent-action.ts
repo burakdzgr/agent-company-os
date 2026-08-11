@@ -115,6 +115,16 @@ export const AgentActionSchema = z.discriminatedUnion("type", [
 ]);
 export type AgentAction = z.infer<typeof AgentActionSchema>;
 
+/**
+ * Context-reference sentinel (T36): an action may reference "the current
+ * context" — own task (create_task.parentTaskId), the next unassigned child
+ * (delegate_task.taskId), an eligible report (delegate_task.toAgentId), the
+ * own task thread (send_message.channelId) — with this uuid instead of a
+ * concrete id. The worker's action dispatch resolves it deterministically;
+ * scripted fixtures rely on it, live models may use it the same way.
+ */
+export const CONTEXT_SENTINEL_UUID = "00000000-0000-4000-8000-000000000000";
+
 export const AGENT_ACTION_TYPES = [
   "use_tool",
   "send_message",

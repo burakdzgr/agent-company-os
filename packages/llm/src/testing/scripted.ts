@@ -6,7 +6,7 @@
 // smarter belongs in a custom fake, not YAML.
 import { z } from "zod";
 import { parse as parseYaml } from "yaml";
-import { AgentActionSchema, type AgentAction } from "../agent-action.js";
+import { AgentActionSchema, CONTEXT_SENTINEL_UUID, type AgentAction } from "../agent-action.js";
 import type { ProviderAdapter } from "../router.js";
 import type { LlmUsage } from "../types.js";
 import { pseudoEmbedding } from "./embeddings.js";
@@ -23,7 +23,10 @@ const StepSchema = z.object({
 });
 
 export const ScriptSchema = z.object({
-  match: z.object({ role: z.string(), taskFixture: z.string() }),
+  // agentName narrows a (role, taskFixture) tie — seed agents share roles
+  // (CEO and CTO are both `executive`), so the delegation-cascade scripts
+  // (T36) key on the stable seed names.
+  match: z.object({ role: z.string(), taskFixture: z.string(), agentName: z.string().optional() }),
   steps: z.array(StepSchema).min(1),
 });
 export type Script = z.infer<typeof ScriptSchema>;
@@ -36,8 +39,9 @@ export class ScriptLoadError extends Error {
   }
 }
 
-/** Deterministic uuid-shaped placeholder for load-time validation. */
-const PLACEHOLDER_UUID = "00000000-0000-4000-8000-000000000000";
+/** Context sentinel doubles as the load-time placeholder: an id a script
+ *  does not know is resolved by the worker's action dispatch (T36). */
+const PLACEHOLDER_UUID = CONTEXT_SENTINEL_UUID;
 
 /**
  * Script args are shorthand (32 §6.1: `{status: IN_PROGRESS}`, not the full
@@ -112,6 +116,21 @@ export function normalizeStep(
         topic: str("topic", "scripted help"),
         body: str("body", "scripted help request"),
         audience: args.audience ?? "team",
+      };
+      break;
+    case "create_task":
+      candidate = {
+        type: step.action,
+        kind: args.kind,
+        // scripts do not know runtime ids — the sentinel resolves to the
+        // agent's current task in the worker's action dispatch (T36)
+        parentTaskId: str("parentTaskId", PLACEHOLDER_UUID),
+        title: str("title", "scripted child task"),
+        objective: str("objective", "scripted objective"),
+        successCriteria: Array.isArray(args.successCriteria) ? args.successCriteria : ["done"],
+        priority: args.priority ?? "P2",
+        estimatedEffort: typeof args.estimatedEffort === "number" ? args.estimatedEffort : 1,
+        ...(typeof args.risk === "string" && { risk: args.risk }),
       };
       break;
     case "escalate":
@@ -222,13 +241,23 @@ export function createScriptedAdapter(
       const text = input.messages.map((m) => m.content).join("\n");
       const role = /\[role:([^\]]+)\]/.exec(text)?.[1];
       const fixture = /\[taskFixture:([^\]]+)\]/.exec(text)?.[1];
-      const script = scripts.find(
+      const agentName = /\[agentName:([^\]]+)\]/.exec(text)?.[1];
+      const ctxTask = /\[ctxTask:([^\]]+)\]/.exec(text)?.[1] ?? "none";
+      const candidates = scripts.filter(
         (s) => s.match.role === role && s.match.taskFixture === fixture,
       );
+      // name-scoped script wins over the generic one for the same (role, fixture)
+      const script =
+        candidates.find((s) => s.match.agentName !== undefined && s.match.agentName === agentName) ??
+        candidates.find((s) => s.match.agentName === undefined);
       if (!script) {
-        throw new ScriptLoadError(`no script matches role=${role} taskFixture=${fixture}`);
+        throw new ScriptLoadError(
+          `no script matches role=${role} taskFixture=${fixture} agentName=${agentName}`,
+        );
       }
-      const key = `${role}::${fixture}`;
+      // sessions are per (script, agent, task): two agents sharing a generic
+      // script must not interleave one cursor (T36 delegation cascade)
+      const key = `${role}::${fixture}::${agentName}::${ctxTask}`;
       let session = sessions.get(key);
       if (!session) {
         session = new ScriptedSession(script, ids);

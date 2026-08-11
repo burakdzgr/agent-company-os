@@ -47,6 +47,8 @@ declare module "fastify" {
     commsSignalPort: SignalPort | null;
     /** Temporal-backed approvalVerdict delivery — attached by main.ts (T35). */
     approvalSignalPort: ApprovalSignalPort | null;
+    /** Assignment → agentTaskWorkflow start (09 §4) — attached by main.ts (T36). */
+    agentWorkflowStarter: import("./modules/workflows/client.js").AgentWorkflowStarter | null;
   }
 }
 
@@ -237,7 +239,8 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   await registerOrgRoutes(app, orgSvc, companiesSvc);
   await registerAgentRoutes(app, agentsSvc, companiesSvc);
   await registerEventRoutes(app, eventsSvc, companiesSvc);
-  await registerTaskRoutes(app, tasksSvc, taskStateSvc, companiesSvc);
+  app.decorate("agentWorkflowStarter", null);
+  await registerTaskRoutes(app, tasksSvc, taskStateSvc, companiesSvc, () => app.agentWorkflowStarter);
   app.decorate("commsSignalPort", null);
   await registerCommsRoutes(app, {
     guardedDb: () => {
