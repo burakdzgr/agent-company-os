@@ -1,14 +1,18 @@
-// Hello-world SPA stub (T05). TanStack Router layout, login/setup pages and
-// the real shell land in T20.
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./app";
+import { RouterProvider } from "@tanstack/react-router";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient } from "./lib/api.js";
+import { router } from "./router.js";
+import "./index.css";
 
 const container = document.getElementById("root");
 if (!container) throw new Error("missing #root");
 
 createRoot(container).render(
   <StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   </StrictMode>,
 );

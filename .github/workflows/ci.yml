@@ -52,18 +52,43 @@ jobs:
     name: e2e-smoke
     runs-on: ubuntu-latest
     needs: checks
+    env:
+      SEED_FOUNDER_PASSWORD: founder-ci-password
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright chromium
+        run: pnpm --filter @acos/web exec playwright install --with-deps chromium
 
       - name: "Stage 5: boot full stack (Mode A)"
         run: docker compose -f infrastructure/docker/compose.yaml up -d --build --wait
 
       - name: Probe health endpoints
         run: |
-          curl -fsS http://localhost:3000/healthz
+          curl -fsS http://localhost:3000/api/health
           curl -fsS http://localhost:5173/healthz
           curl -fsS http://localhost:5173/ | grep -q ACOS
-          curl -fsS http://localhost:5173/api/x -o /dev/null -w "%{http_code}" | grep -q 404
+
+      - name: "Playwright: M1 demo specs"
+        run: SEED_FOUNDER_PASSWORD=$SEED_FOUNDER_PASSWORD pnpm --filter @acos/web e2e
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: apps/web/test-results
+          retention-days: 7
 
       - name: Teardown
         if: always()

@@ -39,7 +39,7 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
   let founderUserId = existingUser?.id;
   let founderPassword: string | undefined;
   if (!founderUserId) {
-    founderPassword = randomBytes(12).toString("base64url");
+    founderPassword = process.env.SEED_FOUNDER_PASSWORD || randomBytes(12).toString("base64url");
     const [user] = await db
       .insert(users)
       .values({

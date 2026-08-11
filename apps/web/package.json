@@ -16,20 +16,32 @@
     "build": "vite build",
     "typecheck": "tsc -b",
     "lint": "eslint src",
-    "test": "vitest run",
+    "test": "vitest run src",
     "dev": "vite",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@acos/contracts": "workspace:*",
     "@acos/ui": "workspace:*",
+    "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-router": "^1.170.25",
+    "cytoscape": "^3.34.0",
+    "cytoscape-dagre": "^4.0.0",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/cytoscape": "^3.31.0",
+    "@types/cytoscape-dagre": "^2.3.4",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^3.4",
     "vite": "^8.2.1"
   }
 }

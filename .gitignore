@@ -9,3 +9,5 @@ data/
 infrastructure/docker/data/
 .DS_Store
 dist-types/
+apps/web/test-results/
+apps/web/playwright-report/
