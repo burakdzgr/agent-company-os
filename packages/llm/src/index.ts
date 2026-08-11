@@ -27,6 +27,14 @@ export {
   type LlmCallLogEntry,
   type LlmCallLogger,
 } from "./types.js";
+export {
+  AgentActionSchema,
+  TaskResultSchema,
+  AGENT_ACTION_TYPES,
+  type AgentAction,
+  type AgentActionType,
+  type TaskResult,
+} from "./agent-action.js";
 export { resolveTargets } from "./resolution.js";
 export { ModelRouter, type ProviderAdapter, type RouterOptions, type RoutingContext } from "./router.js";
 export {
