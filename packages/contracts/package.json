@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "default": "./dist/client/index.js"
     }
   },
   "files": [
@@ -16,10 +20,12 @@
     "build": "tsc -b",
     "typecheck": "tsc -b",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:openapi": "tsx scripts/gen-openapi.ts"
   },
   "dependencies": {
     "@acos/domain": "workspace:*",
-    "@acos/events": "workspace:*"
+    "@acos/events": "workspace:*",
+    "zod": "^4.4.3"
   }
 }

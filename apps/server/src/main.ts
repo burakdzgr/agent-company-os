@@ -1,14 +1,38 @@
-// Hello-world control-plane stub (T05). The real boot sequence
-// (config -> migrate under advisory lock -> modules/routes) lands in T15;
-// GET /api/health with aggregated dependency checks lands there too.
-import Fastify from "fastify";
+// Boot sequence (T15, 28 §2): config → migrate under advisory lock → routes.
+import { Pool } from "pg";
+import { loadConfigOrExit } from "@acos/config";
+import { runMigrations } from "@acos/db";
+import { buildApp } from "./app.js";
+import { buildCheckers } from "./checkers.js";
 
-const app = Fastify({ logger: true });
+async function main(): Promise<void> {
+  const config = loadConfigOrExit(process.env);
 
-app.get("/healthz", () => ({ status: "ok", service: "server" }));
+  await runMigrations(config.database.url); // pg_advisory_lock inside — safe under multi-boot
+  const pool = new Pool({ connectionString: config.database.url });
 
-const port = Number(process.env.SERVER_PORT ?? 3000);
-app.listen({ port, host: "0.0.0.0" }).catch((err) => {
-  app.log.error(err);
+  const app = await buildApp({
+    healthCheckers: buildCheckers({
+      pool,
+      natsUrl: config.nats.url,
+      temporalAddress: config.temporal.address,
+    }),
+    version: process.env.npm_package_version ?? "0.0.0",
+  });
+
+  const close = async () => {
+    await app.close();
+    await pool.end();
+    process.exit(0);
+  };
+  process.on("SIGTERM", close);
+  process.on("SIGINT", close);
+
+  await app.listen({ port: config.serverPort, host: "0.0.0.0" });
+  app.log.info({ port: config.serverPort }, "ACOS server up");
+}
+
+main().catch((err) => {
+  console.error("server boot failed:", err);
   process.exit(1);
 });

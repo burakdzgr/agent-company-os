@@ -107,6 +107,10 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_NAMESPACE: acos
       SANDBOX_MANAGER_URL: http://sandbox-manager:3010
+      # Dev fallbacks — override via .env in any real install (prod overlay requires them).
+      MASTER_KEY: ${MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
     ports:
       # Container always listens on 3000; host side is overridable because dev
       # machines may already occupy 3000 (SERVER_PORT is only interpolated here,
