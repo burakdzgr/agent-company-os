@@ -317,6 +317,36 @@ export class MessageService {
         });
       }
 
+      // guard (e) anti-ping-pong (11 §9, 08 §9e): >8 strictly alternating
+      // messages between the same pair on this channel trips the guard —
+      // centrally, so no workflow can bypass it
+      if (input.kind !== "status" && input.kind !== "system") {
+        const recent = await tx
+          .select({ senderAgentId: messages.senderAgentId })
+          .from(messages)
+          .where(and(eq(messages.companyId, ctx.companyId), eq(messages.channelId, channel.id)))
+          .orderBy(desc(messages.id))
+          .limit(10);
+        const chain = recent.map((r) => r.senderAgentId ?? "founder");
+        const pair = new Set(chain.slice(0, 2));
+        let alternating = 1;
+        for (let i = 1; i < chain.length; i++) {
+          if (chain[i] !== chain[i - 1] && pair.has(chain[i]!)) alternating += 1;
+          else break;
+        }
+        if (pair.size === 2 && alternating > 8) {
+          await emitDomainEvent(tx, ctx, {
+            type: "agent.guard.triggered",
+            actor: { kind: "system", id: null },
+            ...(input.senderAgentId && { agentId: input.senderAgentId }),
+            payload: {
+              guard: "ping_pong",
+              context: { channelId: channel.id, alternating },
+            },
+          });
+        }
+      }
+
       // sender auto-joins open channels on first message (11 §2 task_thread rule)
       if (input.senderAgentId && !members.some((m) => m.agentId === input.senderAgentId)) {
         await this.channelService.addMemberInTx(tx, ctx, channel.id, input.senderAgentId);

@@ -7,7 +7,11 @@ import { uuidv5 } from "@acos/domain";
 import { parseEventPayload } from "@acos/events";
 import {
   ChannelService,
+  CostService,
+  DelegationService,
   MessageService,
+  TaskEngineError,
+  TasksService,
   TaskStateService,
   appendEvents,
   companyContext,
@@ -24,7 +28,6 @@ import {
   agentSessions,
   agentSteps,
   agents,
-  costEntries,
   llmCalls,
   modelProfiles,
   positions,
@@ -82,6 +85,9 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
   const taskState = new TaskStateService(guardedDb);
   const channelService = new ChannelService(guardedDb);
   const messageService = new MessageService(guardedDb, channelService);
+  const tasksService = new TasksService(guardedDb);
+  const delegationService = new DelegationService(guardedDb, tasksService, taskState);
+  const costService = new CostService(guardedDb);
 
   return {
     /** 08 §1: mark the pre-created session running; task started + presence. */
@@ -342,6 +348,47 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           }
           return { ok: true, waiting: action.what };
         }
+        case "create_task": {
+          // depth ≤ 5 enforced inside (07 §2); the structured error appears
+          // in the next Working Set instead of crashing the loop (guard f)
+          try {
+            const child = await delegationService.createChildTask(ctx, input.agentId, {
+              parentTaskId: action.parentTaskId,
+              kind: action.kind,
+              title: action.title,
+              objective: action.objective,
+              priority: action.priority,
+              estimatedEffort: action.estimatedEffort,
+              successCriteria: action.successCriteria,
+              risk: action.risk,
+              orgUnitId: action.orgUnitId,
+            });
+            return { ok: true, taskId: child.id, number: child.number };
+          } catch (err) {
+            if (err instanceof TaskEngineError) {
+              return { ok: false, error: err.code, detail: err.message };
+            }
+            throw err;
+          }
+        }
+        case "delegate_task": {
+          try {
+            const result = await delegationService.delegateTask(
+              ctx,
+              input.agentId,
+              action.taskId,
+              action.toAgentId,
+            );
+            return result.ok
+              ? { ok: true, delegated: true }
+              : { ok: false, error: result.reason, candidates: result.candidates };
+          } catch (err) {
+            if (err instanceof TaskEngineError) {
+              return { ok: false, error: err.code, detail: err.message };
+            }
+            throw err;
+          }
+        }
         case "think":
           return { ok: true, thought: true };
         case "complete_task":
@@ -392,22 +439,6 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           costCents: input.costCents,
           durationMs: input.durationMs,
         });
-        if (input.costCents > 0) {
-          await tx.insert(costEntries).values({
-            id: uuidv5("llm-cost", input.stepId),
-            companyId: ctx.companyId,
-            kind: "llm",
-            ref: uuidv5("llm", input.stepId),
-            agentId: input.agentId,
-            taskId: input.taskId,
-            amountCents: input.costCents,
-            quantity: String(input.usage.inputTokens + input.usage.outputTokens),
-          });
-          await tx
-            .update(tasks)
-            .set({ spentCents: sql`${tasks.spentCents} + ${input.costCents}` })
-            .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
-        }
         await tx
           .update(agentSessions)
           .set({
@@ -418,7 +449,125 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           })
           .where(and(eq(agentSessions.companyId, ctx.companyId), eq(agentSessions.id, input.sessionId)));
         return { inserted: true };
+      }).then(async (result) => {
+        // per-step cost through CostService (08 §13, T34): idempotent id,
+        // breach detection + company circuit breaker fire from agent spend
+        if (result.inserted && input.costCents > 0) {
+          await costService.recordCost(ctx, {
+            id: uuidv5("llm-cost", input.stepId),
+            kind: "llm",
+            ref: uuidv5(`llm:0`, input.stepId),
+            amountCents: input.costCents,
+            quantity: input.usage.inputTokens + input.usage.outputTokens,
+            agentId: input.agentId,
+            taskId: input.taskId,
+          });
+        }
+        return result;
       });
+    },
+
+    /** Guard snapshot (08 §3): budget remaining + deadline, refreshed per step. */
+    async getGuardSnapshotActivity(input: SessionRef): Promise<{
+      budgetCents: number | null;
+      spentCents: number;
+      remainingCents: number | null;
+      estimatedNextStepCents: number;
+      deadline: string | null;
+    }> {
+      const ctx = companyContext(input.companyId);
+      const [task] = await guardedDb
+        .select({
+          budgetCents: tasks.budgetCents,
+          spentCents: tasks.spentCents,
+          deadline: tasks.deadline,
+        })
+        .from(tasks)
+        .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
+      const recent = await guardedDb
+        .select({ costCents: agentSteps.costCents })
+        .from(agentSteps)
+        .where(
+          and(eq(agentSteps.companyId, ctx.companyId), eq(agentSteps.agentSessionId, input.sessionId)),
+        )
+        .orderBy(sql`${agentSteps.stepNo} DESC`)
+        .limit(5);
+      const avg =
+        recent.length > 0
+          ? recent.reduce((s, r) => s + r.costCents, 0) / recent.length
+          : 0;
+      return {
+        budgetCents: task?.budgetCents ?? null,
+        spentCents: task?.spentCents ?? 0,
+        remainingCents: task?.budgetCents === null ? null : (task?.budgetCents ?? 0) - (task?.spentCents ?? 0),
+        estimatedNextStepCents: Math.ceil(avg * 1.5),
+        deadline: task?.deadline?.toISOString() ?? null,
+      };
+    },
+
+    /** Guard enforcement (08 §9): forced help/escalation to the manager —
+     *  message via the ONE send path + agent.guard.triggered/agent.escalated
+     *  events + task WAITING (budget/loop/step_cap) per the guard table. */
+    async guardEscalateActivity(input: SessionRef & {
+      stepId: string;
+      guard: "budget" | "deadline" | "step_cap" | "loop" | "ping_pong" | "depth";
+      detail: string;
+    }): Promise<void> {
+      const ctx = companyContext(input.companyId);
+      await guardedDb.transaction(async (tx) => {
+        await emitDomainEvent(tx, ctx, {
+          type: "agent.guard.triggered",
+          actor: { kind: "system", id: null },
+          agentId: input.agentId,
+          taskId: input.taskId,
+          payload: { guard: input.guard, context: { detail: input.detail } },
+        });
+        await emitDomainEvent(tx, ctx, {
+          type: "agent.escalated",
+          actor: { kind: "system", id: null },
+          agentId: input.agentId,
+          taskId: input.taskId,
+          payload: {
+            reason: `guard ${input.guard}: ${input.detail}`,
+            attempted: [],
+            recommendation: "manager intervention",
+            guardFlag: input.guard,
+          },
+        });
+      });
+      // help message into the task thread (best-effort — thread may not exist
+      // for directly-inserted fixture tasks)
+      try {
+        const thread = await guardedDb.transaction((tx) =>
+          channelService.provisionInTx(tx, ctx, {
+            kind: "task_thread",
+            taskId: input.taskId,
+            memberAgentIds: [input.agentId],
+          }),
+        );
+        await messageService.send(ctx, {
+          channelId: thread.id,
+          senderAgentId: input.agentId,
+          kind: "help_request",
+          body: `Guard ${input.guard} tripped: ${input.detail}`,
+          refs: [{ kind: "task", id: input.taskId }],
+          idempotencyKey: uuidv5(`guard-msg:${input.guard}`, input.stepId),
+        });
+      } catch {
+        /* message is advisory; events already durable */
+      }
+      // budget/step_cap/loop park the task (08 §9a/c/d); deadline only escalates
+      if (input.guard !== "deadline") {
+        const [current] = await guardedDb
+          .select({ status: tasks.status })
+          .from(tasks)
+          .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
+        if (current?.status === "IN_PROGRESS") {
+          await taskState.transition(ctx, input.taskId, "WAITING", { kind: "system" }, {
+            note: `guard ${input.guard}`,
+          });
+        }
+      }
     },
 
     /** wake from wait_for: WAITING→IN_PROGRESS (system actor, 07 §5). */

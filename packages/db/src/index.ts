@@ -66,3 +66,19 @@ export {
   type TaskRow as TaskEngineRow,
   type TaskActorInput,
 } from "./task-engine.js";
+export {
+  CostService,
+  periodStart,
+  type BudgetScope,
+  type BudgetPeriod,
+  type BudgetRow,
+  type CostEntryInput,
+  type BudgetStatus,
+} from "./costs.js";
+export {
+  DelegationService,
+  WIP_LIMIT_BY_ROLE,
+  ASSIGNED_QUEUE_CAP,
+  TEAM_WIP_MULTIPLIER,
+  type DelegationResult,
+} from "./delegation.js";

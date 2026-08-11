@@ -322,6 +322,28 @@ describe("comms + signals (T33)", () => {
     ).toEqual(["ASSIGNED→IN_PROGRESS", "IN_PROGRESS→WAITING", "WAITING→IN_PROGRESS", "IN_PROGRESS→REVIEW"]);
   }, 120_000);
 
+  it("guard (e): >8 strictly alternating messages trip the ping-pong guard centrally", async () => {
+    const dm = await channelService.getOrCreateDm(ctx, null, IDLE);
+    // Founder and IDLE alternate; the 10th message (alternation depth 9) trips
+    for (let i = 0; i < 10; i++) {
+      await messageService.send(ctx, {
+        channelId: dm.id,
+        senderAgentId: i % 2 === 0 ? null : IDLE,
+        kind: "text",
+        body: `volley ${i}`,
+        idempotencyKey: uuidv7(),
+      });
+    }
+    const tripped = await db
+      .select()
+      .from(events)
+      .where(
+        sql`${events.companyId} = ${companyId} AND ${events.type} = 'agent.guard.triggered'
+            AND ${events.payload}->>'guard' = 'ping_pong'`,
+      );
+    expect(tripped.length).toBeGreaterThanOrEqual(1);
+  });
+
   it("task creation auto-provisions the task thread (11 §2)", async () => {
     const { TasksService } = await import("@acos/db");
     const tasksService = new TasksService(guardedDb);
