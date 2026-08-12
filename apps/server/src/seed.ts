@@ -4,7 +4,14 @@
 import { randomBytes } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { companyContext, type CompanyContext, type GuardedDb } from "@acos/db";
-import { companies, orgUnits, toolPermissions, users } from "@acos/db/schema";
+import {
+  companies,
+  modelProfiles,
+  modelProviders,
+  orgUnits,
+  toolPermissions,
+  users,
+} from "@acos/db/schema";
 import { hashPassword } from "./modules/auth/crypto.js";
 import { CompanyService } from "./modules/companies/service.js";
 import { OrgService } from "./modules/org/service.js";
@@ -33,6 +40,9 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
     .where(sql`lower(${users.email}) = ${SEED_FOUNDER_EMAIL}`);
 
   if (existingCompany && existingUser) {
+    // live routing rows apply to EXISTING installs too (idempotent) — the
+    // nightly live-LLM lane boots the same seed with a provider key present
+    await ensureLiveModelRouting(db, existingCompany.id);
     return { created: false, companyId: existingCompany.id, founderUserId: existingUser.id };
   }
 
@@ -65,6 +75,7 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
   }
 
   await seedOrgAndAgents(db, companyId);
+  await ensureLiveModelRouting(db, companyId);
 
   return {
     created: true,
@@ -72,6 +83,45 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
     founderUserId,
     ...(founderPassword !== undefined && { founderPassword }),
   };
+}
+
+/**
+ * Live-LLM routing rows (T50; 29 §8.3 nightly lane): when a provider key is
+ * present and the stack is NOT scripted, ensure the anthropic
+ * model_providers row + the seed company's model_profiles (reasoning /
+ * coding / fast). Embedding has no anthropic endpoint — the memory pipeline
+ * degrades per 12 §5.4/§7.5c (NULL embeddings + skipped semantic lane) until
+ * an embedding provider is configured. Idempotent; a no-op without the key.
+ */
+async function ensureLiveModelRouting(db: GuardedDb, companyId: string): Promise<void> {
+  if (!process.env.ANTHROPIC_API_KEY || process.env.LLM_MODE === "scripted") return;
+  const [existingProvider] = await db
+    .select({ id: modelProviders.id })
+    .from(modelProviders)
+    .where(eq(modelProviders.name, "anthropic"));
+  const providerId =
+    existingProvider?.id ??
+    (
+      await db
+        .insert(modelProviders)
+        .values({ kind: "anthropic", name: "anthropic" })
+        .onConflictDoNothing()
+        .returning({ id: modelProviders.id })
+    )[0]?.id;
+  if (!providerId) return; // lost a boot race — the winner seeded it
+
+  const LIVE_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5";
+  const FAST_MODEL = process.env.ANTHROPIC_FAST_MODEL ?? "claude-haiku-4-5-20251001";
+  for (const [purpose, model] of [
+    ["reasoning", LIVE_MODEL],
+    ["coding", LIVE_MODEL],
+    ["fast", FAST_MODEL],
+  ] as const) {
+    await db
+      .insert(modelProfiles)
+      .values({ companyId, purpose, providerId, model, priority: 0 })
+      .onConflictDoNothing();
+  }
 }
 
 /**

@@ -112,6 +112,10 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
       SEED_FOUNDER_PASSWORD: ${SEED_FOUNDER_PASSWORD:-}
+      # live-LLM lane (T50): with a key present (and LLM_MODE unset) the seed
+      # provisions the anthropic provider + model profiles
+      LLM_MODE: ${LLM_MODE:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
       # Container always listens on 3000; host side is overridable because dev
       # machines may already occupy 3000 (SERVER_PORT is only interpolated here,
@@ -168,6 +172,7 @@ services:
       # e2e/demo profile: LLM_MODE=scripted swaps in the deterministic fake
       # ModelRouter (32 §6); empty = live providers from model_providers rows.
       LLM_MODE: ${LLM_MODE:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # use_tool → Tool Gateway internal HTTP (T40, S3)
       SERVER_INTERNAL_URL: http://server:3000
       # Dev fallbacks — override via .env in any real install (prod overlay requires them).
