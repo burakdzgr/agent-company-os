@@ -108,6 +108,16 @@ export {
   type CreateProjectInput,
 } from "./projects.js";
 export {
+  MemoryConsolidationService,
+  MemoryError,
+  type TriggerWindow,
+  type WindowEvent,
+  type SimilarMemory,
+  type EvidenceInput,
+  type RelationInput,
+  type PersistCandidateInput,
+} from "./memory.js";
+export {
   WorkspaceService,
   WorkspaceError,
   worktreeVolumeName,

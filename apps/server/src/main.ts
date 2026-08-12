@@ -49,10 +49,12 @@ async function main(): Promise<void> {
 
   // message delivery signalling (11 §4.4, T33): best-effort Temporal client —
   // messages stay durable without it, agents just poll their thread slice
+  let temporalClientRef: import("@temporalio/client").Client | null = null;
   try {
     const { Client, Connection } = await import("@temporalio/client");
     const temporalConnection = await Connection.connect({ address: config.temporal.address });
     const temporalClient = new Client({ connection: temporalConnection, namespace: "acos" });
+    temporalClientRef = temporalClient;
     app.commsSignalPort = {
       async signalActiveSession({ workflowId, item }) {
         try {
@@ -132,6 +134,7 @@ async function main(): Promise<void> {
   });
   let relay: OutboxRelay | null = null;
   let dlq: DlqHandler | null = null;
+  let memoryTrigger: import("./modules/memory/trigger.js").MemoryTriggerHandle | null = null;
   if (nats) {
     app.attachOfficeNats?.(nats); // projector publishes office.* (T25)
     app.realtime?.attachNats(nats); // /ws live fanout (T23)
@@ -145,10 +148,36 @@ async function main(): Promise<void> {
     dlq = new DlqHandler(nats, createDb(pool));
     await dlq.start();
     app.log.info("outbox relay + DLQ handler started");
+
+    // terminal tasks → memoryConsolidationWorkflow (T44; 12 §5.0) — rides the
+    // T21 memory-trigger durable; the deterministic workflow id dedupes
+    if (temporalClientRef) {
+      const temporalClient = temporalClientRef;
+      const { startMemoryTrigger } = await import("./modules/memory/trigger.js");
+      memoryTrigger = await startMemoryTrigger({
+        nats,
+        start: async ({ companyId, taskId, trigger }) => {
+          await temporalClient.workflow
+            .start("memoryConsolidationWorkflow", {
+              taskQueue: "memory",
+              workflowId: `memory-consolidation-${companyId}-task-${taskId}`,
+              args: [{ companyId, taskId, trigger }],
+            })
+            .catch((err: unknown) => {
+              if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") {
+                throw err;
+              }
+            });
+        },
+        onError: (err) => app.log.error({ err }, "memory-trigger consumer error"),
+      });
+      app.log.info("memory-trigger consumer started");
+    }
   }
 
   const close = async () => {
     clearInterval(approvalSweep);
+    await memoryTrigger?.stop().catch(() => {});
     await relay?.stop();
     await dlq?.stop();
     await nats?.close().catch(() => {});

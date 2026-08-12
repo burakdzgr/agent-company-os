@@ -454,7 +454,17 @@ export class TaskStateService {
           payload: { reason: opts.note, decidedBy: actor.kind },
         });
       }
-      if (to === "DONE") await this.resolveDependents(tx, ctx, taskId);
+      if (to === "DONE") {
+        // terminal marker the memory-trigger consumer subscribes to
+        // (co.*.task.completed, 10 §5 / 12 §5.0)
+        await emitDomainEvent(tx, ctx, {
+          type: "task.completed",
+          actor: byActor,
+          taskId,
+          payload: { resultSummary: opts.note },
+        });
+        await this.resolveDependents(tx, ctx, taskId);
+      }
       return updated!;
     }
   }

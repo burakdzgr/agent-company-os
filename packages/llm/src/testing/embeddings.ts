@@ -38,6 +38,8 @@ export interface CannedConsolidation {
     kind: "procedure" | "fact" | "decision" | "lesson";
     importance: number;
     confidence: number;
+    /** entities.files — drives the deterministic scope rule 1 (12 §5.3) */
+    files?: string[];
   }>;
 }
 
@@ -50,6 +52,7 @@ const CANNED: Record<string, CannedConsolidation> = {
         kind: "lesson",
         importance: 0.7,
         confidence: 0.9,
+        files: ["src/export/csv.ts"],
       },
       {
         title: "npm test is the gate before review",
@@ -57,6 +60,46 @@ const CANNED: Record<string, CannedConsolidation> = {
         kind: "procedure",
         importance: 0.6,
         confidence: 0.95,
+      },
+    ],
+  },
+  // T44 pipeline suite: single project-scoped lesson (merge/contradiction runs)
+  "single-lesson": {
+    memories: [
+      {
+        title: "Retry uploads with exponential backoff",
+        content: "S3 uploads flake under load; retry 3x with exponential backoff starting at 500ms.",
+        kind: "lesson",
+        importance: 0.7,
+        confidence: 0.8,
+        files: ["src/upload/s3.ts"],
+      },
+    ],
+  },
+  // T44 pipeline suite / demo step 20: a FAILED task's lesson lands in the
+  // 0.30–0.45 candidate band (0.3 + 0.1 costly trigger + 0.05 evidence)
+  "flaky-test-failure": {
+    memories: [
+      {
+        title: "Signup e2e test is order-dependent",
+        content:
+          "The signup spec fails when run after the profile spec; it assumes a clean users table.",
+        kind: "lesson",
+        importance: 0.3,
+        confidence: 0.6,
+        files: ["e2e/signup.spec.ts"],
+      },
+    ],
+  },
+  // T44 pipeline suite: below the 0.30 discard threshold after adjustments
+  "low-importance": {
+    memories: [
+      {
+        title: "CI was slow this morning",
+        content: "The 09:00 CI run took 4 minutes longer than usual; no code cause found.",
+        kind: "fact",
+        importance: 0.1,
+        confidence: 0.5,
       },
     ],
   },

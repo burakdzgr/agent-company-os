@@ -22,7 +22,7 @@ describe("deterministic workflow ids (09 §5)", () => {
     expect(workflowIds.agentTask("t1", "a1")).toBe("agent-task.t1.a1");
     expect(workflowIds.agentInbox("a1")).toBe("agent-inbox.a1");
     expect(workflowIds.review("r1")).toBe("review.r1");
-    expect(workflowIds.consolidation("c1", "b1")).toBe("consolidation.c1.b1");
+    expect(workflowIds.consolidation("c1", "b1")).toBe("memory-consolidation-c1-b1");
     expect(workflowIds.intake("p1")).toBe("intake.p1");
   });
 });

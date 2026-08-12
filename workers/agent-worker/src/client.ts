@@ -14,7 +14,9 @@ export const workflowIds = {
   agentTask: (taskId: string, agentId: string) => `agent-task.${taskId}.${agentId}`,
   agentInbox: (agentId: string) => `agent-inbox.${agentId}`,
   review: (reviewId: string) => `review.${reviewId}`,
-  consolidation: (companyId: string, batchId: string) => `consolidation.${companyId}.${batchId}`,
+  // 12 §5: `memory-consolidation-<company_id>-<trigger_ref>` — idempotent dedupe
+  consolidation: (companyId: string, triggerRef: string) =>
+    `memory-consolidation-${companyId}-${triggerRef}`,
   intake: (projectId: string) => `intake.${projectId}`,
 } as const;
 

@@ -17,9 +17,14 @@ import {
   type PingPongCounter,
 } from "./guards.js";
 import {
+  IMPORTANCE_DISCARD_THRESHOLD,
+  adjustImportance,
   canCreateCompanyScopeMemory,
   canPromoteToCompany,
   canProposeProjectPromotion,
+  classifySimilarity,
+  computeConsolidationConfidence,
+  detectMemoryScope,
   scoreMemoryRetrieval,
 } from "./memory-rules.js";
 import {
@@ -300,6 +305,58 @@ describe("memory rules (_DECISIONS §10)", () => {
   it("a single event never creates company-scope memory", () => {
     expect(canCreateCompanyScopeMemory("event")).toBe(false);
     expect(canCreateCompanyScopeMemory("promotion")).toBe(true);
+  });
+});
+
+describe("consolidation rules (12 §5)", () => {
+  it("importance adjustments: costly trigger, evidence bonus, entity-less episodic penalty", () => {
+    const base = { selfScore: 0.5, costlyTrigger: false, evidenceRefCount: 1, type: "failure", hasEntities: true };
+    expect(adjustImportance(base)).toBeCloseTo(0.5);
+    expect(adjustImportance({ ...base, costlyTrigger: true })).toBeCloseTo(0.6);
+    expect(adjustImportance({ ...base, evidenceRefCount: 2 })).toBeCloseTo(0.55);
+    expect(
+      adjustImportance({ ...base, type: "episodic", hasEntities: false }),
+    ).toBeCloseTo(0.4);
+    expect(
+      adjustImportance({ ...base, selfScore: 0.98, costlyTrigger: true, evidenceRefCount: 3 }),
+    ).toBe(1); // clamped
+    expect(adjustImportance({ ...base, selfScore: 0.25 })).toBeLessThan(
+      IMPORTANCE_DISCARD_THRESHOLD,
+    );
+  });
+
+  it("scope detection: rules 1–5, company unreachable", () => {
+    const base = {
+      type: "failure",
+      suggestedScope: "project" as const,
+      referencesProjectArtifacts: false,
+      hasProject: true,
+    };
+    expect(detectMemoryScope({ ...base, referencesProjectArtifacts: true })).toBe("project"); // rule 1
+    expect(detectMemoryScope({ ...base, suggestedScope: "agent" })).toBe("agent"); // rule 2
+    expect(detectMemoryScope({ ...base, type: "relationship" })).toBe("agent"); // rule 3
+    expect(detectMemoryScope({ ...base, hasProject: false })).toBe("agent"); // rule 4
+    expect(detectMemoryScope(base)).toBe("project"); // rule 5 tiebreak
+  });
+
+  it("confidence formula: base cap, corroboration, metric bonus, statement penalty", () => {
+    const evt = { kind: "event" as const };
+    expect(computeConsolidationConfidence(0.9, [evt])).toBeCloseTo(0.75); // base capped at 0.6
+    expect(computeConsolidationConfidence(0.6, [evt, evt, evt])).toBeCloseTo(0.9); // +0.30 max
+    expect(
+      computeConsolidationConfidence(0.6, [evt, { kind: "metric" }]),
+    ).toBeCloseTo(1); // 0.6+0.15+0.25
+    expect(computeConsolidationConfidence(0.5, [{ kind: "statement" }])).toBeCloseTo(0.3);
+    expect(computeConsolidationConfidence(0.1, [{ kind: "statement" }])).toBe(0); // clamped
+  });
+
+  it("similarity bands (12 §5.5)", () => {
+    expect(classifySimilarity(0.97)).toBe("fast_merge");
+    expect(classifySimilarity(0.95)).toBe("fast_merge");
+    expect(classifySimilarity(0.9)).toBe("compare_merge");
+    expect(classifySimilarity(0.78)).toBe("compare_no_merge");
+    expect(classifySimilarity(0.7)).toBe("compare_no_merge");
+    expect(classifySimilarity(0.69)).toBe("unrelated");
   });
 });
 

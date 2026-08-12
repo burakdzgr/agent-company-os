@@ -233,12 +233,20 @@ async function run(): Promise<void> {
     maxCachedWorkflows: 200,
     shutdownGraceTime: "30s",
   });
+  const { createMemoryActivities } = await import("./memory/activities.js");
   const memoryWorker = await Worker.create({
     connection,
     namespace: "acos",
     taskQueue: TASK_QUEUES.memory,
     workflowsPath: require.resolve("./workflows/memory/index.js"),
-    activities: {}, // embedding/extraction activities land with T44
+    // consolidation pipeline (T44; 12 §5) — scripted mode swaps in the canned
+    // extractions + pseudo-embeddings (32 §6)
+    activities: createMemoryActivities({
+      guardedDb,
+      router,
+      routingFor,
+      scripted: process.env.LLM_MODE === "scripted",
+    }),
     maxConcurrentActivityTaskExecutions: 8,
     shutdownGraceTime: "30s",
   });
