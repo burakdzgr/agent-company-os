@@ -108,6 +108,11 @@ export {
   type CreateProjectInput,
 } from "./projects.js";
 export {
+  MemoryPromotionService,
+  PromotionError,
+  seedPromotionPolicies,
+} from "./memory-promotion.js";
+export {
   MemoryRetrievalService,
   applyRetrievalCounts,
   type RetrieveInput,

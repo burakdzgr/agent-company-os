@@ -4,6 +4,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import {
   companyContext,
+  seedPromotionPolicies,
   type CompanyContext,
   type GuardedDb,
 } from "@acos/db";
@@ -40,6 +41,8 @@ export class CompanyService {
         userId: input.createdByUserId,
         role: "founder",
       });
+      // binding memory-promotion defaults (12 §6.2, T46) — tenant-editable rows
+      await seedPromotionPolicies(tx, ctx);
       await emitDomainEvent(tx, ctx, {
         type: "company.created",
         actor: { kind: "founder", id: null },

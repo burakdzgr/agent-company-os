@@ -12,6 +12,7 @@
 // live-LLM compare joins the nightly lane.
 import {
   MemoryConsolidationService,
+  MemoryPromotionService,
   companyContext,
   type CompanyContext,
   type EvidenceInput,
@@ -262,6 +263,19 @@ export function createMemoryActivities(deps: MemoryActivityDeps) {
         memoryId: input.memoryId,
         evidence: input.evidence,
       });
+    },
+
+    /**
+     * 12 §6.2 (T46): promotion evaluation — runs immediately after any
+     * consolidation that persisted or merged (evidence may have crossed a
+     * rule threshold); the same activity backs the nightly per-company lane.
+     */
+    async evaluatePromotionsActivity(input: {
+      companyId: string;
+    }): Promise<{ proposed: number }> {
+      return new MemoryPromotionService(deps.guardedDb).evaluateCompany(
+        companyContext(input.companyId),
+      );
     },
 
     /** 12 §5.10 run report event. */

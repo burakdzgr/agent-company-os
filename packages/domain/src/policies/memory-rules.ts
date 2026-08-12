@@ -46,6 +46,48 @@ export function canProposeProjectPromotion(input: {
 /** project → company requires ≥2 projects + manager-agent approval. */
 export const PROJECT_TO_COMPANY_RULE = { minDistinctProjects: 2 } as const;
 
+/** Evidence rows count toward promotion only at weight ≥ 0.6 (12 §6.2). */
+export const PROMOTION_EVIDENCE_WEIGHT_FLOOR = 0.6;
+
+/** The binding seeded promotion rules (12 §6.2, _DECISIONS §10) — stored as
+ *  `policies` rows (kind=memory_promotion) at company creation. */
+export const DEFAULT_PROMOTION_RULES = [
+  {
+    name: "memory-promotion:agent-project:failure",
+    fromScope: "agent",
+    toScope: "project",
+    memoryType: "failure",
+    minEvidence: 3,
+    minDistinctTasks: 2,
+    minDistinctProjects: null,
+    minConfidence: 0.5,
+    approver: "lead",
+  },
+  {
+    name: "memory-promotion:agent-project:any",
+    fromScope: "agent",
+    toScope: "project",
+    memoryType: null, // any type
+    minEvidence: 3,
+    minDistinctTasks: 2,
+    minDistinctProjects: null,
+    minConfidence: 0.5,
+    approver: "lead",
+  },
+  {
+    name: "memory-promotion:project-company:any",
+    fromScope: "project",
+    toScope: "company",
+    memoryType: null,
+    minEvidence: 4, // WRITER-DECISION (12 §6.2)
+    minDistinctTasks: null,
+    minDistinctProjects: 2,
+    minConfidence: 0.5,
+    approver: "manager",
+  },
+] as const;
+export type PromotionRule = (typeof DEFAULT_PROMOTION_RULES)[number];
+
 export function canPromoteToCompany(input: {
   distinctProjectCount: number;
   managerApproved: boolean;

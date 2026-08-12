@@ -222,5 +222,11 @@ export async function memoryConsolidationWorkflow(
     merged: report.merged,
     discarded: report.discarded + report.hallucinatedEvidence,
   });
+
+  // 12 §6.2 (T46): promotion evaluation fires immediately after any run that
+  // added or merged evidence — thresholds may have just been crossed
+  if (report.persisted + report.merged > 0) {
+    await activities.evaluatePromotionsActivity({ companyId: input.companyId });
+  }
   return report;
 }

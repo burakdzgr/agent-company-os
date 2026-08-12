@@ -506,6 +506,95 @@ describe.each([{ dim: 768 }, { dim: 1536 }])(
   },
 );
 
+describe("promotion chaining after consolidation (12 §6.2, T46)", () => {
+  const QUEUE = "memory-promotion-chain";
+  let nativeConnection: NativeConnection;
+  let worker: Worker;
+  let workerRun: Promise<void>;
+
+  beforeAll(async () => {
+    nativeConnection = await NativeConnection.connect({ address: temporal.address });
+    worker = await Worker.create({
+      connection: nativeConnection,
+      namespace: "acos",
+      taskQueue: QUEUE,
+      workflowsPath,
+      activities: createMemoryActivities({ guardedDb, scripted: true, scriptedDim: 768 }),
+    });
+    workerRun = worker.run();
+    const { seedPromotionPolicies, companyContext: cc } = await import("@acos/db");
+    await seedPromotionPolicies(guardedDb, cc(companyId));
+  }, 120_000);
+
+  afterAll(async () => {
+    worker?.shutdown();
+    await workerRun?.catch(() => {});
+    await nativeConnection?.close();
+  });
+
+  it("a merge that crosses the evidence threshold proposes a promotion; founder approval activates the copy", async () => {
+    // the agent-scope procedural memory from the 768 runs already carries
+    // evidence from 2 tasks; one more consolidation merge pushes it to 3
+    // distinct tasks ⇒ the agent→project rule fires right after the run
+    const promoProjectId = await seedProject("Proj promo-chain");
+    const { taskId } = await seedTask({ fixture: "csv-implementation", projectId: promoProjectId });
+    const report = await runConsolidation(taskId, { queue: QUEUE });
+    expect(report.merged).toBeGreaterThanOrEqual(1);
+
+    const { memoryPromotions, memoryRelations } = await import("@acos/db/schema");
+    const promotions = await db
+      .select()
+      .from(memoryPromotions)
+      .where(eq(memoryPromotions.companyId, companyId));
+    expect(promotions.length).toBeGreaterThanOrEqual(1);
+    const promotion = promotions.find((p) => p.targetScope === "project")!;
+    expect(promotion).toBeDefined();
+    expect(promotion.status).toBe("proposed");
+    expect(promotion.evidenceCount).toBeGreaterThanOrEqual(3);
+    expect(promotion.distinctTaskCount).toBeGreaterThanOrEqual(2);
+
+    // candidate copy + derived_from lineage (12 §6.3)
+    const copy = (
+      await db.select().from(memories).where(eq(memories.id, promotion.targetMemoryId!))
+    )[0]!;
+    expect(copy.scope).toBe("project");
+    expect(copy.status).toBe("candidate");
+    const lineage = await db
+      .select()
+      .from(memoryRelations)
+      .where(
+        and(
+          eq(memoryRelations.fromMemoryId, copy.id),
+          eq(memoryRelations.kind, "derived_from"),
+        ),
+      );
+    expect(lineage).toHaveLength(1);
+    expect(lineage[0]!.toMemoryId).toBe(promotion.sourceMemoryId);
+    const proposedEvents = await eventsOfType("memory.promotion.proposed");
+    expect(proposedEvents.length).toBeGreaterThanOrEqual(1);
+
+    // founder approves → active at the new scope + memory.promoted; the
+    // original stays active (promotion copies, never moves)
+    const { MemoryPromotionService, companyContext: cc } = await import("@acos/db");
+    const service = new MemoryPromotionService(guardedDb);
+    const decided = await service.decide(cc(companyId), promotion.id, {
+      verdict: "approved",
+      approverAgentId: null,
+    });
+    expect(decided.status).toBe("active");
+    const original = (
+      await db.select().from(memories).where(eq(memories.id, promotion.sourceMemoryId))
+    )[0]!;
+    expect(original.status).toBe("active");
+    const promotedEvents = await eventsOfType("memory.promoted");
+    expect(
+      promotedEvents.some(
+        (e) => (e.payload as { newMemoryId?: string }).newMemoryId === copy.id,
+      ),
+    ).toBe(true);
+  }, 90_000);
+});
+
 describe("embedding failure path (12 §5.4)", () => {
   const QUEUE = "memory-embedfail";
   let nativeConnection: NativeConnection;
