@@ -197,24 +197,27 @@ async function run(): Promise<void> {
       guardedDb,
       invokeTool,
       startReviewWorkflow,
-      // rework re-entry with the verdict pre-seeded (T43): the prior run
-      // closed at request_review — the deterministic id is REUSED
-      startAgentWorkflow: async ({ companyId, agentId, taskId, initialReviewVerdict }) => {
-        await startAgentTaskWorkflow(
-          temporalClient,
-          "agentTaskWorkflow",
-          {
-            companyId,
-            agentId,
-            taskId,
-            sessionId: uuidv7(),
-            attempt: 1,
-            ...(initialReviewVerdict && { initialReviewVerdict }),
-          },
-          { allowReentry: true },
-        ).catch((err: unknown) => {
-          if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") throw err;
-        });
+      // rework re-entry with the verdict pre-seeded (T43): a DISTINCT
+      // workflow id (rework key) so it never races the prior run's close
+      startAgentWorkflow: async ({ companyId, agentId, taskId, initialReviewVerdict, reworkKey }) => {
+        await temporalClient.workflow
+          .start("agentTaskWorkflow", {
+            taskQueue: TASK_QUEUES.agentTasks,
+            workflowId: `agent-task.${taskId}.${agentId}.rework-${reworkKey ?? "0"}`,
+            args: [
+              {
+                companyId,
+                agentId,
+                taskId,
+                sessionId: uuidv7(),
+                attempt: 1,
+                ...(initialReviewVerdict && { initialReviewVerdict }),
+              },
+            ],
+          })
+          .catch((err: unknown) => {
+            if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") throw err;
+          });
       },
     }),
   };

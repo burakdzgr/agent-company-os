@@ -18,6 +18,9 @@ export interface ReviewActivityDeps {
         agentId: string;
         taskId: string;
         initialReviewVerdict?: { verdict: string; notes?: string } | undefined;
+        /** Distinct workflow-id discriminator so the rework run never
+         *  collides with the (possibly not-yet-closed) prior run (T43). */
+        reworkKey?: string | undefined;
       }) => Promise<void>)
     | undefined;
   /** QA-approved → merge as the LEAD via the Tool Gateway (S3). */
@@ -176,6 +179,7 @@ export function createReviewActivities(deps: ReviewActivityDeps) {
             agentId: task.ownerAgentId,
             taskId: input.taskId,
             initialReviewVerdict: { verdict: "changes_requested", notes: input.note },
+            reworkKey: input.reviewId.slice(-8), // distinct id (T43 race fix)
           });
         }
         return { taskStatus, merged: false };

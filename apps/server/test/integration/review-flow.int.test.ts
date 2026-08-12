@@ -331,12 +331,23 @@ beforeAll(async () => {
     agentId: string;
     taskId: string;
     initialReviewVerdict?: { verdict: string; notes?: string };
+    reworkKey?: string;
   }) => {
     await client.workflow
       .start("agentTaskWorkflow", {
         taskQueue: TASK_QUEUES.agentTasks,
-        workflowId: `agent-task.${input.taskId}.${input.agentId}`,
-        args: [{ ...input, sessionId: uuidv7(), attempt: 1 }],
+        // DISTINCT id — never race the prior run's close (T43 CI fix)
+        workflowId: `agent-task.${input.taskId}.${input.agentId}.rework-${input.reworkKey ?? "0"}`,
+        args: [
+          {
+            companyId: input.companyId,
+            agentId: input.agentId,
+            taskId: input.taskId,
+            sessionId: uuidv7(),
+            attempt: 1,
+            ...(input.initialReviewVerdict && { initialReviewVerdict: input.initialReviewVerdict }),
+          },
+        ],
       })
       .catch((err: unknown) => {
         if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") throw err;
@@ -413,16 +424,20 @@ describe.skipIf(!runnable)("engineering review flow (T43, demo steps 17–19)", 
 
     // the whole cascade (reviewer → rework re-entry → re-review → QA → merge)
     // runs itself; the task lands DONE
-    await pollUntil(async () => {
-      const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId));
-      return row?.status === "DONE" ? row : null;
-    }, "task DONE after review+merge");
+    await pollUntil(
+      async () => {
+        const [row] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+        return row?.status === "DONE" ? row : null;
+      },
+      "task DONE after review+merge",
+      300_000, // the full 6-container chain on a shared CI daemon
+    );
 
     // review rows: code approved by the INDEPENDENT lead, qa by the reviewer
     const rows = await db.select().from(reviews).where(eq(reviews.taskId, taskId));
     const code = rows.find((r) => r.kind === "code")!;
     const qa = rows.find((r) => r.kind === "qa")!;
-    expect(code.status).toBe("approved");
+    expect(code.status, "code review not approved — rework re-entry likely raced").toBe("approved");
     expect(code.reviewerAgentId).toBe(agentId["Kerem Yıldız"]); // same-team lead
     expect(code.reviewerAgentId).not.toBe(code.authorAgentId);
     expect(code.mergedCommit).toMatch(/^[0-9a-f]{40}$/);
