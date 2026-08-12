@@ -113,6 +113,10 @@ export {
   seedPromotionPolicies,
 } from "./memory-promotion.js";
 export {
+  ExecutiveReportService,
+  type ExecutiveReportResult,
+} from "./executive-report.js";
+export {
   SkillsService,
   SkillsError,
   PROMOTION_REVIEW_NOTE_PREFIX,

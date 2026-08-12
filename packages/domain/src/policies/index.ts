@@ -67,6 +67,11 @@ export {
   type SimilarityBand,
 } from "./memory-rules.js";
 export {
+  projectedSpendCents,
+  forecastBreach,
+  type BurnForecastInput,
+} from "./cost-rules.js";
+export {
   SKILL_EVIDENCE_KINDS,
   EVIDENCE_WEIGHTS,
   EVIDENCE_BANDS,

@@ -31,6 +31,7 @@ import {
   scoreMemoryRetrieval,
   type PackableMemory,
 } from "./memory-rules.js";
+import { forecastBreach, projectedSpendCents } from "./cost-rules.js";
 import {
   escalationChain,
   hasActiveManager,
@@ -418,6 +419,52 @@ describe("retrieval rules (12 §7)", () => {
   it("labels packed blocks with memory id + confidence for citation (12 §7.3)", () => {
     const result = packMemories([row("mem-1", 0.5)], 1_000);
     expect(result.packed[0]!.rendered).toContain("[memory mem-1 | failure | conf 0.80]");
+  });
+});
+
+describe("burn forecasting (26 §8)", () => {
+  it("projects with the trailing-24h rate once a day of data exists", () => {
+    // 2400¢ in the last 24h ⇒ 100¢/h; 10h remaining ⇒ +1000¢
+    expect(
+      projectedSpendCents({
+        spentSoFarCents: 5000,
+        trailing24hCents: 2400,
+        hoursElapsedInPeriod: 48,
+        hoursRemainingInPeriod: 10,
+      }),
+    ).toBe(6000);
+  });
+
+  it("falls back to the period-to-date average under 24h of data", () => {
+    // 600¢ over 6h ⇒ 100¢/h; 18h remaining ⇒ +1800¢
+    expect(
+      projectedSpendCents({
+        spentSoFarCents: 600,
+        trailing24hCents: 600,
+        hoursElapsedInPeriod: 6,
+        hoursRemainingInPeriod: 18,
+      }),
+    ).toBe(2400);
+    expect(
+      projectedSpendCents({
+        spentSoFarCents: 0,
+        trailing24hCents: 0,
+        hoursElapsedInPeriod: 0,
+        hoursRemainingInPeriod: 24,
+      }),
+    ).toBe(0);
+  });
+
+  it("forecast breach only fires with more than 12h left to act", () => {
+    expect(
+      forecastBreach({ projectedCents: 1100, limitCents: 1000, hoursRemainingInPeriod: 13 }),
+    ).toBe(true);
+    expect(
+      forecastBreach({ projectedCents: 1100, limitCents: 1000, hoursRemainingInPeriod: 12 }),
+    ).toBe(false);
+    expect(
+      forecastBreach({ projectedCents: 900, limitCents: 1000, hoursRemainingInPeriod: 20 }),
+    ).toBe(false);
   });
 });
 

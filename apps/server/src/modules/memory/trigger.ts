@@ -16,6 +16,8 @@ export interface MemoryTriggerOptions {
   nats: NatsConnection;
   /** starts memoryConsolidationWorkflow; must swallow already-started */
   start: (input: ConsolidationStartInput) => Promise<void>;
+  /** T49: project-completion check + executive report on terminal tasks */
+  onTaskTerminal?: ((input: { companyId: string; taskId: string }) => Promise<void>) | undefined;
   onError: (err: unknown) => void;
 }
 
@@ -49,6 +51,9 @@ export async function startMemoryTrigger(options: MemoryTriggerOptions): Promise
             taskId,
             trigger: envelope.type === "task.failed" ? "task_failed" : "task_completed",
           });
+          // demo 23–24 (T49): the same terminal signal drives the
+          // project-completion check + the CEO's executive report
+          await options.onTaskTerminal?.({ companyId: envelope.companyId, taskId });
         }
         msg.ack(); // non-task triggers ack too (post-MVP kinds)
       } catch (err) {

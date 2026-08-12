@@ -20,8 +20,8 @@ const NAV_ITEMS: Array<{ label: string; path?: string }> = [
   { label: "TERMINALS", path: "/c/$companyId/terminals" },
   { label: "APPROVALS", path: "/c/$companyId/approvals" },
   { label: "EVENTS", path: "/c/$companyId/events" },
-  { label: "REPORTS" },
-  { label: "COSTS" },
+  { label: "REPORTS", path: "/c/$companyId/reports" },
+  { label: "COSTS", path: "/c/$companyId/costs" },
   { label: "SETTINGS" },
 ];
 

@@ -109,6 +109,16 @@ async function main(): Promise<void> {
     app.log.error({ err }, "Temporal unavailable — comms delivery signalling disabled");
   }
 
+  // cost rollup refresh (26 §7, T49): every 5 min — the server interval is a
+  // recorded narrowing of the Temporal-cron scheduler activity
+  const { sql: rawSql } = await import("drizzle-orm");
+  const rollupDb = createDb(pool);
+  const rollupRefresh = setInterval(() => {
+    rollupDb
+      .execute(rawSql`REFRESH MATERIALIZED VIEW cost_rollup_daily`)
+      .catch((err) => app.log.error({ err }, "cost rollup refresh failed"));
+  }, 300_000);
+
   // retrieval-count batch (12 §7.4, T45): every 60s aggregate UNLOGGED
   // memory_retrievals into memories.retrieval_count + 14-day sweep
   const { applyRetrievalCounts } = await import("@acos/db");
@@ -164,8 +174,17 @@ async function main(): Promise<void> {
     if (temporalClientRef) {
       const temporalClient = temporalClientRef;
       const { startMemoryTrigger } = await import("./modules/memory/trigger.js");
+      const { ExecutiveReportService, companyContext: reportCtx } = await import("@acos/db");
+      const reportService = new ExecutiveReportService(guardedDb);
       memoryTrigger = await startMemoryTrigger({
         nats,
+        // demo 23–24 (T49): terminal task → project-completion check → the
+        // CEO's executive report (artifact + Founder DM)
+        onTaskTerminal: async ({ companyId, taskId }) => {
+          await reportService
+            .onTaskTerminal(reportCtx(companyId), taskId)
+            .catch((err) => app.log.error({ err, taskId }, "executive report hook failed"));
+        },
         start: async ({ companyId, taskId, trigger }) => {
           await temporalClient.workflow
             .start("memoryConsolidationWorkflow", {
@@ -188,6 +207,7 @@ async function main(): Promise<void> {
   const close = async () => {
     clearInterval(approvalSweep);
     clearInterval(retrievalBatch);
+    clearInterval(rollupRefresh);
     await memoryTrigger?.stop().catch(() => {});
     await relay?.stop();
     await dlq?.stop();

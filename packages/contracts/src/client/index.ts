@@ -89,6 +89,16 @@ import {
   type MemoryListResponse,
   type ResolveContradictionRequest,
 } from "../memories.js";
+import {
+  CostEntriesResponseSchema,
+  CostForecastResponseSchema,
+  CostSummaryResponseSchema,
+  ReportListResponseSchema,
+  type CostEntriesResponse,
+  type CostForecastResponse,
+  type CostSummaryResponse,
+  type ReportListResponse,
+} from "../costs.js";
 
 export interface EventListFilters {
   types?: string[];
@@ -410,6 +420,40 @@ export function createAcosClient(options: AcosClientOptions) {
     skills: {
       matrix: async (companyId: string): Promise<SkillMatrixResponse> =>
         SkillMatrixResponseSchema.parse(await get(`/api/v1/companies/${companyId}/skills/matrix`)),
+    },
+    costs: {
+      summary: async (
+        companyId: string,
+        filters: { groupBy?: "kind" | "agent" | "project" | "task"; from?: string; to?: string } = {},
+      ): Promise<CostSummaryResponse> => {
+        const params = new URLSearchParams(
+          Object.entries(filters).filter(([, v]) => v !== undefined) as string[][],
+        ).toString();
+        return CostSummaryResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/costs${params ? `?${params}` : ""}`),
+        );
+      },
+      entries: async (
+        companyId: string,
+        filters: { taskId?: string; projectId?: string; limit?: number } = {},
+      ): Promise<CostEntriesResponse> => {
+        const params = new URLSearchParams(
+          Object.entries(filters)
+            .filter(([, v]) => v !== undefined)
+            .map(([k, v]) => [k, String(v)]),
+        ).toString();
+        return CostEntriesResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/costs/entries${params ? `?${params}` : ""}`),
+        );
+      },
+      forecast: async (companyId: string): Promise<CostForecastResponse> =>
+        CostForecastResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/costs/forecast`),
+        ),
+    },
+    reports: {
+      list: async (companyId: string): Promise<ReportListResponse> =>
+        ReportListResponseSchema.parse(await get(`/api/v1/companies/${companyId}/reports`)),
     },
     memories: {
       list: async (
