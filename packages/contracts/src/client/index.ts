@@ -75,6 +75,20 @@ import {
   type ReviewListResponse,
 } from "../reviews.js";
 import { SkillMatrixResponseSchema, type SkillMatrixResponse } from "../skills.js";
+import {
+  ContradictionQueueResponseSchema,
+  FounderMemoryPatchResponseSchema,
+  MemoryDetailResponseSchema,
+  MemoryGraphResponseSchema,
+  MemoryListResponseSchema,
+  type ContradictionQueueResponse,
+  type FounderMemoryPatch,
+  type FounderMemoryPatchResponse,
+  type MemoryDetailResponse,
+  type MemoryGraphResponse,
+  type MemoryListResponse,
+  type ResolveContradictionRequest,
+} from "../memories.js";
 
 export interface EventListFilters {
   types?: string[];
@@ -142,6 +156,7 @@ export function createAcosClient(options: AcosClientOptions) {
 
   const get = (path: string) => request("GET", path);
   const post = (path: string, body?: unknown) => request("POST", path, body);
+  const patch = (path: string, body?: unknown) => request("PATCH", path, body);
 
   return {
     health: {
@@ -395,6 +410,46 @@ export function createAcosClient(options: AcosClientOptions) {
     skills: {
       matrix: async (companyId: string): Promise<SkillMatrixResponse> =>
         SkillMatrixResponseSchema.parse(await get(`/api/v1/companies/${companyId}/skills/matrix`)),
+    },
+    memories: {
+      list: async (
+        companyId: string,
+        filters: { scope?: string; type?: string; status?: string; q?: string } = {},
+      ): Promise<MemoryListResponse> => {
+        const params = new URLSearchParams(
+          Object.entries(filters).filter(([, v]) => v !== undefined && v !== "") as string[][],
+        ).toString();
+        return MemoryListResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/memories${params ? `?${params}` : ""}`),
+        );
+      },
+      detail: async (companyId: string, memoryId: string): Promise<MemoryDetailResponse> =>
+        MemoryDetailResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/memories/${memoryId}`),
+        ),
+      graph: async (companyId: string): Promise<MemoryGraphResponse> =>
+        MemoryGraphResponseSchema.parse(await get(`/api/v1/companies/${companyId}/memories/graph`)),
+      contradictions: async (companyId: string): Promise<ContradictionQueueResponse> =>
+        ContradictionQueueResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/memories/contradictions`),
+        ),
+      resolveContradiction: async (
+        companyId: string,
+        relationId: string,
+        body: ResolveContradictionRequest,
+      ): Promise<{ loserMemoryId: string }> =>
+        (await post(
+          `/api/v1/companies/${companyId}/memories/contradictions/${relationId}/resolve`,
+          body,
+        )) as { loserMemoryId: string },
+      founderPatch: async (
+        companyId: string,
+        memoryId: string,
+        body: FounderMemoryPatch,
+      ): Promise<FounderMemoryPatchResponse> =>
+        FounderMemoryPatchResponseSchema.parse(
+          await patch(`/api/v1/companies/${companyId}/memories/${memoryId}`, body),
+        ),
     },
     projects: {
       list: async (companyId: string): Promise<ProjectListResponse> =>

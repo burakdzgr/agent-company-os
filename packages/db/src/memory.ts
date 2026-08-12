@@ -10,6 +10,7 @@ import type { CompanyContext } from "./context.js";
 import type { GuardedDb } from "./tenant.js";
 import {
   artifacts,
+  auditLog,
   events,
   memories,
   memoryEvidence,
@@ -495,6 +496,80 @@ export class MemoryConsolidationService {
         payload: { memoryId: row.id, versionNo },
       });
       return { versionNo };
+    });
+  }
+
+  /**
+   * Founder memory edit / archive (12 §8.8, T48): every action writes a
+   * memory_versions row (changed_by founder), an audit_log row (S7) and emits
+   * memory.updated / memory.archived. Hard delete does not exist.
+   */
+  async founderUpdate(
+    ctx: CompanyContext,
+    memoryId: string,
+    input: {
+      byUserId: string;
+      title?: string | undefined;
+      content?: string | undefined;
+      importance?: number | undefined;
+      archive?: boolean | undefined;
+      note?: string | undefined;
+    },
+  ): Promise<{ versionNo: number; status: string }> {
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .select()
+        .from(memories)
+        .where(and(eq(memories.companyId, ctx.companyId), eq(memories.id, memoryId)))
+        .for("update");
+      if (!row) throw new MemoryError("MEMORY_NOT_FOUND", `memory ${memoryId} not found`);
+      const title = input.title ?? row.title;
+      const content = input.content ?? row.content;
+      const importance = input.importance ?? row.importance;
+      const status = input.archive ? "archived" : row.status;
+      const versionNo = row.version + 1;
+      await tx
+        .update(memories)
+        .set({ title, content, importance, status, version: versionNo, updatedAt: sql`now()` })
+        .where(and(eq(memories.companyId, ctx.companyId), eq(memories.id, memoryId)));
+      await tx.insert(memoryVersions).values({
+        companyId: ctx.companyId,
+        memoryId,
+        version: versionNo,
+        title,
+        content,
+        summary: row.summary,
+        importance,
+        confidence: row.confidence,
+        status,
+        changedBy: "founder",
+        changeReason: input.archive
+          ? `founder_archive${input.note ? `: ${input.note.slice(0, 300)}` : ""}`
+          : `founder_edit${input.note ? `: ${input.note.slice(0, 300)}` : ""}`,
+      });
+      await tx.insert(auditLog).values({
+        companyId: ctx.companyId,
+        actorKind: "user",
+        actorId: input.byUserId,
+        action: input.archive ? "memory.founder_archive" : "memory.founder_edit",
+        targetKind: "memory",
+        targetId: memoryId,
+        meta: { versionNo },
+      });
+      if (input.archive) {
+        await emitDomainEvent(tx, ctx, {
+          type: "memory.archived",
+          actor: { kind: "founder", id: null },
+          payload: { memoryId, reason: input.note ?? "founder archive" },
+        });
+      } else {
+        await emitDomainEvent(tx, ctx, {
+          type: "memory.updated",
+          actor: { kind: "founder", id: null },
+          payload: { memoryId, versionNo },
+        });
+      }
+      return { versionNo, status };
     });
   }
 

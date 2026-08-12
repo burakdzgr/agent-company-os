@@ -218,6 +218,24 @@ export {
   type ReviewDiffResponse,
 } from "./reviews.js";
 export {
+  MemoryDtoSchema,
+  MemoryListResponseSchema,
+  MemoryDetailResponseSchema,
+  MemoryGraphResponseSchema,
+  ContradictionQueueResponseSchema,
+  ResolveContradictionRequestSchema,
+  FounderMemoryPatchSchema,
+  FounderMemoryPatchResponseSchema,
+  type MemoryDto,
+  type MemoryListResponse,
+  type MemoryDetailResponse,
+  type MemoryGraphResponse,
+  type ContradictionQueueResponse,
+  type ResolveContradictionRequest,
+  type FounderMemoryPatch,
+  type FounderMemoryPatchResponse,
+} from "./memories.js";
+export {
   SkillMatrixRowSchema,
   SkillMatrixResponseSchema,
   SkillEvidenceDtoSchema,

@@ -24,6 +24,7 @@ import { ApprovalsView } from "./features/approvals/ApprovalsView.js";
 import { TerminalsView } from "./features/terminals/TerminalsView.js";
 import { ProjectsView } from "./features/projects/ProjectsView.js";
 import { SkillsView } from "./features/skills/SkillsView.js";
+import { MemoryView } from "./features/memory/MemoryView.js";
 
 const rootRoute = createRootRoute();
 
@@ -138,6 +139,12 @@ const skillsRoute = createRoute({
   component: SkillsView,
 });
 
+const memoryRoute = createRoute({
+  getParentRoute: () => companyRoute,
+  path: "memory",
+  component: MemoryView,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
@@ -155,6 +162,7 @@ const routeTree = rootRoute.addChildren([
     terminalsRoute,
     projectsRoute,
     skillsRoute,
+    memoryRoute,
   ]),
 ]);
 

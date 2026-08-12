@@ -34,6 +34,7 @@ import { registerTerminalRoutes } from "./modules/terminals/routes.js";
 import { registerProjectRoutes, type IntakeStarter } from "./modules/projects/routes.js";
 import { registerReviewRoutes } from "./modules/reviews/routes.js";
 import { registerSkillRoutes } from "./modules/skills/routes.js";
+import { registerMemoryRoutes } from "./modules/memory/routes.js";
 import { ToolGateway, type ToolDispatchPort } from "./modules/tools/gateway.js";
 import { unsealSecret } from "./modules/auth/crypto.js";
 import { secrets } from "@acos/db/schema";
@@ -363,6 +364,15 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   await registerSkillRoutes(app, {
     guardedDb: () => {
       if (!options.guardedDb) throw new ApiError("internal", "skills not wired");
+      return options.guardedDb;
+    },
+    companiesSvc,
+  });
+
+  // ---------- memory observatory (T48; 12 §8) ----------
+  await registerMemoryRoutes(app, {
+    guardedDb: () => {
+      if (!options.guardedDb) throw new ApiError("internal", "memories not wired");
       return options.guardedDb;
     },
     companiesSvc,

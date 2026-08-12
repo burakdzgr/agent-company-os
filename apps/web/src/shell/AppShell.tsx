@@ -13,7 +13,7 @@ const NAV_ITEMS: Array<{ label: string; path?: string }> = [
   { label: "TASKS", path: "/c/$companyId/tasks" },
   { label: "AGENTS", path: "/c/$companyId/agents" },
   { label: "PROJECTS", path: "/c/$companyId/projects" },
-  { label: "MEMORY" },
+  { label: "MEMORY", path: "/c/$companyId/memory" },
   { label: "ORGANIZATION", path: "/c/$companyId/organization" },
   { label: "SKILLS", path: "/c/$companyId/skills" },
   { label: "COMMUNICATION", path: "/c/$companyId/communication" },
