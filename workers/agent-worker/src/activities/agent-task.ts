@@ -11,6 +11,7 @@ import {
   ChannelService,
   CostService,
   DelegationService,
+  MemoryRetrievalService,
   MessageService,
   ReviewError,
   ReviewsService,
@@ -167,6 +168,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
   const costService = new CostService(guardedDb);
   const approvalsService = new ApprovalsService(guardedDb);
   const reviewsService = new ReviewsService(guardedDb);
+  const retrievalService = new MemoryRetrievalService(guardedDb);
 
   /** Checkpoint before review (T43, recorded): the submit implies "my work
    *  is on the branch" — an automatic commit (allowEmpty) + push makes the
@@ -336,6 +338,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         .select({
           stepNo: agentSteps.stepNo,
           actionKind: agentSteps.actionKind,
+          action: agentSteps.action,
           observation: agentSteps.observation,
         })
         .from(agentSteps)
@@ -350,9 +353,57 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
 
       const taskContext = task.context as Record<string, unknown>;
       const lastObservation = recentSteps[0]?.observation as
-        | { exitCode?: number; signal?: Record<string, string> }
+        | { exitCode?: number; signal?: Record<string, string>; error?: string }
         | null
         | undefined;
+
+      // sections 4–6 (08 §8): memory retrieval (12 §7, T45). Query text =
+      // title + objective + current step intent + last tool error; the
+      // failure lane's exact file-path match uses paths the session touched.
+      // Retrieval must NEVER break the loop — degradation is flagged on the
+      // memory_retrievals row instead (12 §7.5).
+      let memorySections = { company: "", project: "", agent: "" };
+      try {
+        let queryEmbedding: number[] | null = null;
+        try {
+          const routing = await deps.routingFor(ctx, input.agentId);
+          const queryText = [
+            task.title,
+            task.objective,
+            recentSteps[0] ? `step intent: ${recentSteps[0].actionKind}` : "",
+            lastObservation?.error ??
+              ((lastObservation?.exitCode ?? 0) !== 0
+                ? `last exit code ${lastObservation!.exitCode}`
+                : ""),
+          ]
+            .filter(Boolean)
+            .join("\n");
+          const embedded = await deps.router.embed(
+            { text: queryText, agentId: input.agentId, taskId: input.taskId },
+            routing,
+          );
+          queryEmbedding = embedded.embedding;
+        } catch {
+          /* no embedding target — semantic lane skipped (12 §7.5c) */
+        }
+        const touchedPaths = [
+          ...new Set(
+            recentSteps
+              .map((s) => ((s.action ?? {}) as { input?: { path?: unknown } }).input?.path)
+              .filter((p): p is string => typeof p === "string"),
+          ),
+        ];
+        const retrieved = await retrievalService.retrieveForWorkingSet(ctx, {
+          agentId: input.agentId,
+          taskId: input.taskId,
+          projectId: task.projectId,
+          queryEmbedding,
+          taskFilePaths: touchedPaths.length ? touchedPaths : undefined,
+        });
+        memorySections = retrieved.sections;
+      } catch {
+        /* observability-only failure — the loop continues without memory */
+      }
       const markers = [
         `[role:${agentRow.defaultRole}]`,
         `[agentName:${agentRow.name}]`,
@@ -402,6 +453,9 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       const user = [
         `# Org context\nEscalation chain: ${managers.join(" -> ") || "(top level)"} -> Founder`,
         `# Task TASK-${task.number}: ${task.title}\nObjective: ${task.objective}\nStatus: ${task.status} | Priority: ${task.priority} | Risk: ${task.risk}\nSuccess criteria: ${task.successCriteria.join("; ") || "(none)"}\nBudget remaining cents: ${task.budgetCents === null ? "inherit" : task.budgetCents - task.spentCents}`,
+        `# Company memory\n${memorySections.company || "(none)"}`,
+        `# Project memory\n${memorySections.project || "(none)"}`,
+        `# Agent memory\n${memorySections.agent || "(none)"}`,
         `# Thread + signals\n${(input.signalMarkers ?? []).join("\n") || "(no new messages)"}`,
         `# Recent steps\n${recentSteps.slice().reverse().map(renderStep).join("\n") || "(none yet)"}`,
         `# Output\nRespond with EXACTLY one AgentAction JSON object, no prose. Step ${input.stepNo}.`,

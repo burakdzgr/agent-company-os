@@ -143,6 +143,92 @@ export function computeConsolidationConfidence(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Retrieval rules (12 §7, T45) — pure pieces of the Working-Set builder.
+
+/** Per-type recency half-lives in days (12 §7.2 WRITER-DECISION). */
+export const RECENCY_HALF_LIFE_DAYS: Record<string, number> = {
+  episodic: 14,
+  experiment: 45,
+  relationship: 60,
+  failure: 90,
+  artifact: 120,
+  decision: 180,
+  procedural: 365,
+  semantic: 365,
+};
+
+/** recency_decay = exp(−ln2 · age_days / half_life(type)), clamped to [0,1]. */
+export function recencyDecay(type: string, ageDays: number): number {
+  const halfLife = RECENCY_HALF_LIFE_DAYS[type] ?? 90;
+  return Math.min(1, Math.max(0, Math.exp((-Math.LN2 * Math.max(0, ageDays)) / halfLife)));
+}
+
+/** Per-scope token budgets (binding defaults, _DECISIONS §10 / 12 §7.3). */
+export const MEMORY_TOKEN_BUDGETS = { agent: 1500, project: 2500, company: 1000 } as const;
+
+/** Cheap model-agnostic token estimate: ceil(chars / 4) (12 §7.3). */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+export interface PackableMemory {
+  readonly id: string;
+  readonly title: string;
+  readonly content: string;
+  readonly summary: string;
+  readonly type: string;
+  readonly confidence: number;
+  readonly score: number;
+  /** SQL-lane rows: packed first — the "must know" set (12 §7.3). */
+  readonly mustKnow: boolean;
+}
+
+export interface PackedMemory {
+  readonly id: string;
+  readonly rendered: string;
+  readonly tokens: number;
+}
+
+export interface PackResult {
+  readonly packed: PackedMemory[];
+  readonly tokensUsed: number;
+  /** scored rows that did not fit at all (budget starvation, 12 §7.5b) */
+  readonly droppedCount: number;
+}
+
+/**
+ * 12 §7.3 packing: must-know (SQL-lane) rows first, then by score desc;
+ * title+content while it fits, fall back to title+summary on overflow, stop
+ * when even the summary does not fit. Each block is labeled with memory id,
+ * type and confidence so actions can cite ids (feeds last_verified_at, §6.4).
+ */
+export function packMemories(rows: readonly PackableMemory[], budgetTokens: number): PackResult {
+  const ordered = [...rows].sort((a, b) =>
+    a.mustKnow !== b.mustKnow ? (a.mustKnow ? -1 : 1) : b.score - a.score,
+  );
+  const packed: PackedMemory[] = [];
+  let tokensUsed = 0;
+  let droppedCount = 0;
+  for (const row of ordered) {
+    const label = `[memory ${row.id} | ${row.type} | conf ${row.confidence.toFixed(2)}]`;
+    const full = `${label} ${row.title}\n${row.content}`;
+    const short = `${label} ${row.title} — ${row.summary}`;
+    const fullTokens = estimateTokens(full);
+    const shortTokens = estimateTokens(short);
+    if (tokensUsed + fullTokens <= budgetTokens) {
+      packed.push({ id: row.id, rendered: full, tokens: fullTokens });
+      tokensUsed += fullTokens;
+    } else if (tokensUsed + shortTokens <= budgetTokens) {
+      packed.push({ id: row.id, rendered: short, tokens: shortTokens });
+      tokensUsed += shortTokens;
+    } else {
+      droppedCount += 1;
+    }
+  }
+  return { packed, tokensUsed, droppedCount };
+}
+
 /** Similarity bands of 12 §5.5 (cosine thresholds are WRITER-DECISIONs). */
 export const SIMILARITY_BANDS = {
   fastMerge: 0.95,

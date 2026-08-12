@@ -25,7 +25,11 @@ import {
   classifySimilarity,
   computeConsolidationConfidence,
   detectMemoryScope,
+  estimateTokens,
+  packMemories,
+  recencyDecay,
   scoreMemoryRetrieval,
+  type PackableMemory,
 } from "./memory-rules.js";
 import {
   escalationChain,
@@ -357,6 +361,63 @@ describe("consolidation rules (12 §5)", () => {
     expect(classifySimilarity(0.78)).toBe("compare_no_merge");
     expect(classifySimilarity(0.7)).toBe("compare_no_merge");
     expect(classifySimilarity(0.69)).toBe("unrelated");
+  });
+});
+
+describe("retrieval rules (12 §7)", () => {
+  it("recency decay halves at the type's half-life", () => {
+    expect(recencyDecay("episodic", 0)).toBeCloseTo(1);
+    expect(recencyDecay("episodic", 14)).toBeCloseTo(0.5);
+    expect(recencyDecay("failure", 90)).toBeCloseTo(0.5);
+    expect(recencyDecay("procedural", 365)).toBeCloseTo(0.5);
+    expect(recencyDecay("semantic", 30)).toBeGreaterThan(recencyDecay("episodic", 30));
+    expect(recencyDecay("unknown-type", 90)).toBeCloseTo(0.5); // default 90d
+  });
+
+  it("token estimate is ceil(chars/4)", () => {
+    expect(estimateTokens("")).toBe(0);
+    expect(estimateTokens("abcd")).toBe(1);
+    expect(estimateTokens("abcde")).toBe(2);
+  });
+
+  const row = (
+    id: string,
+    score: number,
+    mustKnow = false,
+    contentLen = 400,
+  ): PackableMemory => ({
+    id,
+    title: `Title ${id}`,
+    content: "c".repeat(contentLen),
+    summary: "short summary",
+    type: "failure",
+    confidence: 0.8,
+    score,
+    mustKnow,
+  });
+
+  it("packs must-know first, then by score; falls back to summaries; drops the rest", () => {
+    // full render ≈ label(≈40)+title+400 chars ⇒ ~115 tokens each
+    const rows = [row("a", 0.2, true), row("b", 0.9), row("c", 0.8), row("d", 0.7)];
+    const generous = packMemories(rows, 10_000);
+    expect(generous.packed.map((p) => p.id)).toEqual(["a", "b", "c", "d"]); // must-know leads
+    expect(generous.droppedCount).toBe(0);
+
+    const tight = packMemories(rows, 260); // two full renders, then summaries
+    expect(tight.packed[0]!.id).toBe("a");
+    expect(tight.packed[1]!.id).toBe("b");
+    expect(tight.packed[2]!.rendered).toContain("short summary"); // summary fallback
+    expect(tight.tokensUsed).toBeLessThanOrEqual(260);
+
+    const starved = packMemories(rows, 30); // not even one summary? one fits (~17)
+    expect(starved.tokensUsed).toBeLessThanOrEqual(30);
+    expect(starved.packed.length + starved.droppedCount).toBe(4);
+    expect(starved.droppedCount).toBeGreaterThan(0);
+  });
+
+  it("labels packed blocks with memory id + confidence for citation (12 §7.3)", () => {
+    const result = packMemories([row("mem-1", 0.5)], 1_000);
+    expect(result.packed[0]!.rendered).toContain("[memory mem-1 | failure | conf 0.80]");
   });
 });
 

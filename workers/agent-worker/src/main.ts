@@ -59,7 +59,11 @@ async function buildScriptedRouter(pool: Pool): Promise<RouterDeps> {
     }),
     routingFor: async () => ({
       bindings: [],
-      profiles: [{ purpose: "reasoning", providerId: provider.id, model: "scripted" }],
+      profiles: [
+        { purpose: "reasoning", providerId: provider.id, model: "scripted" },
+        // semantic retrieval lane (T45): pseudo-embeddings, deterministic
+        { purpose: "embedding", providerId: provider.id, model: "scripted" },
+      ],
     }),
   };
 }

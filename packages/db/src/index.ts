@@ -108,6 +108,12 @@ export {
   type CreateProjectInput,
 } from "./projects.js";
 export {
+  MemoryRetrievalService,
+  applyRetrievalCounts,
+  type RetrieveInput,
+  type WorkingSetMemories,
+} from "./memory-retrieval.js";
+export {
   MemoryConsolidationService,
   MemoryError,
   type TriggerWindow,

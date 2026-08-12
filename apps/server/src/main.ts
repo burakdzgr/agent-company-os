@@ -109,6 +109,16 @@ async function main(): Promise<void> {
     app.log.error({ err }, "Temporal unavailable — comms delivery signalling disabled");
   }
 
+  // retrieval-count batch (12 §7.4, T45): every 60s aggregate UNLOGGED
+  // memory_retrievals into memories.retrieval_count + 14-day sweep
+  const { applyRetrievalCounts } = await import("@acos/db");
+  const retrievalDb = createDb(pool);
+  const retrievalBatch = setInterval(() => {
+    applyRetrievalCounts(retrievalDb).catch((err) =>
+      app.log.error({ err }, "retrieval-count batch failed"),
+    );
+  }, 60_000);
+
   // approval expiry + reminder sweep (19 §6, T35): every 30s; expired rows
   // deliver verdict `expired` (= rejected semantics) into waiting workflows
   const { sweepApprovals } = await import("@acos/db");
@@ -177,6 +187,7 @@ async function main(): Promise<void> {
 
   const close = async () => {
     clearInterval(approvalSweep);
+    clearInterval(retrievalBatch);
     await memoryTrigger?.stop().catch(() => {});
     await relay?.stop();
     await dlq?.stop();

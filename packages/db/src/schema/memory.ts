@@ -3,6 +3,7 @@
 // dimension, ADR-020) are hand-audited into the generated SQL.
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   check,
   customType,
   index,
@@ -198,6 +199,43 @@ export const memoryPromotions = pgTable(
       "memory_promotions_status_check",
       sql`${t.status} IN ('proposed','approved','rejected')`,
     ),
+  ],
+);
+
+/**
+ * 12 §4.5 memory_retrievals — UNLOGGED observability table (T45): one row per
+ * Working-Set build with the returned id array; a per-minute batch aggregates
+ * into memories.retrieval_count (12 §7.4) and sweeps rows older than 14 days.
+ * UNLOGGED is hand-audited into the migration (drizzle has no flag for it);
+ * crash-loss of ≤1 minute of usage counters is accepted.
+ */
+export const memoryRetrievals = pgTable(
+  "memory_retrievals",
+  {
+    id: id(),
+    companyId: companyId(),
+    createdAt: createdAt(),
+    agentId: uuid("agent_id"),
+    taskId: uuid("task_id"),
+    lane: text("lane").notNull().default("working_set"),
+    queryRef: text("query_ref"),
+    returnedIds: uuid("returned_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    scores: real("scores").array().notNull().default(sql`'{}'::real[]`),
+    budgetTokensUsed: integer("budget_tokens_used").notNull().default(0),
+    empty: boolean("empty").notNull().default(false),
+    // §7.5 degradation flags: budget starvation ≥50%, semantic lane skipped,
+    // latency above the 1.5s threshold
+    truncated: boolean("truncated").notNull().default(false),
+    semanticSkipped: boolean("semantic_skipped").notNull().default(false),
+    slow: boolean("slow").notNull().default(false),
+    durationMs: integer("duration_ms").notNull().default(0),
+    counted: boolean("counted").notNull().default(false),
+  },
+  (t) => [
+    index("memory_retrievals_uncounted_pidx")
+      .on(t.companyId, t.createdAt)
+      .where(sql`${t.counted} = false`),
+    index("memory_retrievals_company_created_idx").on(t.companyId, t.createdAt),
   ],
 );
 

@@ -23,15 +23,15 @@ afterAll(async () => {
 });
 
 describe("migrations 0001–0003 on empty PG16 (T11)", () => {
-  it("applied exactly twelve migrations despite the concurrent race", async () => {
+  it("applied exactly thirteen migrations despite the concurrent race", async () => {
     const { rows } = await client.query('SELECT count(*)::int AS n FROM drizzle."__drizzle_migrations"');
-    expect(rows[0].n).toBe(12);
+    expect(rows[0].n).toBe(13);
   });
 
   it("is idempotent: a repeat run applies nothing new", async () => {
     await runMigrations(uri);
     const { rows } = await client.query('SELECT count(*)::int AS n FROM drizzle."__drizzle_migrations"');
-    expect(rows[0].n).toBe(12);
+    expect(rows[0].n).toBe(13);
   });
 
   it("installs the three extensions (20 §1)", async () => {

@@ -86,11 +86,11 @@ async function insertBase(): Promise<void> {
 }
 
 describe("migrations 0001–0011 + row-level coverage of every table (T12)", () => {
-  it("applies all 12 migrations", async () => {
+  it("applies all 13 migrations", async () => {
     const { rows } = await client.query(
       'SELECT count(*)::int AS n FROM drizzle."__drizzle_migrations"',
     );
-    expect(rows[0].n).toBe(12);
+    expect(rows[0].n).toBe(13);
   });
 
   it("inserts and reads a row in every table", async () => {
@@ -320,6 +320,13 @@ describe("migrations 0001–0011 + row-level coverage of every table (T12)", () 
     await client.query(
       `INSERT INTO consumer_offsets (consumer, company_id, last_seq) VALUES ('office-projector', $1, 1)`,
       [U.company],
+    );
+
+    // ---- 0013 memory retrievals (UNLOGGED, T45) ----
+    await client.query(
+      `INSERT INTO memory_retrievals (id, company_id, agent_id, task_id, returned_ids, scores, budget_tokens_used, duration_ms)
+       VALUES (gen_random_uuid(), $1, $2, $3, ARRAY[$4]::uuid[], ARRAY[0.7]::real[], 120, 45)`,
+      [U.company, U.agent, U.task, U.memory],
     );
 
     // every table now has ≥1 row
