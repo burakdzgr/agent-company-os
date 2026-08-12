@@ -33,6 +33,7 @@ import { registerToolGatewayRoutes } from "./modules/tools/routes.js";
 import { registerTerminalRoutes } from "./modules/terminals/routes.js";
 import { registerProjectRoutes, type IntakeStarter } from "./modules/projects/routes.js";
 import { registerReviewRoutes } from "./modules/reviews/routes.js";
+import { registerSkillRoutes } from "./modules/skills/routes.js";
 import { ToolGateway, type ToolDispatchPort } from "./modules/tools/gateway.js";
 import { unsealSecret } from "./modules/auth/crypto.js";
 import { secrets } from "@acos/db/schema";
@@ -356,6 +357,15 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     },
     companiesSvc,
     sandbox: () => sandboxInternal,
+  });
+
+  // ---------- skills matrix (T47; 13 §10) ----------
+  await registerSkillRoutes(app, {
+    guardedDb: () => {
+      if (!options.guardedDb) throw new ApiError("internal", "skills not wired");
+      return options.guardedDb;
+    },
+    companiesSvc,
   });
 
   // ---------- projects + intake (T42; 14 §2) ----------

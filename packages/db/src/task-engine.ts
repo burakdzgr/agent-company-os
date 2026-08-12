@@ -14,6 +14,7 @@ import { nextSequenceValue } from "./sequences.js";
 import { appendEvents, type NewEventInput, type Tx } from "./outbox.js";
 import type { CompanyContext } from "./context.js";
 import type { GuardedDb } from "./tenant.js";
+import { SkillsService } from "./skills.js";
 import { agents, positions, taskAssignments, taskDependencies, tasks } from "./schema/index.js";
 
 /** Catalog-validated emission (same contract as the server's emitDomainEvent —
@@ -464,6 +465,16 @@ export class TaskStateService {
           payload: { resultSummary: opts.note },
         });
         await this.resolveDependents(tx, ctx, taskId);
+      }
+      // skill evidence (13 §5, T47): terminal outcomes attribute to the
+      // task's skill tags — untagged tasks are a no-op
+      if (to === "DONE" || to === "FAILED" || to === "QA_FAILED") {
+        await new SkillsService(this.db).recordTaskOutcomeInTx(tx, ctx, {
+          taskId,
+          ownerAgentId: task.ownerAgentId,
+          context: task.context,
+          outcome: to === "DONE" ? "success" : "failure",
+        });
       }
       return updated!;
     }

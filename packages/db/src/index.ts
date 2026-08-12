@@ -113,6 +113,13 @@ export {
   seedPromotionPolicies,
 } from "./memory-promotion.js";
 export {
+  SkillsService,
+  SkillsError,
+  PROMOTION_REVIEW_NOTE_PREFIX,
+  type AppendEvidenceInput,
+  type AppendEvidenceResult,
+} from "./skills.js";
+export {
   MemoryRetrievalService,
   applyRetrievalCounts,
   type RetrieveInput,

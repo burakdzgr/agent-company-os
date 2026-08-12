@@ -67,6 +67,23 @@ export {
   type SimilarityBand,
 } from "./memory-rules.js";
 export {
+  SKILL_EVIDENCE_KINDS,
+  EVIDENCE_WEIGHTS,
+  EVIDENCE_BANDS,
+  clampEvidenceWeight,
+  SKILL_DECAY_HALF_LIFE_DAYS,
+  SKILL_LEVEL_HYSTERESIS,
+  SKILL_LEVEL_THRESHOLDS,
+  decayedSkillScore,
+  computeSkillLevel,
+  SENIORITY_DEFAULT_AUTONOMY,
+  FOUNDER_GATED_SENIORITIES,
+  promotionNeedsFounder,
+  type SkillEvidenceKind,
+  type SkillEvidenceItem,
+  type SkillLevelResult,
+} from "./skill-rules.js";
+export {
   hasActiveManager,
   wouldCreateReportsToCycle,
   escalationChain,

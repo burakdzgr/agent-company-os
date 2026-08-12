@@ -74,6 +74,7 @@ import {
   type ReviewDiffResponse,
   type ReviewListResponse,
 } from "../reviews.js";
+import { SkillMatrixResponseSchema, type SkillMatrixResponse } from "../skills.js";
 
 export interface EventListFilters {
   types?: string[];
@@ -390,6 +391,10 @@ export function createAcosClient(options: AcosClientOptions) {
         ReviewDiffResponseSchema.parse(
           await get(`/api/v1/companies/${companyId}/reviews/${reviewId}/diff`),
         ),
+    },
+    skills: {
+      matrix: async (companyId: string): Promise<SkillMatrixResponse> =>
+        SkillMatrixResponseSchema.parse(await get(`/api/v1/companies/${companyId}/skills/matrix`)),
     },
     projects: {
       list: async (companyId: string): Promise<ProjectListResponse> =>

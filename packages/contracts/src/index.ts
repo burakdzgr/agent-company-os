@@ -218,6 +218,16 @@ export {
   type ReviewDiffResponse,
 } from "./reviews.js";
 export {
+  SkillMatrixRowSchema,
+  SkillMatrixResponseSchema,
+  SkillEvidenceDtoSchema,
+  SkillEvidenceResponseSchema,
+  type SkillMatrixRow,
+  type SkillMatrixResponse,
+  type SkillEvidenceDto,
+  type SkillEvidenceResponse,
+} from "./skills.js";
+export {
   ProjectDtoSchema,
   CreateProjectRequestSchema,
   ProjectListResponseSchema,

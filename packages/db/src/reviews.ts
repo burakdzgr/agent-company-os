@@ -13,6 +13,7 @@ import { parseEventPayload } from "@acos/events";
 import { appendEvents, type NewEventInput, type Tx } from "./outbox.js";
 import type { CompanyContext } from "./context.js";
 import type { GuardedDb } from "./tenant.js";
+import { SkillsService } from "./skills.js";
 import { TaskStateService } from "./task-engine.js";
 import { agents, positions, reviews, tasks, workspaces } from "./schema/index.js";
 
@@ -335,6 +336,16 @@ export class ReviewsService {
           note: input.note,
         });
         taskStatus = task.status;
+        if (to === "QA") {
+          // 13 §5.1 (T47): independent acceptance is the strongest routine
+          // signal — review_accepted per skill tag for the author
+          await new SkillsService(this.db).recordReviewAcceptedInTx(tx, ctx, {
+            taskId: row.taskId,
+            ownerAgentId: task.ownerAgentId,
+            context: task.context,
+            reviewId,
+          });
+        }
       } else {
         // qa: approved ⇒ merge-eligible (merge drives DONE); rejected ⇒ QA_FAILED
         if (input.verdict === "changes_requested") {
