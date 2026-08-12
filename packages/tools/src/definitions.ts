@@ -180,7 +180,8 @@ export const gitBranch: ToolDefinition = {
   description:
     "Push the task branch to the project's bare repository (origin). Only task/* branches can be pushed.",
   input: z.object({
-    branch: z.string().min(1).max(256),
+    /** Defaults to the task workspace's own branch at dispatch. */
+    branch: z.string().min(1).max(256).optional(),
     force: z.boolean().default(false), // allowed ONLY on task/* (rebase flow, 15 §3.7)
   }),
   output: z.object({
@@ -205,9 +206,11 @@ export const gitMerge: ToolDefinition = {
     "Merge an approved task branch into main in the bare repository. Requires approved reviews + green CI gates.",
   input: z.object({
     taskId: z.uuid(),
-    branch: z.string().min(1).max(256),
+    /** Defaults to the task workspace's own branch at dispatch. */
+    branch: z.string().min(1).max(256).optional(),
     strategy: z.enum(["squash", "ff-only", "merge-commit"]).default("squash"),
-    expectedHeadSha: z.string().regex(/^[0-9a-f]{40}$/),
+    /** Optimistic concurrency when provided; dispatch resolves the head. */
+    expectedHeadSha: z.string().regex(/^[0-9a-f]{40}$/).optional(),
   }),
   output: z.object({
     merged: z.boolean(),

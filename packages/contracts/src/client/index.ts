@@ -68,6 +68,12 @@ import {
   type ProjectDto,
   type ProjectListResponse,
 } from "../projects.js";
+import {
+  ReviewDiffResponseSchema,
+  ReviewListResponseSchema,
+  type ReviewDiffResponse,
+  type ReviewListResponse,
+} from "../reviews.js";
 
 export interface EventListFilters {
   types?: string[];
@@ -374,6 +380,16 @@ export function createAcosClient(options: AcosClientOptions) {
         ),
       get: async (companyId: string, eventId: string): Promise<Event> =>
         EventSchema.parse(await get(`/api/v1/companies/${companyId}/events/${eventId}`)),
+    },
+    reviews: {
+      listForTask: async (companyId: string, taskId: string): Promise<ReviewListResponse> =>
+        ReviewListResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/tasks/${taskId}/reviews`),
+        ),
+      diff: async (companyId: string, reviewId: string): Promise<ReviewDiffResponse> =>
+        ReviewDiffResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/reviews/${reviewId}/diff`),
+        ),
     },
     projects: {
       list: async (companyId: string): Promise<ProjectListResponse> =>

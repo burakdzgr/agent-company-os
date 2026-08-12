@@ -178,6 +178,8 @@ export {
   IngestSourceSchema,
   IngestRepoRequestSchema,
   IngestRepoResponseSchema,
+  MergeBranchRequestSchema,
+  MergeBranchResponseSchema,
   type CreateWorkspaceRequest,
   type Workspace,
   type ExecRequest,
@@ -191,6 +193,8 @@ export {
   type IngestSource,
   type IngestRepoRequest,
   type IngestRepoResponse,
+  type MergeBranchRequest,
+  type MergeBranchResponse,
 } from "./sandbox.js";
 export {
   ToolInvokeWireRequestSchema,
@@ -205,6 +209,14 @@ export {
   type TerminalSessionDto,
   type TerminalListResponse,
 } from "./terminals.js";
+export {
+  ReviewDtoSchema,
+  ReviewListResponseSchema,
+  ReviewDiffResponseSchema,
+  type ReviewDto,
+  type ReviewListResponse,
+  type ReviewDiffResponse,
+} from "./reviews.js";
 export {
   ProjectDtoSchema,
   CreateProjectRequestSchema,

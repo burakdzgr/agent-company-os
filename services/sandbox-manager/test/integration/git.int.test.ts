@@ -145,7 +145,7 @@ describe.skipIf(!dockerUp)("Git model: bare repo + per-task worktrees (T38)", ()
       env: {},
       timeoutMs: 30_000,
     });
-    expect(write.exitCode).toBe(0);
+    expect(write.exitCode, `write stderr: ${write.stderr}`).toBe(0);
     expect(write.stdout.trim()).toBe("oauth");
 
     const probe = await sandbox.exec(ws82, {

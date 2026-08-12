@@ -130,8 +130,44 @@ async function run(): Promise<void> {
   const clientConnection = await ClientConnection.connect({ address: config.temporal.address });
   const temporalClient = new Client({ connection: clientConnection, namespace: "acos" });
   const { createTemporalSignalPort } = await import("./delivery.js");
-  const { startAgentTaskWorkflow } = await import("./client.js");
+  const { startAgentTaskWorkflow, workflowIds } = await import("./client.js");
   const { uuidv7 } = await import("@acos/domain");
+  const { createReviewActivities } = await import("./review/activities.js");
+
+  // shared seams (T40/T43): the gateway client + review workflow starter
+  const invokeTool = async (req: object) => {
+    const res = await fetch(`${serverInternalUrl}/internal/v1/tools/invoke`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.security.internalApiToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      throw new Error(`tool gateway transport failure: ${res.status}`);
+    }
+    return (await res.json()) as Awaited<
+      ReturnType<NonNullable<Parameters<typeof createAgentTaskActivities>[0]["invokeTool"]>>
+    >;
+  };
+  const startReviewWorkflow = async (input: {
+    companyId: string;
+    reviewId: string;
+    taskId: string;
+    reviewerAgentId: string;
+    authorAgentId: string;
+  }) => {
+    await temporalClient.workflow
+      .start("reviewWorkflow", {
+        taskQueue: TASK_QUEUES.agentTasks,
+        workflowId: workflowIds.review(input.reviewId),
+        args: [input],
+      })
+      .catch((err: unknown) => {
+        if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") throw err;
+      });
+  };
 
   const activities = {
     ...trivialActivities,
@@ -153,21 +189,32 @@ async function run(): Promise<void> {
         });
       },
       // use_tool → Tool Gateway internal HTTP (T40; S3 single choke point)
-      invokeTool: async (req) => {
-        const res = await fetch(`${serverInternalUrl}/internal/v1/tools/invoke`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${config.security.internalApiToken}`,
-            "content-type": "application/json",
+      invokeTool,
+      // request_review → independent reviewer's reviewWorkflow (T43)
+      startReviewWorkflow,
+    }),
+    ...createReviewActivities({
+      guardedDb,
+      invokeTool,
+      startReviewWorkflow,
+      // rework re-entry with the verdict pre-seeded (T43): the prior run
+      // closed at request_review — the deterministic id is REUSED
+      startAgentWorkflow: async ({ companyId, agentId, taskId, initialReviewVerdict }) => {
+        await startAgentTaskWorkflow(
+          temporalClient,
+          "agentTaskWorkflow",
+          {
+            companyId,
+            agentId,
+            taskId,
+            sessionId: uuidv7(),
+            attempt: 1,
+            ...(initialReviewVerdict && { initialReviewVerdict }),
           },
-          body: JSON.stringify(req),
+          { allowReentry: true },
+        ).catch((err: unknown) => {
+          if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") throw err;
         });
-        if (!res.ok) {
-          throw new Error(`tool gateway transport failure: ${res.status}`);
-        }
-        return (await res.json()) as Awaited<
-          ReturnType<NonNullable<Parameters<typeof createAgentTaskActivities>[0]["invokeTool"]>>
-        >;
       },
     }),
   };

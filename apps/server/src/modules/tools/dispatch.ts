@@ -12,13 +12,16 @@
 // return typed failures that the gateway audits as status=failed.
 import {
   companyContext,
+  ReviewsService,
+  TaskStateService,
   WorkspaceService,
   type CompanyContext,
   type GuardedDb,
   type SandboxPort,
 } from "@acos/db";
 import { and, eq } from "drizzle-orm";
-import { agents, companies, tasks } from "@acos/db/schema";
+import { agents, companies, tasks, workspaces as workspacesTable } from "@acos/db/schema";
+import type { MergeBranchResponse } from "@acos/contracts";
 import type { IsolationLevel } from "@acos/domain";
 import type {
   EnsureRepoResponse,
@@ -82,6 +85,23 @@ class SandboxHttp {
   removeWorktree(volumeName: string) {
     return this.request<void>("DELETE", `/internal/v1/worktrees/${volumeName}`);
   }
+  mergeBranch(input: {
+    projectId: string;
+    branch: string;
+    message: string;
+    authorName: string;
+    authorEmail: string;
+    reviewedBy: string;
+  }) {
+    return this.request<MergeBranchResponse>("POST", "/internal/v1/repos/merge", input);
+  }
+  pushBranch(input: { projectId: string; volumeName: string; branch: string; force?: boolean }) {
+    return this.request<{ pushed: true; remoteHead: string }>(
+      "POST",
+      "/internal/v1/worktrees/push",
+      input,
+    );
+  }
   exec(
     workspaceId: string,
     input: {
@@ -118,6 +138,8 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
   const db = options.guardedDb;
   const http = new SandboxHttp(options.sandboxManagerUrl, options.internalApiToken);
   const workspaces = new WorkspaceService(db);
+  const reviewsService = new ReviewsService(db);
+  const taskState = new TaskStateService(db);
   const defaultImage = options.defaultImage ?? "acos/workspace-node";
 
   // T38 seam: DB records + events stay in WorkspaceService; the container/git
@@ -196,6 +218,88 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
     async dispatch({ ctx: rawCtx, tool, input, agentId, taskId }) {
       const ctx = companyContext(rawCtx.companyId);
       const args = input as Record<string, unknown>;
+
+      // git.merge is SERVER-SIDE in the bare repo (15 §3.6) — no workspace
+      if (tool.name === "git.merge") {
+        if (!taskId) throw new DispatchError("git.merge needs a task context");
+        const eligibility = await reviewsService.mergeEligibility(ctx, taskId);
+        if (!eligibility.eligible) {
+          throw new DispatchError(
+            `merge blocked — reviews not approved (${eligibility.missing.join(", ") || "none requested"})`,
+          );
+        }
+        const [task] = await db
+          .select()
+          .from(tasks)
+          .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)));
+        if (!task?.projectId) throw new DispatchError("git.merge needs a project task");
+        const [workspaceRow] = await db
+          .select()
+          .from(workspacesTable)
+          .where(
+            and(eq(workspacesTable.companyId, ctx.companyId), eq(workspacesTable.taskId, taskId)),
+          );
+        const branch = (args.branch as string) || workspaceRow?.branch || "";
+        if (!branch) throw new DispatchError("git.merge: no task branch found");
+        const [agent] = await db
+          .select({ name: agents.name, employeeNumber: agents.employeeNumber })
+          .from(agents)
+          .where(and(eq(agents.companyId, ctx.companyId), eq(agents.id, agentId)));
+        const [company] = await db
+          .select({ slug: companies.slug })
+          .from(companies)
+          .where(eq(companies.id, ctx.companyId));
+        const approvedReviewers = (await reviewsService.listForTask(ctx, taskId))
+          .filter((r) => r.status === "approved" && r.reviewerAgentId)
+          .map((r) => `agent-${r.reviewerAgentId!.slice(-8)}`)
+          .join(", ");
+        const result = await http.mergeBranch({
+          projectId: task.projectId,
+          branch,
+          message: `merge(${branch}): TASK-${task.number} ${task.title}`.slice(0, 200),
+          authorName: agent?.name ?? "ACOS Lead",
+          authorEmail: `agent-${String(agent?.employeeNumber ?? 0).padStart(3, "0")}@${company?.slug ?? "acos"}.acos`,
+          reviewedBy: approvedReviewers || "review-chain",
+        });
+        if (!result.merged) {
+          return {
+            output: {
+              merged: false,
+              mergeCommitSha: "",
+              conflict: { files: result.conflictFiles },
+              provenance: "workspace",
+            },
+            resultSummary: `conflict in ${result.conflictFiles.length} file(s) — rebase in the owner workspace (15 §3.7)`,
+          };
+        }
+        // merged: workspace → merged (locks release), reviews stamped, task → DONE
+        if (workspaceRow) {
+          if (workspaceRow.status === "ready") {
+            await workspaces.transition(ctx, workspaceRow.id, "in_use", {
+              actor: { kind: "agent", id: agentId },
+            });
+          }
+          await workspaces
+            .transition(ctx, workspaceRow.id, "merged", {
+              actor: { kind: "agent", id: agentId },
+              mergeCommit: result.mergeCommit,
+            })
+            .catch(() => {}); // already merged on a replay — fine
+        }
+        await reviewsService.recordMerge(ctx, taskId, result.mergeCommit);
+        await taskState
+          .transition(ctx, taskId, "DONE", { kind: "system" })
+          .catch(() => {}); // task not in QA (e.g. approval-gated) — the engine decides
+        return {
+          output: {
+            merged: true,
+            mergeCommitSha: result.mergeCommit,
+            conflict: null,
+            provenance: "workspace",
+          },
+          resultSummary: `squash-merged ${branch} → main @ ${result.mergeCommit.slice(0, 8)}`,
+        };
+      }
 
       const needsWorkspace = ["analysis", "coding", "testing"].includes(tool.sandboxLevel);
       if (!needsWorkspace) {
@@ -400,6 +504,23 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
               provenance: "workspace",
             },
             resultSummary: `commit ${lines.at(-3)?.slice(0, 8)} on ${lines.at(-1)}`,
+          };
+        }
+
+        case "git.branch": {
+          // push the task branch worktree → bare repo (T43, 15 §3.1); force
+          // only ever reaches task/* (sandbox-manager re-enforces the guard)
+          const branch = (args.branch as string) || ws.branch || "";
+          if (!ws.volumePath) throw new DispatchError("workspace has no worktree volume");
+          const pushed = await http.pushBranch({
+            projectId: ws.projectId,
+            volumeName: ws.volumePath,
+            branch,
+            force: args.force === true,
+          });
+          return {
+            output: { pushed: true, remoteHead: pushed.remoteHead, provenance: "workspace" },
+            resultSummary: `pushed ${branch} @ ${pushed.remoteHead.slice(0, 8)}`,
           };
         }
 

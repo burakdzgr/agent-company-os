@@ -27,7 +27,8 @@
     "@acos/tools": "workspace:*",
     "dockerode": "^4.0.2",
     "fastify": "^5.11.3",
-    "nats": "^2.29.3"
+    "nats": "^2.29.3",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.31"

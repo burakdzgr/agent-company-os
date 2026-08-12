@@ -34,5 +34,8 @@ export const ToolInvokeWireResponseSchema = z.object({
   costCents: z.number().int().optional(),
   retryAfterSec: z.number().int().optional(),
   replayed: z.boolean().optional(),
+  /** S5: output tripped the injection heuristics — fence + taint required. */
+  outputFlagged: z.boolean().optional(),
+  flaggedPatterns: z.array(z.string()).optional(),
 });
 export type ToolInvokeWireResponse = z.infer<typeof ToolInvokeWireResponseSchema>;

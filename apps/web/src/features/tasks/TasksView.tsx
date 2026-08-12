@@ -145,8 +145,72 @@ function TaskDetail({
             </Button>
           </div>
         )}
+
+        <TaskReviews companyId={companyId} taskId={task.id} />
       </div>
     </Dialog>
+  );
+}
+
+/** Reviews panel (T43; 24 §6 review UI slice): the PR entity rows + diff. */
+function TaskReviews({ companyId, taskId }: { companyId: string; taskId: string }) {
+  const [diffFor, setDiffFor] = useState<string | null>(null);
+  const reviewsQuery = useQuery({
+    queryKey: [companyId, "tasks", taskId, "reviews"],
+    queryFn: () => api.reviews.listForTask(companyId, taskId),
+  });
+  const diff = useQuery({
+    queryKey: [companyId, "reviews", diffFor, "diff"],
+    queryFn: () => api.reviews.diff(companyId, diffFor!),
+    enabled: diffFor !== null,
+  });
+  const items = reviewsQuery.data?.items ?? [];
+  if (items.length === 0) return null;
+
+  const TONE: Record<string, "ok" | "warn" | "accent" | "neutral"> = {
+    approved: "ok",
+    changes_requested: "warn",
+    in_review: "accent",
+    pending: "neutral",
+    blocked: "warn",
+  };
+  return (
+    <div className="border-t border-ink-100 pt-3" data-testid="task-reviews">
+      <h4 className="mb-1 text-xs font-semibold uppercase text-ink-400">Reviews</h4>
+      <div className="space-y-1">
+        {items.map((r) => (
+          <div key={r.id} className="rounded bg-ink-50 px-2 py-1.5 text-xs" data-testid="review-row">
+            <div className="flex items-center gap-2">
+              <StatusPill tone={TONE[r.status] ?? "neutral"}>{r.status}</StatusPill>
+              <span className="font-medium">{r.kind}</span>
+              <span className="text-ink-400">
+                {r.authorName ?? "?"} → {r.reviewerName ?? "unassigned"}
+              </span>
+              {r.mergedCommit && (
+                <code className="text-ink-400">merged @ {r.mergedCommit.slice(0, 8)}</code>
+              )}
+              <Button
+                variant="ghost"
+                className="ml-auto"
+                onClick={() => setDiffFor(diffFor === r.id ? null : r.id)}
+                data-testid="review-diff-toggle"
+              >
+                {diffFor === r.id ? "hide diff" : "diff"}
+              </Button>
+            </div>
+            {r.verdictMd && <p className="mt-1 text-ink-500">{r.verdictMd}</p>}
+            {diffFor === r.id && (
+              <pre
+                className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-ink-100 p-2 font-mono text-[11px]"
+                data-testid="review-diff"
+              >
+                {diff.isLoading ? "loading diff…" : (diff.data?.diff ?? "(no diff)")}
+              </pre>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

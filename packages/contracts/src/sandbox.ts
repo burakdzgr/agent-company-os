@@ -154,6 +154,23 @@ export const IngestRepoRequestSchema = z.object({
 });
 export type IngestRepoRequest = z.infer<typeof IngestRepoRequestSchema>;
 
+/** Lead squash-merge into main in the bare repo (T43, 15 §3.6). */
+export const MergeBranchRequestSchema = z.object({
+  projectId: z.uuid(),
+  branch: z.string().regex(TASK_BRANCH_PATTERN),
+  message: z.string().min(1).max(500),
+  authorName: z.string().min(1).max(120),
+  authorEmail: z.string().min(3).max(200),
+  reviewedBy: z.string().min(1).max(200),
+});
+export type MergeBranchRequest = z.infer<typeof MergeBranchRequestSchema>;
+
+export const MergeBranchResponseSchema = z.union([
+  z.object({ merged: z.literal(true), mergeCommit: z.string().regex(/^[0-9a-f]{40}$/) }),
+  z.object({ merged: z.literal(false), conflictFiles: z.array(z.string()) }),
+]);
+export type MergeBranchResponse = z.infer<typeof MergeBranchResponseSchema>;
+
 export const IngestRepoResponseSchema = z.object({
   barePath: z.string(),
   headCommit: z.string().regex(/^[0-9a-f]{40}$/),

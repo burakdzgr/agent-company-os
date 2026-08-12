@@ -23,6 +23,7 @@ import {
 } from "@acos/domain/policies";
 import type { AutonomyLevel, RiskClass } from "@acos/domain";
 import {
+  detectInjection,
   elevateRisk,
   getTool,
   matchesToolPattern,
@@ -88,6 +89,10 @@ export interface ToolInvokeResponse {
   costCents?: number;
   retryAfterSec?: number;
   replayed?: boolean;
+  /** S5 (17 §7.4): the OUTPUT tripped the injection heuristics — callers
+   *  must treat it as tainted (fence + taint bit on derived calls). */
+  outputFlagged?: boolean;
+  flaggedPatterns?: string[];
 }
 
 /** Execution seam per sandboxLevel/scopes — implemented in T40 (sandbox-
@@ -575,6 +580,17 @@ export class ToolGateway {
 
     const actualCost = result.costCents ?? estCostCents;
     const durationMs = this.now().getTime() - started;
+
+    // S5 (17 §7.4): outputs whose content originates outside the platform
+    // pass the instruction-detection heuristics — hits flag the invocation
+    // (recorded deviation: the canonical status CHECK has no 'flagged' value,
+    // so the flag rides the events + response; consumers fence + taint)
+    const provenance = (result.output as { provenance?: string } | null)?.provenance;
+    const external = provenance === "workspace" || provenance === "web";
+    const scan = external
+      ? detectInjection(JSON.stringify(result.output ?? "").slice(0, 100_000))
+      : { flagged: false, patterns: [], severe: false, version: 0 };
+
     await this.db.transaction(async (tx) => {
       await tx
         .update(toolInvocations)
@@ -599,6 +615,40 @@ export class ToolGateway {
           resultDigest: (result.resultSummary ?? "").slice(0, 200),
         },
       });
+      if (scan.flagged) {
+        const sourceDigest = createHash("sha256")
+          .update(JSON.stringify(result.output ?? ""))
+          .digest("hex")
+          .slice(0, 16);
+        await emitDomainEvent(tx, ctx, {
+          type: "tool.output.flagged",
+          actor,
+          ...refs,
+          payload: { invocationId, pattern: scan.patterns.join(","), sourceDigest },
+        });
+        await emitDomainEvent(tx, ctx, {
+          type: "policy.injection.flagged",
+          actor,
+          ...refs,
+          payload: {
+            source: `${provenance}:${def.name}`,
+            contentDigest: sourceDigest,
+            triggeredAction: def.name,
+          },
+        });
+        if (scan.severe) {
+          await emitDomainEvent(tx, ctx, {
+            type: "security.alert",
+            actor: { kind: "system", id: null },
+            ...refs,
+            payload: {
+              severity: "high",
+              category: "injection",
+              detail: `severe injection pattern in ${def.name} output: ${scan.patterns.join(",")}`,
+            },
+          });
+        }
+      }
     });
     if (actualCost > 0) {
       await this.costs.recordCost(ctx, {
@@ -615,6 +665,7 @@ export class ToolGateway {
       status: "succeeded",
       output: result.output,
       costCents: actualCost,
+      ...(scan.flagged && { outputFlagged: true, flaggedPatterns: scan.patterns }),
     };
     await this.recordIdempotent(ctx, req, requestHash, success);
     return success;

@@ -1,9 +1,9 @@
-// Git model (T38, ADR-010, 15 §3.1): per-project BARE repos on a named
+﻿// Git model (T38, ADR-010, 15 Â§3.1): per-project BARE repos on a named
 // Docker volume + per-task worktree volumes cloned from them on branch
 // `task/<task-number>-<slug>`. All git plumbing runs in short-lived helper
-// containers (image pinned below) with NO network — sandbox-manager itself
+// containers (image pinned below) with NO network â€” sandbox-manager itself
 // carries no git binary and the bare repo is NEVER mounted into a workspace
-// (15 §3.1); workspaces only ever see their own worktree volume.
+// (15 Â§3.1); workspaces only ever see their own worktree volume.
 //
 // Shell safety: every interpolated value is validated against the strict
 // contracts patterns (uuid / task-branch / worktree-volume) before it may
@@ -19,7 +19,7 @@ import {
   type ProvisionWorktreeResponse,
 } from "@acos/contracts";
 
-/** Pinned git helper image — the only image git plumbing ever runs in. */
+/** Pinned git helper image â€” the only image git plumbing ever runs in. */
 export const GIT_HELPER_IMAGE = "alpine/git:v2.45.2";
 /** Named volume holding every bare repo, mounted at /data/repos in helpers
  *  so `bare_path` matches the canonical `/data/repos/<project_id>.git`. */
@@ -53,16 +53,16 @@ export interface GitBind {
 
 export interface GitRunOptions {
   /**
-   * Helper network. Default "none" — local-path git needs nothing. Ingest
+   * Helper network. Default "none" â€” local-path git needs nothing. Ingest
    * clones (T42) run on "bridge": the clone itself executes no repo code,
    * the container stays unprivileged and short-lived, and the URL is
-   * Founder-supplied operator input (recorded softening of 27 §12 for this
+   * Founder-supplied operator input (recorded softening of 27 Â§12 for this
    * single system operation; agent workloads never get this mode).
    */
   network?: "none" | "bridge";
 }
 
-/** The container-running seam — faked in unit tests, dockerode in prod. */
+/** The container-running seam â€” faked in unit tests, dockerode in prod. */
 export interface GitRunner {
   run(script: string, binds: readonly GitBind[], opts?: GitRunOptions): Promise<GitRunResult>;
   ensureVolume(name: string): Promise<void>;
@@ -130,7 +130,7 @@ export class DockerGitRunner implements GitRunner {
       await this.deps.docker.getVolume(name).inspect();
       return;
     } catch {
-      /* not present — create below */
+      /* not present â€” create below */
     }
     await this.deps.docker.createVolume({
       Name: name,
@@ -198,6 +198,8 @@ export class GitWorkspaces {
     const repo = this.bareRepoPath(projectId);
     const script = [
       "set -e",
+      // root helper inspecting uid-1000 worktrees (chown) needs the exception
+      "git config --global --add safe.directory '*'",
       `R="${repo}"`,
       'if [ -d "$R" ]; then',
       "  echo EXISTS",
@@ -226,9 +228,9 @@ export class GitWorkspaces {
   }
 
   /**
-   * Idempotent worktree provisioning (15 §3.1): fresh clone of the bare repo
+   * Idempotent worktree provisioning (15 Â§3.1): fresh clone of the bare repo
    * into the named volume, checked out to a NEW `task/<n>-<slug>` branch.
-   * The bare repo is mounted read-only — provisioning can never write it.
+   * The bare repo is mounted read-only â€” provisioning can never write it.
    */
   async provisionWorktree(input: {
     projectId: string;
@@ -248,6 +250,8 @@ export class GitWorkspaces {
     const repo = this.bareRepoPath(input.projectId);
     const script = [
       "set -e",
+      // root helper inspecting uid-1000 worktrees (chown) needs the exception
+      "git config --global --add safe.directory '*'",
       `R="${repo}"`,
       '[ -d "$R" ] || { echo "bare repo missing" >&2; exit 44; }',
       "if [ -d /work/.git ]; then",
@@ -257,6 +261,10 @@ export class GitWorkspaces {
       `  git -C /work checkout -q -b "${input.branch}"`,
       "  echo CREATED",
       "fi",
+      // the workspace image runs unprivileged (uid 1000, S8) â€” hand the
+      // worktree over so writes and commits work inside the container
+      "chown -R 1000:1000 /work",
+      "chmod -R go+rwX /work",
       "git -C /work rev-parse HEAD",
     ].join("\n");
     const result = await this.runner.run(script, [
@@ -291,16 +299,16 @@ export class GitWorkspaces {
   }
 
   /** Intake worktree volume: task number 0 is reserved for the RO analysis
-   *  worktree (T42) — the name still fits WORKTREE_VOLUME_PATTERN. Last 8
+   *  worktree (T42) â€” the name still fits WORKTREE_VOLUME_PATTERN. Last 8
    *  hex = uuidv7 random bits (the first 8 are shared timestamp bits). */
   intakeWorktreeName(projectId: string): string {
     return `ws-0-${projectId.replace(/-/g, "").slice(-8)}`;
   }
 
   /**
-   * Project intake ingest (14 §3.1 stage 1): copy the source into the bare
-   * repo — the platform's own origin (P1: path derived from the id, never
-   * user-supplied) — then materialize a read-only intake worktree volume for
+   * Project intake ingest (14 Â§3.1 stage 1): copy the source into the bare
+   * repo â€” the platform's own origin (P1: path derived from the id, never
+   * user-supplied) â€” then materialize a read-only intake worktree volume for
    * the analysis containers. Idempotent on the bare repo.
    */
   async ingestRepo(input: IngestRepoRequest): Promise<IngestRepoResponse> {
@@ -330,6 +338,8 @@ export class GitWorkspaces {
     }
     const script = [
       "set -e",
+      // root helper inspecting uid-1000 worktrees (chown) needs the exception
+      "git config --global --add safe.directory '*'",
       `R="${repo}"`,
       'if [ -d "$R" ]; then',
       "  echo '::created::0'",
@@ -377,14 +387,152 @@ export class GitWorkspaces {
     };
   }
 
+  /**
+   * Push the task branch from its worktree volume to the bare repo (T43;
+   * 15 Â§3.1: git.branch pushes to the server bare repo ONLY). Force is
+   * permitted on task/* branches exclusively (rebase flow, 15 Â§3.7) â€” main
+   * can never be addressed here (branch pattern guard).
+   */
+  async pushTaskBranch(input: {
+    projectId: string;
+    volumeName: string;
+    branch: string;
+    force?: boolean;
+  }): Promise<{ pushed: true; remoteHead: string }> {
+    if (!UUID_PATTERN.test(input.projectId)) {
+      throw new GitError("INVALID_INPUT", `projectId is not a uuid: ${input.projectId}`);
+    }
+    if (!WORKTREE_VOLUME_PATTERN.test(input.volumeName)) {
+      throw new GitError("INVALID_INPUT", `bad worktree volume name: ${input.volumeName}`);
+    }
+    if (!TASK_BRANCH_PATTERN.test(input.branch)) {
+      throw new GitError("INVALID_INPUT", `bad task branch: ${input.branch}`);
+    }
+    const repo = this.bareRepoPath(input.projectId);
+    const force = input.force ? "--force" : "";
+    const script = [
+      "set -e",
+      // root helper inspecting uid-1000 worktrees (chown) needs the exception
+      "git config --global --add safe.directory '*'",
+      `R="${repo}"`,
+      '[ -d "$R" ] || { echo "bare repo missing" >&2; exit 44; }',
+      `git -C /work push -q ${force} "$R" "HEAD:refs/heads/${input.branch}"`,
+      `echo "::head::$(git --git-dir="$R" rev-parse "refs/heads/${input.branch}")"`,
+    ].join("\n");
+    const result = await this.runner.run(script, [
+      { volume: this.reposVolume, target: REPOS_MOUNT },
+      { volume: input.volumeName, target: "/work" },
+    ]);
+    if (result.exitCode === 44) {
+      throw new GitError("REPO_NOT_FOUND", `no bare repo for project ${input.projectId}`);
+    }
+    if (result.exitCode !== 0) {
+      throw new GitError("GIT_FAILED", `push failed: ${result.stderr.trim().slice(-500)}`);
+    }
+    const head = result.stdout
+      .split("\n")
+      .find((l) => l.startsWith("::head::"))
+      ?.slice(8)
+      .trim();
+    if (!head || !COMMIT_PATTERN.test(head)) {
+      throw new GitError("GIT_FAILED", `unexpected push output: ${result.stdout.slice(0, 300)}`);
+    }
+    return { pushed: true, remoteHead: head };
+  }
+
+  /**
+   * Lead squash-merge into main IN THE BARE REPO (T43; 15 Â§3.6, ADR-010):
+   * clone â†’ squash-merge the task branch â†’ commit with the Reviewed-by
+   * trailer â†’ push main. Conflicts return typed `conflict` with the file
+   * list (the owner rebases in their own workspace, 15 Â§3.7) â€” never a
+   * partial write. Force-push protection: only `main` moves, fast-forward
+   * of the squash commit.
+   */
+  async mergeTaskBranch(input: {
+    projectId: string;
+    branch: string;
+    message: string;
+    authorName: string;
+    authorEmail: string;
+    reviewedBy: string;
+  }): Promise<
+    | { merged: true; mergeCommit: string }
+    | { merged: false; conflictFiles: string[] }
+  > {
+    if (!UUID_PATTERN.test(input.projectId)) {
+      throw new GitError("INVALID_INPUT", `projectId is not a uuid: ${input.projectId}`);
+    }
+    if (!TASK_BRANCH_PATTERN.test(input.branch)) {
+      throw new GitError("INVALID_INPUT", `bad task branch: ${input.branch}`);
+    }
+    for (const value of [input.message, input.authorName, input.authorEmail, input.reviewedBy]) {
+      if (value.includes("'")) {
+        throw new GitError("INVALID_INPUT", "single quotes are not allowed in merge metadata");
+      }
+    }
+    const repo = this.bareRepoPath(input.projectId);
+    const subject = input.message.replaceAll("\n", " ").slice(0, 200);
+    const script = [
+      "set -e",
+      // root helper inspecting uid-1000 worktrees (chown) needs the exception
+      "git config --global --add safe.directory '*'",
+      `R="${repo}"`,
+      '[ -d "$R" ] || { echo "bare repo missing" >&2; exit 44; }',
+      'T=$(mktemp -d)',
+      'git clone -q "$R" "$T"',
+      `cd "$T"`,
+      `git checkout -q main`,
+      `export GIT_AUTHOR_NAME='${input.authorName}' GIT_AUTHOR_EMAIL='${input.authorEmail}'`,
+      'export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME" GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"',
+      // conflict â†’ list files and exit 45 (typed result, no partial state)
+      `if ! git merge --squash "origin/${input.branch}" >/dev/null 2>&1; then`,
+      "  git diff --name-only --diff-filter=U | sed 's/^/::conflict::/'",
+      "  exit 45",
+      "fi",
+      `git commit -q -m '${subject}' -m 'Reviewed-by: ${input.reviewedBy}' || { echo '::conflict::EMPTY_MERGE' ; exit 45; }`,
+      'git push -q "$R" main',
+      'echo "::merge::$(git rev-parse HEAD)"',
+    ].join("\n");
+    const result = await this.runner.run(script, [
+      { volume: this.reposVolume, target: REPOS_MOUNT },
+    ]);
+    if (result.exitCode === 44) {
+      throw new GitError("REPO_NOT_FOUND", `no bare repo for project ${input.projectId}`);
+    }
+    if (result.exitCode === 45) {
+      return {
+        merged: false,
+        conflictFiles: result.stdout
+          .split("\n")
+          .filter((l) => l.startsWith("::conflict::"))
+          .map((l) => l.slice(12).trim())
+          .filter(Boolean),
+      };
+    }
+    if (result.exitCode !== 0) {
+      throw new GitError("GIT_FAILED", `merge failed: ${result.stderr.trim().slice(-500)}`);
+    }
+    const commit = result.stdout
+      .split("\n")
+      .find((l) => l.startsWith("::merge::"))
+      ?.slice(9)
+      .trim();
+    if (!commit || !COMMIT_PATTERN.test(commit)) {
+      throw new GitError("GIT_FAILED", `unexpected merge output: ${result.stdout.slice(0, 300)}`);
+    }
+    return { merged: true, mergeCommit: commit };
+  }
+
   /** Clone the default branch (history included) into the intake worktree
-   *  volume — mounted READ-ONLY into analysis containers (P2). Idempotent. */
+   *  volume â€” mounted READ-ONLY into analysis containers (P2). Idempotent. */
   private async provisionIntakeWorktree(projectId: string): Promise<string> {
     const volumeName = this.intakeWorktreeName(projectId);
     await this.runner.ensureVolume(volumeName);
     const repo = this.bareRepoPath(projectId);
     const script = [
       "set -e",
+      // root helper inspecting uid-1000 worktrees (chown) needs the exception
+      "git config --global --add safe.directory '*'",
       `R="${repo}"`,
       "if [ ! -d /work/.git ]; then",
       '  git clone "$R" /work',

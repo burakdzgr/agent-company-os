@@ -29,6 +29,15 @@ export {
   memorySearch,
 } from "./definitions.js";
 export { toolRegistry, buildRegistry, getTool, listTools } from "./registry.js";
+export {
+  detectInjection,
+  provenanceFence,
+  derivesFromTainted,
+  FENCE_PREAMBLE,
+  TAINT_PATTERNS_VERSION,
+  type InjectionScan,
+  type FenceMeta,
+} from "./taint.js";
 
 export {
   ISOLATION_LEVELS,

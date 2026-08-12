@@ -50,6 +50,10 @@ export interface AgentTaskInput {
   sessionId: string;
   attempt: number;
   carriedState?: CarriedState | undefined;
+  /** Rework re-entry (T43, 15 §5): a changes_requested verdict restarts the
+   *  owner's loop with the verdict pre-seeded so the first Working Set
+   *  carries the [signal:reviewVerdict=…] marker the script branches on. */
+  initialReviewVerdict?: { verdict: string; notes?: string | undefined } | undefined;
 }
 
 export interface AgentTaskOutcome {
@@ -103,7 +107,8 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
     cancelled: { by: string; reason: string } | null;
   } = {
     resolvedDependencies: [],
-    reviewVerdict: null,
+    // rework re-entry pre-seeds the verdict (T43) — undefined on old histories
+    reviewVerdict: input.initialReviewVerdict ?? null,
     approvalVerdict: null,
     paused: false,
     cancelled: null,

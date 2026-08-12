@@ -4,12 +4,14 @@
 // inline; a streaming exec (sessionId present) acks immediately and frames
 // flow over NATS `term.<sessionId>`.
 import { timingSafeEqual } from "node:crypto";
+import { z } from "zod";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   CreateWorkspaceRequestSchema,
   EnsureRepoRequestSchema,
   ExecRequestSchema,
   IngestRepoRequestSchema,
+  MergeBranchRequestSchema,
   ProvisionWorktreeRequestSchema,
   WORKTREE_VOLUME_PATTERN,
   type ExecResult,
@@ -147,6 +149,33 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     }
     const result = await deps.git.ensureBareRepo(parsed.data.projectId);
     return reply.status(result.created ? 201 : 200).send(result);
+  });
+
+  // task-branch push worktree → bare (T43, 15 §3.1)
+  app.post("/internal/v1/worktrees/push", async (request, reply) => {
+    const parsed = z
+      .object({
+        projectId: z.uuid(),
+        volumeName: z.string(),
+        branch: z.string(),
+        force: z.boolean().default(false),
+      })
+      .safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ code: "validation_failed", issues: parsed.error.issues });
+    }
+    const result = await deps.git.pushTaskBranch(parsed.data);
+    return reply.status(200).send(result);
+  });
+
+  // lead squash-merge into main (T43, 15 §3.6)
+  app.post("/internal/v1/repos/merge", async (request, reply) => {
+    const parsed = MergeBranchRequestSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ code: "validation_failed", issues: parsed.error.issues });
+    }
+    const result = await deps.git.mergeTaskBranch(parsed.data);
+    return reply.status(200).send(result);
   });
 
   // project intake ingest (T42, 14 §3.1 stage 1)

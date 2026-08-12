@@ -32,3 +32,8 @@ export {
   type AgentInboxInput,
   type AgentInboxOutcome,
 } from "./agent-inbox.workflow.js";
+export {
+  reviewWorkflow,
+  type ReviewWorkflowInput,
+  type ReviewWorkflowOutcome,
+} from "./review.workflow.js";

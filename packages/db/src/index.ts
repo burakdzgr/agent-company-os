@@ -93,6 +93,13 @@ export {
   type SweepResult,
 } from "./approvals.js";
 export {
+  ReviewsService,
+  ReviewError,
+  type ReviewRow,
+  type ReviewKind,
+  type ReviewVerdictValue,
+} from "./reviews.js";
+export {
   ProjectsService,
   ProjectError,
   projectSlug,

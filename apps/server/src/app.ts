@@ -32,6 +32,7 @@ import { registerApprovalRoutes, type ApprovalSignalPort } from "./modules/appro
 import { registerToolGatewayRoutes } from "./modules/tools/routes.js";
 import { registerTerminalRoutes } from "./modules/terminals/routes.js";
 import { registerProjectRoutes, type IntakeStarter } from "./modules/projects/routes.js";
+import { registerReviewRoutes } from "./modules/reviews/routes.js";
 import { ToolGateway, type ToolDispatchPort } from "./modules/tools/gateway.js";
 import { unsealSecret } from "./modules/auth/crypto.js";
 import { secrets } from "@acos/db/schema";
@@ -341,6 +342,16 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   await registerTerminalRoutes(app, {
     guardedDb: () => {
       if (!options.guardedDb) throw new ApiError("internal", "terminals not wired");
+      return options.guardedDb;
+    },
+    companiesSvc,
+    sandbox: () => sandboxInternal,
+  });
+
+  // ---------- reviews (T43; 15 §2) ----------
+  await registerReviewRoutes(app, {
+    guardedDb: () => {
+      if (!options.guardedDb) throw new ApiError("internal", "reviews not wired");
       return options.guardedDb;
     },
     companiesSvc,

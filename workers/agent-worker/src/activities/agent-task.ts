@@ -12,6 +12,8 @@ import {
   CostService,
   DelegationService,
   MessageService,
+  ReviewError,
+  ReviewsService,
   TaskEngineError,
   TasksService,
   TaskStateService,
@@ -34,9 +36,11 @@ import {
   modelProfiles,
   positions,
   tasks,
+  workspaces as workspacesTable,
 } from "@acos/db/schema";
 import type { ModelRouter, RoutingContext, LlmMessage, LlmUsage } from "@acos/llm";
 import { CONTEXT_SENTINEL_UUID, type AgentAction } from "@acos/llm/agent-action";
+import { FENCE_PREAMBLE, provenanceFence } from "@acos/tools";
 
 async function emitDomainEvent(tx: Tx, ctx: CompanyContext, input: NewEventInput) {
   const payload = parseEventPayload(input.type, input.version ?? 1, input.payload ?? {});
@@ -112,6 +116,16 @@ export interface AgentTaskActivityDeps {
         retryAfterSec?: number | undefined;
       }>)
     | undefined;
+  /** request_review → independent reviewer's reviewWorkflow start (T43). */
+  startReviewWorkflow?:
+    | ((input: {
+        companyId: string;
+        reviewId: string;
+        taskId: string;
+        reviewerAgentId: string;
+        authorAgentId: string;
+      }) => Promise<void>)
+    | undefined;
 }
 
 export interface SessionRef {
@@ -152,6 +166,79 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
   const delegationService = new DelegationService(guardedDb, tasksService, taskState);
   const costService = new CostService(guardedDb);
   const approvalsService = new ApprovalsService(guardedDb);
+  const reviewsService = new ReviewsService(guardedDb);
+
+  /** Checkpoint before review (T43, recorded): the submit implies "my work
+   *  is on the branch" — an automatic commit (allowEmpty) + push makes the
+   *  diff reviewable and the branch mergeable; the squash collapses WIP
+   *  commits anyway (15 §3.4). Best-effort: toolless flows have no gateway. */
+  async function checkpointBranch(input: SessionRef): Promise<void> {
+    if (!deps.invokeTool) return;
+    // only when the task ALREADY worked in a workspace — a toolless task must
+    // not have a workspace provisioned as a review side effect
+    const [live] = await guardedDb
+      .select({ id: workspacesTable.id })
+      .from(workspacesTable)
+      .where(
+        and(
+          eq(workspacesTable.companyId, input.companyId),
+          eq(workspacesTable.taskId, input.taskId),
+          sql`${workspacesTable.status} IN ('ready','in_use','idle')`,
+        ),
+      )
+      .limit(1);
+    if (!live) return;
+    try {
+      await deps.invokeTool({
+        companyId: input.companyId,
+        agentId: input.agentId,
+        taskId: input.taskId,
+        agentSessionId: input.sessionId,
+        toolName: "git.commit",
+        input: { message: "chore: review checkpoint", allowEmpty: true },
+        idempotencyKey: `checkpoint-commit:${input.sessionId}:${Date.now() >> 13}`,
+      });
+      await deps.invokeTool({
+        companyId: input.companyId,
+        agentId: input.agentId,
+        taskId: input.taskId,
+        agentSessionId: input.sessionId,
+        toolName: "git.branch",
+        input: { force: true }, // task/* only — rebase-safe (15 §3.7)
+        idempotencyKey: `checkpoint-push:${input.sessionId}:${Date.now() >> 13}`,
+      });
+    } catch {
+      /* no workspace (toolless) or gateway down — review can still proceed */
+    }
+  }
+
+  /** request_review / review-shaped complete_task: open (or reset) the code
+   *  review row and start the independent reviewer's workflow (T43). Tool-
+   *  less tasks (no project/workspace) keep the pre-T43 transition-only path. */
+  async function openCodeReview(ctx: CompanyContext, taskId: string, authorAgentId: string) {
+    try {
+      const { review } = await reviewsService.requestReview(ctx, {
+        taskId,
+        authorAgentId,
+      });
+      if (review.reviewerAgentId && deps.startReviewWorkflow) {
+        await deps.startReviewWorkflow({
+          companyId: ctx.companyId,
+          reviewId: review.id,
+          taskId,
+          reviewerAgentId: review.reviewerAgentId,
+          authorAgentId,
+        });
+      }
+      return { reviewId: review.id, reviewerAgentId: review.reviewerAgentId };
+    } catch (err) {
+      if (err instanceof ReviewError &&
+          (err.code === "REVIEW_TASK_INVALID" || err.code === "REVIEW_NO_ELIGIBLE_REVIEWER")) {
+        return null; // toolless/projectless task or a one-agent org — transition-only
+      }
+      throw err;
+    }
+  }
 
   return {
     /** 08 §1: mark the pre-created session running; task started + presence. */
@@ -278,21 +365,45 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
 
       // sections 1–10 of 08 §8 (memory 4–6 and thread 7 are placeholders
       // until T45/T33; token budgets enforced with the char/4 heuristic there)
+      // S5 (18 §11.1): observations carrying EXTERNAL content (workspace
+      // files, web responses) enter the prompt only inside provenance fences;
+      // flagged outputs keep their taint visible. Fencing is central — here,
+      // never in tool authors' code.
+      const renderStep = (s: (typeof recentSteps)[number]): string => {
+        const obs = (s.observation ?? {}) as {
+          output?: { provenance?: string };
+          outputFlagged?: boolean;
+        };
+        const compact = JSON.stringify(s.observation ?? {}).slice(0, 200);
+        const provenance = obs.output?.provenance;
+        if (provenance === "workspace" || provenance === "web" || obs.outputFlagged) {
+          return `${s.stepNo}. ${s.actionKind} ->\n${provenanceFence(compact, {
+            source: `${provenance ?? "tool"}:step-${s.stepNo}`,
+          })}`;
+        }
+        return `${s.stepNo}. ${s.actionKind} -> ${compact}`;
+      };
+      const hasFences = recentSteps.some((s) => {
+        const obs = (s.observation ?? {}) as {
+          output?: { provenance?: string };
+          outputFlagged?: boolean;
+        };
+        const p = obs.output?.provenance;
+        return p === "workspace" || p === "web" || obs.outputFlagged === true;
+      });
+
       const system = [
         `You are ${agentRow.name}, ${agentRow.positionTitle} (${agentRow.seniority}, autonomy L${agentRow.autonomyLevel}).`,
         agentRow.persona,
         `Non-negotiable rules: act only via a single AgentAction JSON object; never invent tools.`,
+        ...(hasFences ? [FENCE_PREAMBLE] : []),
         markers,
       ].join("\n");
       const user = [
         `# Org context\nEscalation chain: ${managers.join(" -> ") || "(top level)"} -> Founder`,
         `# Task TASK-${task.number}: ${task.title}\nObjective: ${task.objective}\nStatus: ${task.status} | Priority: ${task.priority} | Risk: ${task.risk}\nSuccess criteria: ${task.successCriteria.join("; ") || "(none)"}\nBudget remaining cents: ${task.budgetCents === null ? "inherit" : task.budgetCents - task.spentCents}`,
         `# Thread + signals\n${(input.signalMarkers ?? []).join("\n") || "(no new messages)"}`,
-        `# Recent steps\n${recentSteps
-          .slice()
-          .reverse()
-          .map((s) => `${s.stepNo}. ${s.actionKind} -> ${JSON.stringify(s.observation ?? {}).slice(0, 200)}`)
-          .join("\n") || "(none yet)"}`,
+        `# Recent steps\n${recentSteps.slice().reverse().map(renderStep).join("\n") || "(none yet)"}`,
         `# Output\nRespond with EXACTLY one AgentAction JSON object, no prose. Step ${input.stepNo}.`,
       ].join("\n\n");
 
@@ -373,13 +484,21 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           return { ok: true, status: updated.status };
         }
         case "request_review": {
-          // owner submits: IN_PROGRESS→REVIEW (07 §5); review row + reviewer
-          // workflow land with T43/T33
-          const updated = await taskState.transition(ctx, selfTask(action.taskId), "REVIEW", {
+          // owner submits: IN_PROGRESS→REVIEW (07 §5) + the code review row
+          // with an INDEPENDENT reviewer whose workflow starts now (T43)
+          const taskId = selfTask(action.taskId);
+          await checkpointBranch(input);
+          const updated = await taskState.transition(ctx, taskId, "REVIEW", {
             kind: "agent",
             agentId: input.agentId,
           }, { note: action.summary });
-          return { ok: true, status: updated.status, reviewRequested: true };
+          const opened = await openCodeReview(ctx, taskId, input.agentId);
+          return {
+            ok: true,
+            status: updated.status,
+            reviewRequested: true,
+            ...(opened && { reviewId: opened.reviewId, reviewerAgentId: opened.reviewerAgentId }),
+          };
         }
         case "use_tool": {
           // T40: every tool effect traverses the Tool Gateway (S3) — it
@@ -391,6 +510,21 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
             return { ok: true, tool: action.tool, exitCode: 0, stub: true, input: action.input };
           }
           const mapped = mapToolCall(action.tool, action.input);
+          // S5 taint carry (18 §11.3): once any output in this session was
+          // flagged, later tool calls run tainted — the gateway elevates the
+          // effective risk one class (fail-secure sticky bit; recorded MVP
+          // coarsening of the per-argument substring derivation)
+          const [flaggedStep] = await guardedDb
+            .select({ id: agentSteps.id })
+            .from(agentSteps)
+            .where(
+              and(
+                eq(agentSteps.companyId, ctx.companyId),
+                eq(agentSteps.agentSessionId, input.sessionId),
+                sql`${agentSteps.observation} ->> 'outputFlagged' = 'true'`,
+              ),
+            )
+            .limit(1);
           const res = await deps.invokeTool({
             companyId: input.companyId,
             agentId: input.agentId,
@@ -398,12 +532,14 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
             agentSessionId: input.sessionId,
             toolName: mapped.toolName,
             input: mapped.input,
+            ...(flaggedStep && { tainted: true }),
             // deterministic per step ⇒ Temporal retries replay the result
             idempotencyKey: `tool:${input.stepId}`,
           });
           const output = (res.output ?? {}) as { exitCode?: number };
           const exitCode =
             res.status === "succeeded" ? (output.exitCode ?? 0) : (output.exitCode ?? 1);
+          const flaggedNow = (res as { outputFlagged?: boolean }).outputFlagged === true;
           return {
             ok: res.status === "succeeded",
             tool: action.tool,
@@ -411,6 +547,10 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
             status: res.status,
             exitCode,
             ...(res.output !== undefined && { output: res.output }),
+            ...(flaggedNow && {
+              outputFlagged: true,
+              flaggedPatterns: (res as { flaggedPatterns?: string[] }).flaggedPatterns ?? [],
+            }),
             ...(res.reason !== null && { reason: res.reason }),
             ...(res.error !== undefined && { error: res.error }),
             ...(res.costCents !== undefined && { costCents: res.costCents }),
@@ -617,8 +757,34 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         }
         case "think":
           return { ok: true, thought: true };
-        case "complete_task":
+        case "complete_task": {
+          // T43 (recorded): after a changes_requested rework the owner's
+          // "done" cannot self-approve — the machine routes it back through
+          // re-review (CHANGES_REQUESTED→IN_PROGRESS→REVIEW, same row reset)
+          const [row] = await guardedDb
+            .select({ status: tasks.status })
+            .from(tasks)
+            .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
+          if (row && ["CHANGES_REQUESTED", "IN_PROGRESS"].includes(row.status)) {
+            const priorReviews = await reviewsService.listForTask(ctx, input.taskId);
+            if (priorReviews.length > 0) {
+              const owner = { kind: "agent" as const, agentId: input.agentId };
+              if (row.status === "CHANGES_REQUESTED") {
+                await taskState.transition(ctx, input.taskId, "IN_PROGRESS", owner);
+              }
+              await checkpointBranch(input);
+              await taskState.transition(ctx, input.taskId, "REVIEW", owner);
+              const opened = await openCodeReview(ctx, input.taskId, input.agentId);
+              return {
+                ok: true,
+                completed: false,
+                reReviewRequested: true,
+                ...(opened && { reviewId: opened.reviewId }),
+              };
+            }
+          }
           return { ok: true, completed: true };
+        }
         case "abandon":
           return { ok: true, abandoned: true, reason: action.reason };
         default:

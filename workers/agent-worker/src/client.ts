@@ -32,16 +32,22 @@ export async function createWorkflowClient(options: WorkflowClientOptions): Prom
   return { client, connection };
 }
 
-/** agent-task starts: deterministic id + REJECT_DUPLICATE (09 §5). */
+/** agent-task starts: deterministic id + REJECT_DUPLICATE (09 §5). Rework
+ *  re-entry (T43) passes `allowReentry` — the prior run CLOSED at
+ *  request_review, so the id may be reused for the next run; concurrent
+ *  duplicates are still rejected by ALLOW_DUPLICATE's running-check. */
 export async function startAgentTaskWorkflow<T>(
   client: Client,
   workflowType: string | ((input: T) => Promise<unknown>),
   input: T & { taskId: string; agentId: string },
+  opts: { allowReentry?: boolean } = {},
 ): Promise<WorkflowHandle> {
   return client.workflow.start(workflowType as string, {
     taskQueue: TASK_QUEUES.agentTasks,
     workflowId: workflowIds.agentTask(input.taskId, input.agentId),
-    workflowIdReusePolicy: WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,
+    workflowIdReusePolicy: opts.allowReentry
+      ? WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
+      : WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,
     args: [input],
   });
 }
