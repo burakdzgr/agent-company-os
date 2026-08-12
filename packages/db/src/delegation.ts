@@ -54,6 +54,8 @@ export class DelegationService {
     ctx: CompanyContext,
     managerAgentId: string,
     input: {
+      /** stepId-derived deterministic id — idempotent replay (R1, T50) */
+      id?: string | undefined;
       parentTaskId: string;
       kind: string;
       title: string;
@@ -69,6 +71,7 @@ export class DelegationService {
     return this.tasksService.create(
       ctx,
       {
+        id: input.id,
         parentId: input.parentTaskId,
         kind: input.kind,
         title: input.title,

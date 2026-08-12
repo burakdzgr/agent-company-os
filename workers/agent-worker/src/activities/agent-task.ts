@@ -531,11 +531,28 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       const selfTask = (id: string) => (id === CONTEXT_SENTINEL_UUID ? input.taskId : id);
       switch (action.type) {
         case "update_task_status": {
-          const updated = await taskState.transition(ctx, selfTask(action.taskId), action.to, {
-            kind: "agent",
-            agentId: input.agentId,
-          }, { note: action.note });
-          return { ok: true, status: updated.status };
+          // Idempotent under at-least-once execution (R1, T50): a worker
+          // killed AFTER the transition committed but BEFORE the activity
+          // result recorded re-executes this — "already in the target state"
+          // is success, not an illegal self-transition.
+          try {
+            const updated = await taskState.transition(ctx, selfTask(action.taskId), action.to, {
+              kind: "agent",
+              agentId: input.agentId,
+            }, { note: action.note });
+            return { ok: true, status: updated.status };
+          } catch (err) {
+            if (err instanceof TaskEngineError && err.code === "TASK_TRANSITION_INVALID") {
+              const [current] = await guardedDb
+                .select({ status: tasks.status })
+                .from(tasks)
+                .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, selfTask(action.taskId))));
+              if (current?.status === action.to) {
+                return { ok: true, status: current.status, replayed: true };
+              }
+            }
+            throw err;
+          }
         }
         case "request_review": {
           // owner submits: IN_PROGRESS→REVIEW (07 §5) + the code review row
@@ -658,6 +675,15 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           // in the next Working Set instead of crashing the loop (guard f)
           try {
             const child = await delegationService.createChildTask(ctx, input.agentId, {
+              // natural idempotency key (R1, T50): same delegator + same
+              // parent + same title = the same intended child. Survives BOTH
+              // an activity replay after a worker kill AND a scripted-session
+              // cursor reset (the fake LLM re-runs its script from the top
+              // after a restart — live models are stateless per call).
+              id: uuidv5(
+                `create-task:${input.agentId}:${action.title}`,
+                selfTask(action.parentTaskId),
+              ),
               parentTaskId: selfTask(action.parentTaskId),
               kind: action.kind,
               title: action.title,

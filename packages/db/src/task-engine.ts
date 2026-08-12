@@ -66,6 +66,10 @@ export class TasksService {
   async create(
     ctx: CompanyContext,
     input: {
+      /** Deterministic caller id (stepId-derived) = idempotency under
+       *  at-least-once activity execution (R1, T50): a replayed create
+       *  returns the existing row instead of a duplicate child. */
+      id?: string | undefined;
       projectId?: string | undefined;
       parentId?: string | undefined;
       kind: string;
@@ -82,6 +86,13 @@ export class TasksService {
     creator: { kind: "founder" } | { kind: "agent"; agentId: string },
   ): Promise<TaskRow> {
     return this.db.transaction(async (tx) => {
+      if (input.id) {
+        const [existing] = await tx
+          .select()
+          .from(tasks)
+          .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.id)));
+        if (existing) return existing; // idempotent replay
+      }
       let delegationDepth = 0;
       let inheritedProjectId: string | null = null;
       if (input.parentId) {
@@ -114,6 +125,7 @@ export class TasksService {
       const [task] = await tx
         .insert(tasks)
         .values({
+          ...(input.id && { id: input.id }),
           companyId: ctx.companyId,
           projectId: input.projectId ?? inheritedProjectId,
           parentId: input.parentId ?? null,
