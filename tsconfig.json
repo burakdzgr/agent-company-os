@@ -11,6 +11,7 @@
     { "path": "packages/ui" },
     { "path": "apps/server" },
     { "path": "apps/web" },
+    { "path": "apps/desktop" },
     { "path": "workers/agent-worker" },
     { "path": "workers/execution-worker" },
     { "path": "services/sandbox-manager" }

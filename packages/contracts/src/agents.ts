@@ -33,6 +33,17 @@ export const HireAgentRequestSchema = z.object({
   managerAgentId: z.uuid().nullable().optional(),
   leadsUnit: z.boolean().optional(),
   activate: z.boolean().optional(),
+  // U10 (36 §8) — additive hire params; single-transaction hire (T19) intact.
+  /** PixelLab library pick — stored as agents.avatar_url = `pixel:avNN`. */
+  avatarId: z.string().regex(/^av\d{2}$/).optional(),
+  /** initial agent_skills seed via the T47 evidence writer */
+  expertise: z.array(z.string().min(1).max(60)).max(12).optional(),
+  /** project placement → project_members (T42) */
+  projectId: z.uuid().optional(),
+  /** explicit engine/model → agent_model_bindings (identity stays decoupled) */
+  modelBinding: z
+    .object({ provider: z.string().min(1), model: z.string().min(1) })
+    .optional(),
 });
 
 export const UpdateAgentRequestSchema = z.object({

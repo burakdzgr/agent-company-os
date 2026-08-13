@@ -111,6 +111,9 @@ services:
       MASTER_KEY: ${MASTER_KEY:-MDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=}
       SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-me}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
+      # Single-user mode (Founder decision 2026-08-13): no login UI; the server
+      # auto-mints the Founder session. Set "false" to restore the login flow.
+      AUTH_AUTOLOGIN: ${AUTH_AUTOLOGIN:-true}
       SEED_FOUNDER_PASSWORD: ${SEED_FOUNDER_PASSWORD:-}
       # live-LLM lane (T50): with a key present (and LLM_MODE unset) the seed
       # provisions the anthropic provider + model profiles

@@ -16,7 +16,13 @@ import type { Db, GuardedDb } from "@acos/db";
 import { registerHealthRoutes, type HealthCheckers } from "./modules/health/index.js";
 import { moduleStubs } from "./modules/index.js";
 import { registerAuthRoutes } from "./modules/auth/routes.js";
-import { AuthService, CSRF_COOKIE, SESSION_COOKIE, type UserRow } from "./modules/auth/service.js";
+import {
+  AuthService,
+  CSRF_COOKIE,
+  SESSION_COOKIE,
+  SESSION_COOKIE_OPTIONS,
+  type UserRow,
+} from "./modules/auth/service.js";
 import { registerCompanyRoutes } from "./modules/companies/routes.js";
 import { CompanyService } from "./modules/companies/service.js";
 import { registerOrgRoutes } from "./modules/org/routes.js";
@@ -24,6 +30,7 @@ import { OrgService } from "./modules/org/service.js";
 import { registerAgentRoutes } from "./modules/agents/routes.js";
 import { AgentsService } from "./modules/agents/service.js";
 import { registerEventRoutes } from "./modules/events/routes.js";
+import { registerOfficeRoutes } from "./modules/office/routes.js";
 import { EventsReadService } from "./modules/events/read.js";
 import { registerTaskRoutes } from "./modules/tasks/routes.js";
 import { TasksService, TaskStateService } from "./modules/tasks/service.js";
@@ -91,6 +98,8 @@ export interface BuildAppOptions {
   internalApiToken?: string;
   /** sandbox-manager internal API — terminal ring/log source (22 §5.2, T41). */
   sandboxManagerUrl?: string;
+  /** Single-user mode (AUTH_AUTOLOGIN): mint a Founder session for cookie-less GETs. */
+  autologinFounder?: boolean;
 }
 
 export type App = FastifyInstance;
@@ -122,7 +131,7 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     return this.principal.user;
   });
 
-  app.addHook("preHandler", async (request) => {
+  app.addHook("preHandler", async (request, reply) => {
     const bearer = request.headers.authorization;
     if (bearer?.startsWith("Bearer acos_pat_")) {
       const verified = await auth().verifyPat(bearer.slice("Bearer ".length));
@@ -145,6 +154,30 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
             throw new ApiError("forbidden", "missing or mismatched CSRF token");
           }
         }
+        return;
+      }
+    }
+    // Single-user mode (AUTH_AUTOLOGIN, Founder decision 2026-08-13): no
+    // credentials presented (or a stale session) → mint a real Founder
+    // session and continue as authenticated. Cookie-less GETs on /api/v1
+    // only, so health probes and the WS upgrade never mint sessions; the SPA
+    // picks the cookies up on its first read and mutations/WS reuse them.
+    if (
+      options.autologinFounder &&
+      request.principal === null &&
+      options.db !== undefined &&
+      ["GET", "HEAD", "OPTIONS"].includes(request.method) &&
+      request.url.startsWith("/api/v1/")
+    ) {
+      const result = await auth().autologinFounder({
+        ip: request.ip,
+        userAgent: request.headers["user-agent"],
+      });
+      if (result.kind === "ok") {
+        reply
+          .setCookie(SESSION_COOKIE, result.sessionToken, SESSION_COOKIE_OPTIONS)
+          .setCookie(CSRF_COOKIE, result.csrfToken, { ...SESSION_COOKIE_OPTIONS, httpOnly: false });
+        request.principal = { kind: "user", user: result.user, scopes: null };
       }
     }
   });
@@ -416,6 +449,15 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   app.decorate("realtime", gateway);
   app.decorate("officeProjector", office?.projector ?? null);
   app.decorate("attachOfficeNats", office ? office.attachNats : null);
+
+  // ---------- office floor plan (U04; 36 §7, N1 read-only) ----------
+  await registerOfficeRoutes(app, {
+    projector: () => {
+      if (!office) throw new ApiError("internal", "office projector not wired");
+      return office.projector;
+    },
+    companiesSvc,
+  });
   gateway?.start();
   app.addHook("onClose", async () => {
     await gateway?.stop();

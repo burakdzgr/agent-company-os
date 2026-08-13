@@ -1,135 +1,420 @@
-// Command-center shell (24 §1): TopBar (CompanySwitcher, user), LeftNav
-// (14 views — unimplemented ones disabled), Outlet, StatusBar placeholder.
-import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
+// Command-center shell (24 §1, 36 §3 — U02): dark acosDark chrome. Top bar =
+// brand · company switcher · team chips (+ Takım) · global search · token
+// pill (wired in U11) · + Ajan Ekle · approvals/notifications badges ·
+// Founder menu. Left icon rail keeps all 14 views reachable (accessible
+// names unchanged for the e2e suite). Legacy views render on a light island
+// inside the dark chrome until U03 wraps them as dockview panels.
+import { useEffect, useState } from "react";
+import { Link, Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Select, cn } from "@acos/ui";
+import { cn, departmentColors } from "@acos/ui";
 import { api, keys } from "../lib/api.js";
-import { useUiPrefs } from "../stores/uiPrefs.js";
 import { useEventTicker } from "../stores/eventTicker.js";
+import { usePresence } from "../stores/presence.js";
+import { useUiPrefs, type CommandPreset } from "../stores/uiPrefs.js";
 import { RealtimeDispatcher, useRealtimeStatus } from "../realtime/RealtimeDispatcher.js";
+import { HireModal } from "../features/agents/HireModal.js";
+import { useNotifications } from "../stores/notifications.js";
+import { Toasts } from "./Toasts.js";
 
-const NAV_ITEMS: Array<{ label: string; path?: string }> = [
-  { label: "OFFICE", path: "/c/$companyId/office" },
-  { label: "TASKS", path: "/c/$companyId/tasks" },
-  { label: "AGENTS", path: "/c/$companyId/agents" },
-  { label: "PROJECTS", path: "/c/$companyId/projects" },
-  { label: "MEMORY", path: "/c/$companyId/memory" },
-  { label: "ORGANIZATION", path: "/c/$companyId/organization" },
-  { label: "SKILLS", path: "/c/$companyId/skills" },
-  { label: "COMMUNICATION", path: "/c/$companyId/communication" },
-  { label: "TERMINALS", path: "/c/$companyId/terminals" },
-  { label: "APPROVALS", path: "/c/$companyId/approvals" },
-  { label: "EVENTS", path: "/c/$companyId/events" },
-  { label: "REPORTS", path: "/c/$companyId/reports" },
-  { label: "COSTS", path: "/c/$companyId/costs" },
-  { label: "SETTINGS" },
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+const PRESETS: Array<{ key: CommandPreset; label: string }> = [
+  { key: "operations", label: "Ops" },
+  { key: "engineering", label: "Eng" },
+  { key: "overview", label: "Genel" },
 ];
+
+const NAV_ITEMS: Array<{ label: string; icon: string; path?: string }> = [
+  { label: "COMMAND", icon: "◧", path: "/c/$companyId" },
+  { label: "OFFICE", icon: "🏢", path: "/c/$companyId/office" },
+  { label: "TASKS", icon: "▦", path: "/c/$companyId/tasks" },
+  { label: "AGENTS", icon: "👤", path: "/c/$companyId/agents" },
+  { label: "PROJECTS", icon: "📁", path: "/c/$companyId/projects" },
+  { label: "MEMORY", icon: "🧠", path: "/c/$companyId/memory" },
+  { label: "ORGANIZATION", icon: "🌐", path: "/c/$companyId/organization" },
+  { label: "SKILLS", icon: "🎓", path: "/c/$companyId/skills" },
+  { label: "COMMUNICATION", icon: "💬", path: "/c/$companyId/communication" },
+  { label: "TERMINALS", icon: "⌨", path: "/c/$companyId/terminals" },
+  { label: "APPROVALS", icon: "✓", path: "/c/$companyId/approvals" },
+  { label: "EVENTS", icon: "⚡", path: "/c/$companyId/events" },
+  { label: "REPORTS", icon: "📄", path: "/c/$companyId/reports" },
+  { label: "COSTS", icon: "＄", path: "/c/$companyId/costs" },
+  { label: "SETTINGS", icon: "⚙" },
+];
+
+function GlobalSearch({ companyId }: { companyId: string }) {
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+  const agents = useQuery({
+    queryKey: keys.agents(companyId),
+    queryFn: () => api.agents.list(companyId),
+  });
+  const hits = q.trim()
+    ? (agents.data ?? []).filter((a) => a.name.toLowerCase().includes(q.trim().toLowerCase()))
+    : [];
+
+  async function open(agentId: string) {
+    setQ("");
+    await navigate({ to: "/c/$companyId/agents/$agentId", params: { companyId, agentId } });
+  }
+
+  return (
+    <div className="relative hidden md:block">
+      <input
+        data-testid="global-search"
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && hits[0]) void open(hits[0].id);
+          if (e.key === "Escape") setQ("");
+        }}
+        placeholder="ara…"
+        className="w-40 rounded-md border border-acos-line bg-acos-bg2 px-2 py-0.5 text-[11px] text-acos-fg0 placeholder:text-acos-fg2 focus:border-dept-engineering focus:outline-none"
+      />
+      {hits.length > 0 && (
+        <ul className="absolute left-0 top-full z-50 mt-1 max-h-56 w-56 overflow-auto rounded-md border border-acos-line bg-acos-bg2 py-1 shadow-lg">
+          {hits.slice(0, 8).map((agent) => (
+            <li key={agent.id}>
+              <button
+                onMouseDown={() => void open(agent.id)}
+                className="flex w-full items-center gap-2 px-2.5 py-1 text-left text-[11px] text-acos-fg0 hover:bg-acos-bg3"
+              >
+                {agent.name}
+                <span className="ml-auto text-[9px] text-acos-fg2">{agent.status}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function TeamChips({ companyId }: { companyId: string }) {
+  const navigate = useNavigate();
+  const units = useQuery({
+    queryKey: keys.orgUnits(companyId),
+    queryFn: () => api.org.listUnits(companyId),
+  });
+  const edges = useQuery({
+    queryKey: keys.orgEdges(companyId),
+    queryFn: () => api.org.listEdges(companyId),
+  });
+  const teams = (units.data ?? []).filter((u) => u.kind === "team");
+  const headcount = (unitId: string) =>
+    (edges.data ?? []).filter(
+      (e) => e.kind === "member_of" && e.toUnitId === unitId && e.endedAt === null,
+    ).length;
+  const goOrg = () => void navigate({ to: "/c/$companyId/organization", params: { companyId } });
+
+  return (
+    // N7: chips are decorative context — they yield first under ~1100px
+    <div className="hidden min-w-0 items-center gap-1.5 lg:flex" data-testid="team-chips">
+      {teams.slice(0, 4).map((team) => (
+        <button
+          key={team.id}
+          onClick={goOrg}
+          className="flex shrink-0 items-center gap-1.5 rounded-full border border-acos-line bg-acos-bg2 px-2 py-0.5 text-[11px] text-acos-fg1 hover:border-acos-fg2"
+        >
+          <span className="max-w-20 truncate">{team.name}</span>
+          <span className="rounded-full bg-acos-bg3 px-1.5 text-[9px] tabular-nums">
+            {headcount(team.id)}
+          </span>
+        </button>
+      ))}
+      {teams.length > 4 && (
+        <span className="text-[10px] text-acos-fg2">+{teams.length - 4}</span>
+      )}
+      <button onClick={goOrg} className="shrink-0 text-[11px] text-acos-fg2 hover:text-acos-fg1">
+        + Takım
+      </button>
+    </div>
+  );
+}
 
 export function AppShell() {
   const { companyId } = useParams({ from: "/c/$companyId" });
   const navigate = useNavigate();
-  const { navCollapsed, toggleNav } = useUiPrefs();
   const companies = useQuery({ queryKey: keys.companies, queryFn: api.companies.list });
   const me = useQuery({ queryKey: keys.me, queryFn: api.auth.me });
+  const pendingApprovals = useQuery({
+    queryKey: keys.approvals(companyId, "pending"),
+    queryFn: () => api.approvals.list(companyId, { status: "pending" }),
+  });
   const wsStatus = useRealtimeStatus();
   const lastEvent = useEventTicker((s) => s.events[0]);
+  const requestPreset = useUiPrefs((s) => s.requestPreset);
+  const [hireOpen, setHireOpen] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
+  const unread = useNotifications((s) => s.unread);
+  const recentNotifications = useNotifications((s) => s.recent);
+  const markAllRead = useNotifications((s) => s.markAllRead);
+  // today's llm_calls aggregate (U11) — 30s poll; T29 cached-token accounting
+  const usage = useQuery({
+    queryKey: [companyId, "costs", "llm-usage"],
+    queryFn: () => api.costs.llmUsage(companyId),
+    refetchInterval: 30_000,
+  });
+  const forecast = useQuery({
+    queryKey: [companyId, "costs", "forecast"],
+    queryFn: () => api.costs.forecast(companyId),
+    refetchInterval: 60_000,
+  });
+  const cacheHit = usage.data
+    ? Math.round(
+        (usage.data.tokensCached / Math.max(1, usage.data.tokensIn + usage.data.tokensCached)) *
+          100,
+      )
+    : null;
+  const companyBudget =
+    forecast.data?.items.find((b) => b.scopeKind === "company") ?? forecast.data?.items[0] ?? null;
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  // The Command Center owns the full dark canvas; legacy routes render on a
+  // light island until U05–U09 restyle them.
+  const onCommandCenter = pathname.replace(/\/$/, "") === `/c/${companyId}`;
 
-  async function logout() {
-    await api.auth.logout();
-    await navigate({ to: "/login" });
+  const approvalsCount = pendingApprovals.data?.length ?? 0;
+
+  // U14c: light presence summary → Electron tray icon (no-op in a browser)
+  const presenceBadges = usePresence((s) => s.badges);
+  useEffect(() => {
+    if (!window.acosDesktop) return;
+    const active = Object.values(presenceBadges).some(
+      (badge) => badge !== "IDLE" && badge !== "OFFLINE",
+    );
+    const state = approvalsCount > 0 ? "needs-approval" : active ? "active" : "idle";
+    window.acosDesktop.setPresence(state, companyId);
+  }, [approvalsCount, presenceBadges, companyId]);
+
+  function applyPreset(preset: CommandPreset) {
+    requestPreset(preset);
+    void navigate({ to: "/c/$companyId", params: { companyId } });
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-ink-50">
-      <header className="flex items-center gap-3 border-b border-ink-200 bg-white px-4 py-2">
-        <button
-          onClick={toggleNav}
-          aria-label="Toggle navigation"
-          className="rounded px-2 py-1 text-ink-400 hover:bg-ink-100"
-        >
-          ☰
-        </button>
-        <span className="font-bold text-ink-900">ACOS</span>
-        <Select
+    <div className="grid h-screen grid-rows-[38px_minmax(0,1fr)_24px] bg-acos-bg0 font-sans text-[13px] text-acos-fg0">
+      <header className="flex items-center gap-2.5 overflow-hidden border-b border-acos-line bg-acos-bg1 px-3 text-xs">
+        <span className="font-bold">
+          A<b style={{ color: "#2ec26a" }}>C</b>OS
+        </span>
+        <select
           aria-label="Company"
-          className="!w-56"
           value={companyId}
           onChange={(e) =>
-            navigate({ to: "/c/$companyId", params: { companyId: e.target.value } })
+            void navigate({ to: "/c/$companyId", params: { companyId: e.target.value } })
           }
+          className="max-w-36 rounded-md border border-acos-line bg-acos-bg2 px-1.5 py-0.5 text-[11px] text-acos-fg0 focus:outline-none"
         >
           {companies.data?.map((company) => (
             <option key={company.id} value={company.id}>
               {company.name}
             </option>
           ))}
-        </Select>
-        <div className="ml-auto flex items-center gap-3 text-sm text-ink-600">
-          <span data-testid="me-name">{me.data?.displayName}</span>
-          <Button variant="ghost" onClick={logout}>
-            Sign out
-          </Button>
-        </div>
+        </select>
+        <TeamChips companyId={companyId} />
+        <div className="flex-1" />
+        {/* Layout presets (36 §3): saved Command Center arrangements. */}
+        <span className="hidden items-center gap-1 xl:flex" data-testid="layout-presets">
+          {PRESETS.map((preset) => (
+            <button
+              key={preset.key}
+              onClick={() => applyPreset(preset.key)}
+              className="rounded border border-acos-line bg-acos-bg2 px-1.5 py-0.5 text-[10px] text-acos-fg1 hover:border-acos-fg2 hover:text-acos-fg0"
+              title={`${preset.label} yerleşimini uygula`}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </span>
+        <GlobalSearch companyId={companyId} />
+        {/* Today's tokens + cache hit from llm_calls (36 §9 — U11). */}
+        <span
+          className="hidden shrink-0 rounded-md border border-acos-line bg-acos-bg2 px-2 py-0.5 font-mono text-[10.5px] tabular-nums text-acos-fg1 lg:inline"
+          data-testid="token-pill"
+          title={
+            usage.data
+              ? `bugün ${usage.data.calls} çağrı · in ${formatTokens(usage.data.tokensIn)} · out ${formatTokens(usage.data.tokensOut)} · cache ${formatTokens(usage.data.tokensCached)}`
+              : "llm_calls agregasyonu yükleniyor"
+          }
+        >
+          ⚡ bugün{" "}
+          <b style={{ color: "#2ec26a" }}>
+            {usage.data ? formatTokens(usage.data.tokensOut) : "—"}
+          </b>{" "}
+          jeton · %{cacheHit ?? "—"} önbellek
+        </span>
+        <button
+          data-testid="topbar-hire"
+          onClick={() => setHireOpen(true)}
+          className="shrink-0 rounded-md px-2.5 py-1 text-[11px] font-semibold text-white"
+          style={{ background: departmentColors.product }}
+        >
+          + Ajan Ekle
+        </button>
+        <Link
+          to="/c/$companyId/approvals"
+          params={{ companyId }}
+          aria-label="Bekleyen onaylar"
+          className="relative px-1 text-acos-fg1 hover:text-acos-fg0"
+          data-testid="approvals-badge"
+        >
+          ✓
+          {approvalsCount > 0 && (
+            <span
+              className="absolute -right-1.5 -top-1.5 rounded-full px-1 text-[8px] font-bold text-white"
+              style={{ background: "#ff4d4d" }}
+            >
+              {approvalsCount}
+            </span>
+          )}
+        </Link>
+        <span className="relative">
+          <button
+            data-testid="bell"
+            onClick={() => {
+              setBellOpen((v) => !v);
+              markAllRead();
+            }}
+            className="relative px-1 text-acos-fg1 hover:text-acos-fg0"
+            aria-label="Bildirimler"
+          >
+            🔔
+            {unread > 0 && (
+              <span
+                data-testid="bell-badge"
+                className="absolute -right-1.5 -top-1.5 rounded-full px-1 text-[8px] font-bold text-white"
+                style={{ background: "#ff4d4d" }}
+              >
+                {unread}
+              </span>
+            )}
+          </button>
+          {bellOpen && (
+            <div
+              className="absolute right-0 top-7 z-50 max-h-72 w-64 overflow-auto rounded-md border border-acos-line bg-acos-bg2 py-1 shadow-lg"
+              data-testid="bell-dropdown"
+            >
+              {recentNotifications.length === 0 && (
+                <div className="px-2.5 py-2 text-[10px] text-acos-fg2">Bildirim yok.</div>
+              )}
+              {recentNotifications.slice(0, 10).map((n) => (
+                <div key={n.id} className="border-b border-acos-line/40 px-2.5 py-1.5">
+                  <div className="text-[10px] font-semibold text-acos-fg0">{n.title}</div>
+                  <div className="truncate text-[9px] text-acos-fg2">{n.desc}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </span>
+        <span className="px-1 text-acos-fg2" title="Ayarlar (daha sonra)">
+          ⚙
+        </span>
+        {/* Single-user mode: no logout — the Founder identity is ambient. */}
+        <span className="text-acos-fg1" data-testid="me-name">
+          {me.data?.displayName} ▾
+        </span>
       </header>
 
-      <div className="flex flex-1">
-        <nav
-          className={cn(
-            "shrink-0 border-r border-ink-200 bg-white py-3",
-            navCollapsed ? "w-12" : "w-48",
+      <div className="flex min-h-0">
+        <nav className="flex w-11 shrink-0 flex-col items-center gap-0.5 border-r border-acos-line bg-acos-bg1 py-2">
+          {NAV_ITEMS.map((item) =>
+            item.path ? (
+              <Link
+                key={item.label}
+                to={item.path as "/c/$companyId/agents"}
+                params={{ companyId }}
+                activeOptions={{ exact: item.path === "/c/$companyId" }}
+                aria-label={item.label}
+                title={item.label}
+                className="flex h-8 w-8 items-center justify-center rounded-md text-[15px] text-acos-fg1 hover:bg-acos-bg3 hover:text-acos-fg0 [&.active]:bg-acos-bg3 [&.active]:text-dept-engineering"
+              >
+                <span aria-hidden>{item.icon}</span>
+              </Link>
+            ) : (
+              <span
+                key={item.label}
+                aria-label={item.label}
+                title={`${item.label} — daha sonraki bir görevle gelir`}
+                className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-md text-[15px] text-acos-fg2/50"
+              >
+                <span aria-hidden>{item.icon}</span>
+              </span>
+            ),
           )}
-        >
-          <ul className="space-y-0.5">
-            {NAV_ITEMS.map((item) => {
-              const enabled = item.path !== undefined;
-              return (
-                <li key={item.label}>
-                  {enabled ? (
-                    <Link
-                      to={item.path as "/c/$companyId/agents"}
-                      params={{ companyId }}
-                      className="block px-4 py-1.5 text-xs font-medium tracking-wide text-ink-600 hover:bg-ink-50 [&.active]:bg-accent-500/10 [&.active]:text-accent-600"
-                    >
-                      {navCollapsed ? item.label[0] : item.label}
-                    </Link>
-                  ) : (
-                    <span
-                      className="block cursor-not-allowed px-4 py-1.5 text-xs font-medium tracking-wide text-ink-200"
-                      title="Lands with a later milestone"
-                    >
-                      {navCollapsed ? item.label[0] : item.label}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
         </nav>
 
-        <main className="min-w-0 flex-1 p-6">
-          <Outlet />
+        <main className={cn("min-w-0 flex-1 overflow-auto", onCommandCenter ? "" : "p-2")}>
+          {onCommandCenter ? (
+            <div className="h-full">
+              <Outlet />
+            </div>
+          ) : (
+            /* Light island: pre-overhaul routes keep their styling until U05–U09. */
+            <div className="min-h-full rounded-lg bg-ink-50 p-4">
+              <Outlet />
+            </div>
+          )}
         </main>
       </div>
 
       <RealtimeDispatcher companyId={companyId} />
       <footer
-        className="flex items-center gap-3 border-t border-ink-200 bg-white px-4 py-1 text-xs text-ink-400"
+        className="flex items-center gap-3 border-t border-acos-line bg-acos-bg1 px-3 text-[10.5px] text-acos-fg1"
         data-testid="status-bar"
       >
         <span
           className={cn(
             "font-medium",
-            wsStatus === "open" ? "text-ok" : wsStatus === "closed_auth" ? "text-danger" : "",
+            wsStatus === "open"
+              ? "text-presence-communicating"
+              : wsStatus === "closed_auth"
+                ? "text-presence-escalating"
+                : "",
           )}
         >
-          ws: {wsStatus}
+          ● ws: {wsStatus}
         </span>
         {lastEvent && (
-          <span className="truncate" data-testid="ticker-last">
+          <span className="truncate font-mono tabular-nums" data-testid="ticker-last">
             #{lastEvent.seq} {lastEvent.type}
           </span>
         )}
+        <div className="flex-1" />
+        {/* Cost burn strip (36 §3/§9): today's spend vs the company budget. */}
+        {companyBudget && (
+          <span className="flex items-center gap-1.5" data-testid="cost-strip">
+            <span className="font-mono tabular-nums">
+              $ <b className="text-acos-fg0">{(companyBudget.spentCents / 100).toFixed(2)}</b>/
+              {(companyBudget.limitCents / 100).toFixed(0)}
+            </span>
+            <span className="h-[5px] w-20 overflow-hidden rounded-full bg-acos-bg3">
+              <span
+                className="block h-full"
+                style={{
+                  width: `${Math.min(100, (companyBudget.spentCents / Math.max(1, companyBudget.limitCents)) * 100)}%`,
+                  background: companyBudget.breach
+                    ? "#ff4d4d"
+                    : "linear-gradient(90deg,#3fd0a0,#ffcb47)",
+                }}
+              />
+            </span>
+            <span
+              className="rounded border border-acos-line px-1 text-[8.5px]"
+              style={{ color: companyBudget.breach ? "#ff4d4d" : "#3fd0a0" }}
+            >
+              {companyBudget.breach ? "breach riski" : "on track"}
+            </span>
+          </span>
+        )}
       </footer>
+      <Toasts />
+
+      <HireModal open={hireOpen} onClose={() => setHireOpen(false)} />
     </div>
   );
 }

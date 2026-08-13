@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AgentAvatar, AgentStatusPill, Button, Card, Select, StatusPill } from "@acos/ui";
 import { api, keys } from "../../lib/api.js";
 import { usePresence } from "../../stores/presence.js";
+import { useTerminalGrid } from "../../stores/terminalGrid.js";
 import { HireWizard } from "./HireWizard.js";
 
 const BADGE_TONE = {
@@ -21,6 +22,8 @@ export function AgentsView() {
   const { companyId } = useParams({ from: "/c/$companyId" });
   const agents = useQuery({ queryKey: keys.agents(companyId), queryFn: () => api.agents.list(companyId) });
   const badges = usePresence((s) => s.badges);
+  const closedAgentIds = useTerminalGrid((s) => s.closedAgentIds);
+  const toggleTerminal = useTerminalGrid((s) => s.toggleAgent);
   const [statusFilter, setStatusFilter] = useState("");
   const [hireOpen, setHireOpen] = useState(false);
 
@@ -73,7 +76,30 @@ export function AgentsView() {
                     </p>
                   </div>
                   <span className="ml-auto flex flex-col items-end gap-1">
-                    <AgentStatusPill status={agent.status} />
+                    <span className="flex items-center gap-1.5">
+                      {/* terminal grid open/close (36 §4): view-only toggle */}
+                      <button
+                        data-testid={`terminal-toggle-${agent.id}`}
+                        title={
+                          closedAgentIds.includes(agent.id)
+                            ? "terminalini grid'de aç"
+                            : "terminalini grid'den kaldır"
+                        }
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleTerminal(agent.id);
+                        }}
+                        className={
+                          closedAgentIds.includes(agent.id)
+                            ? "text-xs text-ink-400 opacity-50 hover:opacity-100"
+                            : "text-xs text-accent-600"
+                        }
+                      >
+                        ⌨{closedAgentIds.includes(agent.id) ? "+" : "✕"}
+                      </button>
+                      <AgentStatusPill status={agent.status} />
+                    </span>
                     {badges[agent.id] && (
                       <span data-testid={`presence-${agent.id}`}>
                         <StatusPill

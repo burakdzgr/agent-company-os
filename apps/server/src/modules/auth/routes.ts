@@ -19,7 +19,13 @@ import {
   TotpEnableResponseSchema,
 } from "@acos/contracts";
 import { ApiError } from "../../app.js";
-import { CSRF_COOKIE, SESSION_COOKIE, type AuthService, type UserRow } from "./service.js";
+import {
+  CSRF_COOKIE,
+  SESSION_COOKIE,
+  SESSION_COOKIE_OPTIONS,
+  type AuthService,
+  type UserRow,
+} from "./service.js";
 
 function toSessionUser(user: UserRow) {
   return {
@@ -31,7 +37,7 @@ function toSessionUser(user: UserRow) {
   };
 }
 
-const cookieOptions = { path: "/", httpOnly: true, sameSite: "lax" as const };
+const cookieOptions = SESSION_COOKIE_OPTIONS;
 
 export async function registerAuthRoutes(rawApp: FastifyInstance, auth: () => AuthService) {
   const app = rawApp.withTypeProvider<ZodTypeProvider>();

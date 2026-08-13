@@ -1,6 +1,6 @@
 // T14 acceptance: every catalog entry has a schema + ≥1 fixture parsing
-// green; registry keys match doc 10 §10's table exactly (189 durable + 1
-// ephemeral).
+// green; registry keys match doc 10 §10's table exactly (190 durable + 1
+// ephemeral — U12 added agent.skill.candidate.proposed, 36 §10).
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,7 +16,7 @@ import "../index.js"; // register the full catalog
 
 const DOC = join(
   dirname(fileURLToPath(import.meta.url)),
-  "../../../../docs/architecture/docs/architecture/docs/10-EVENT-ARCHITECTURE.md",
+  "../../../../docs/architecture/docs/10-EVENT-ARCHITECTURE.md",
 );
 
 function typesFromDoc(): string[] {
@@ -131,8 +131,8 @@ describe("event catalog ↔ doc 10 §10 (CI consistency check)", () => {
     expect(knownEventTypes()).toEqual(typesFromDoc());
   });
 
-  it("counts 189 durable + 1 ephemeral (workspace.terminal.output)", () => {
-    expect(knownDurableEventTypes()).toHaveLength(189);
+  it("counts 190 durable + 1 ephemeral (workspace.terminal.output)", () => {
+    expect(knownDurableEventTypes()).toHaveLength(190);
     expect(knownEphemeralEventTypes()).toEqual(["workspace.terminal.output"]);
   });
 });

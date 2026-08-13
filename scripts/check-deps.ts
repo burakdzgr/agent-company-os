@@ -26,6 +26,8 @@ export const WORKSPACES: WorkspaceSpec[] = [
   { dir: "packages/ui", name: "ui", allowed: [] },
   { dir: "apps/server", name: "server", allowed: ["domain", "db", "events", "contracts", "llm", "tools", "config"] },
   { dir: "apps/web", name: "web", allowed: ["contracts", "ui"] },
+  // U13 (36 §11): Electron shell over the built apps/web bundle — zero @acos deps.
+  { dir: "apps/desktop", name: "desktop", allowed: [] },
   { dir: "workers/agent-worker", name: "agent-worker", allowed: ["domain", "db", "events", "llm", "tools", "config"] },
   { dir: "workers/execution-worker", name: "execution-worker", allowed: ["domain", "tools", "config", "contracts"] },
   { dir: "services/sandbox-manager", name: "sandbox-manager", allowed: ["config", "contracts", "tools"] },

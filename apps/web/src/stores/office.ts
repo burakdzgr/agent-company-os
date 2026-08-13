@@ -17,6 +17,7 @@ interface OfficeStoreState {
   snapshotCount: number;
   enqueue: (instruction: unknown) => void;
   applySnapshot: (state: PresenceState, layout?: OfficeLayout | null) => void;
+  setLayout: (layout: OfficeLayout) => void;
   reset: () => void;
 }
 
@@ -41,6 +42,9 @@ export const useOfficeStore = create<OfficeStoreState>()((set, get) => ({
   applySnapshot: (state, layout) => {
     get().engine.applySnapshot(state, layout ?? null);
     set((s) => ({ snapshotCount: s.snapshotCount + 1 }));
+  },
+  setLayout: (layout) => {
+    get().engine.setLayout(layout);
   },
   reset: () => set({ engine: new OfficeSceneEngine(), snapshotCount: 0 }),
 }));

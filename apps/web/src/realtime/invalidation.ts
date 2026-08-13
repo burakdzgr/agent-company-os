@@ -28,7 +28,11 @@ export function invalidationKeysFor(cid: string, event: Event): QueryKey[] {
     type === "position.created" ||
     type === "position.updated"
   ) {
-    return [keys.orgUnits(cid), keys.orgPositions(cid), keys.orgEdges(cid)];
+    const invalidated: QueryKey[] = [keys.orgUnits(cid), keys.orgPositions(cid), keys.orgEdges(cid)];
+    // team/department channels auto-provision with their unit (11 §2)
+    if (type === "team.created" || type === "department.created")
+      invalidated.push([cid, "channels"]);
+    return invalidated;
   }
   if (type.startsWith("company.")) {
     return [[cid, "settings"], keys.companies];
@@ -41,6 +45,12 @@ export function invalidationKeysFor(cid: string, event: Event): QueryKey[] {
   }
   if (type.startsWith("approval.")) {
     return [[cid, "approvals"]]; // prefix — inbox, history and detail queries
+  }
+  if (type.startsWith("memory.")) {
+    return [[cid, "memories"]]; // panel list/graph + Observatory queries (U07)
+  }
+  if (type.startsWith("agent.skill.")) {
+    return [[cid, "skills"]];
   }
   return [];
 }

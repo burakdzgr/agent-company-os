@@ -5,6 +5,7 @@ import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { agentMachine, formatEmployeeNumber } from "@acos/domain";
 import {
   nextSequenceValue,
+  SkillsService,
   type CompanyContext,
   type GuardedDb,
 } from "@acos/db";
@@ -13,7 +14,10 @@ import {
   agentSessions,
   agents,
   modelProfiles,
+  modelProviders,
   orgEdges,
+  projectMembers,
+  projects,
 } from "@acos/db/schema";
 import { OrgService, orgLockInTx } from "../org/service.js";
 import { emitDomainEvent } from "../events/emit.js";
@@ -61,6 +65,11 @@ export class AgentsService {
       managerAgentId?: string | null | undefined;
       leadsUnit?: boolean | undefined;
       activate?: boolean | undefined;
+      // U10 (36 §8) — additive params, same single transaction
+      avatarId?: string | undefined;
+      expertise?: string[] | undefined;
+      projectId?: string | undefined;
+      modelBinding?: { provider: string; model: string } | undefined;
     },
   ): Promise<AgentRow> {
     return this.db.transaction(async (tx) => {
@@ -72,7 +81,8 @@ export class AgentsService {
           companyId: ctx.companyId,
           employeeNumber,
           name: input.name,
-          avatarUrl: input.avatarUrl ?? null,
+          // avatarId = PixelLab library pick (U15/U10) — persisted identity
+          avatarUrl: input.avatarId ? `pixel:${input.avatarId}` : (input.avatarUrl ?? null),
           status: input.activate ? "active" : "draft",
           positionId: input.positionId,
           orgUnitId: input.orgUnitId,
@@ -121,6 +131,86 @@ export class AgentsService {
           providerId: profile.providerId,
           model: profile.model,
           params: profile.params ?? {},
+        });
+      }
+
+      // U10: explicit engine/model pick overrides the seeded primary binding
+      // (identity stays fully decoupled from the model — INV-9).
+      if (input.modelBinding) {
+        const [provider] = await tx
+          .select({ id: modelProviders.id })
+          .from(modelProviders)
+          .where(eq(modelProviders.name, input.modelBinding.provider));
+        if (!provider) {
+          throw new AgentLifecycleError(
+            `unknown model provider "${input.modelBinding.provider}" — provision it first`,
+          );
+        }
+        await tx
+          .delete(agentModelBindings)
+          .where(
+            and(
+              eq(agentModelBindings.companyId, ctx.companyId),
+              eq(agentModelBindings.agentId, agent!.id),
+              eq(agentModelBindings.purpose, "primary"),
+            ),
+          );
+        await tx.insert(agentModelBindings).values({
+          companyId: ctx.companyId,
+          agentId: agent!.id,
+          purpose: "primary",
+          providerId: provider.id,
+          model: input.modelBinding.model,
+          params: {},
+        });
+        await emitDomainEvent(tx, ctx, {
+          type: "agent.model.binding.changed",
+          actor: { kind: "founder", id: null },
+          agentId: agent!.id,
+          payload: {
+            agentId: agent!.id,
+            diff: { purpose: "primary", model: input.modelBinding.model },
+          },
+        });
+      }
+
+      // U10: expertise tags → initial agent_skills seed through the ONE T47
+      // evidence writer (deterministic level, real evidence rows).
+      if (input.expertise && input.expertise.length > 0) {
+        const skillsService = new SkillsService(this.db);
+        for (const tag of input.expertise) {
+          const name = tag.trim();
+          if (name === "") continue;
+          await skillsService.appendEvidenceInTx(tx, ctx, {
+            agentId: agent!.id,
+            skillName: name,
+            category: "expertise",
+            kind: "manager_eval",
+            ref: `hire:${agent!.id}`,
+            note: "hire:expertise",
+          });
+        }
+      }
+
+      // U10: project placement → project_members (T42) + catalogued event.
+      if (input.projectId) {
+        const [project] = await tx
+          .select({ id: projects.id })
+          .from(projects)
+          .where(and(eq(projects.companyId, ctx.companyId), eq(projects.id, input.projectId)));
+        if (!project) throw new AgentLifecycleError("project not found");
+        await tx.insert(projectMembers).values({
+          companyId: ctx.companyId,
+          projectId: input.projectId,
+          agentId: agent!.id,
+          role: "engineer",
+        });
+        await emitDomainEvent(tx, ctx, {
+          type: "project.member.added",
+          actor: { kind: "founder", id: null },
+          agentId: agent!.id,
+          projectId: input.projectId,
+          payload: { agentId: agent!.id, role: "engineer" },
         });
       }
 

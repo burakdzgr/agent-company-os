@@ -16,6 +16,16 @@ export const CostSummaryResponseSchema = z.object({
 });
 export type CostSummaryResponse = z.infer<typeof CostSummaryResponseSchema>;
 
+/** Today's llm_calls aggregate for the top-bar token/cache pill (36 §9 — U11). */
+export const LlmUsageResponseSchema = z.object({
+  calls: z.number().int(),
+  tokensIn: z.number().int(),
+  tokensOut: z.number().int(),
+  tokensCached: z.number().int(),
+  costCents: z.number().int(),
+});
+export type LlmUsageResponse = z.infer<typeof LlmUsageResponseSchema>;
+
 export const CostEntryDtoSchema = z.object({
   id: z.uuid(),
   kind: z.string(),

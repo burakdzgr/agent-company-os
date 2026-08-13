@@ -59,6 +59,7 @@ import {
   type TaskTreeNode,
 } from "../tasks.js";
 import { TerminalListResponseSchema, type TerminalListResponse } from "../terminals.js";
+import { OfficeLayoutSchema, type OfficeLayout } from "../office.js";
 import {
   ArtifactDtoSchema,
   ProjectDtoSchema,
@@ -74,7 +75,15 @@ import {
   type ReviewDiffResponse,
   type ReviewListResponse,
 } from "../reviews.js";
-import { SkillMatrixResponseSchema, type SkillMatrixResponse } from "../skills.js";
+import {
+  PromoteSkillResponseSchema,
+  SkillCandidatesResponseSchema,
+  SkillMatrixResponseSchema,
+  type PromoteSkillRequest,
+  type PromoteSkillResponse,
+  type SkillCandidatesResponse,
+  type SkillMatrixResponse,
+} from "../skills.js";
 import {
   ContradictionQueueResponseSchema,
   FounderMemoryPatchResponseSchema,
@@ -93,9 +102,11 @@ import {
   CostEntriesResponseSchema,
   CostForecastResponseSchema,
   CostSummaryResponseSchema,
+  LlmUsageResponseSchema,
   ReportListResponseSchema,
   type CostEntriesResponse,
   type CostForecastResponse,
+  type LlmUsageResponse,
   type CostSummaryResponse,
   type ReportListResponse,
 } from "../costs.js";
@@ -243,6 +254,10 @@ export function createAcosClient(options: AcosClientOptions) {
           managerAgentId?: string | null;
           leadsUnit?: boolean;
           activate?: boolean;
+          avatarId?: string;
+          expertise?: string[];
+          projectId?: string;
+          modelBinding?: { provider: string; model: string };
         },
       ): Promise<Agent> =>
         AgentSchema.parse(await post(`/api/v1/companies/${companyId}/agents`, body)),
@@ -420,8 +435,18 @@ export function createAcosClient(options: AcosClientOptions) {
     skills: {
       matrix: async (companyId: string): Promise<SkillMatrixResponse> =>
         SkillMatrixResponseSchema.parse(await get(`/api/v1/companies/${companyId}/skills/matrix`)),
+      candidates: async (companyId: string): Promise<SkillCandidatesResponse> =>
+        SkillCandidatesResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/skills/candidates`),
+        ),
+      promote: async (companyId: string, body: PromoteSkillRequest): Promise<PromoteSkillResponse> =>
+        PromoteSkillResponseSchema.parse(
+          await post(`/api/v1/companies/${companyId}/skills/candidates/promote`, body),
+        ),
     },
     costs: {
+      llmUsage: async (companyId: string): Promise<LlmUsageResponse> =>
+        LlmUsageResponseSchema.parse(await get(`/api/v1/companies/${companyId}/llm/usage`)),
       summary: async (
         companyId: string,
         filters: { groupBy?: "kind" | "agent" | "project" | "task"; from?: string; to?: string } = {},
@@ -508,6 +533,10 @@ export function createAcosClient(options: AcosClientOptions) {
         ArtifactDtoSchema.parse(
           await get(`/api/v1/companies/${companyId}/projects/${projectId}/report`),
         ),
+    },
+    office: {
+      layout: async (companyId: string): Promise<OfficeLayout> =>
+        OfficeLayoutSchema.parse(await get(`/api/v1/companies/${companyId}/office/layout`)),
     },
     terminals: {
       list: async (

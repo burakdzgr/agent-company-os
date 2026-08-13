@@ -10,6 +10,7 @@ import {
 import { AcosApiError } from "@acos/contracts/client";
 import { api } from "./lib/api.js";
 import { AppShell } from "./shell/AppShell.js";
+import { CommandCenter } from "./shell/CommandCenter.js";
 import { LoginPage } from "./features/auth/LoginPage.js";
 import { SetupPage } from "./features/auth/SetupPage.js";
 import { CompanySelectPage } from "./features/home/CompanySelectPage.js";
@@ -27,6 +28,8 @@ import { SkillsView } from "./features/skills/SkillsView.js";
 import { MemoryView } from "./features/memory/MemoryView.js";
 import { CostsView } from "./features/costs/CostsView.js";
 import { ReportsView } from "./features/costs/ReportsView.js";
+import { ThemePreviewPage } from "./theme/PreviewPage.js";
+import { OfficeWindow } from "./features/office/OfficeWindow.js";
 
 const rootRoute = createRootRoute();
 
@@ -44,6 +47,19 @@ async function requireAuth() {
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
+  // Single-user mode (AUTH_AUTOLOGIN): the server mints a Founder session on
+  // the me() probe, so /login bounces straight home. The form only renders
+  // when autologin is disabled server-side.
+  beforeLoad: async () => {
+    let authed = false;
+    try {
+      await api.auth.me();
+      authed = true;
+    } catch (err) {
+      if (!(err instanceof AcosApiError && err.problem.code === "unauthenticated")) throw err;
+    }
+    if (authed) throw redirect({ to: "/" });
+  },
   component: LoginPage,
 });
 
@@ -51,6 +67,13 @@ const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
   component: SetupPage,
+});
+
+// U01 (36 §2): static acosDark token/pill/button gallery — no auth, no data.
+const themePreviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/theme-preview",
+  component: ThemePreviewPage,
 });
 
 const indexRoute = createRoute({
@@ -67,12 +90,21 @@ const companyRoute = createRoute({
   component: AppShell,
 });
 
+// Shell-less detached office (U09 "⧉ Ayır"; U14 Electron 2nd window) — a
+// SIBLING of the company layout so the popup carries no chrome.
+const officeWindowRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/c/$companyId/office-window",
+  beforeLoad: requireAuth,
+  component: OfficeWindow,
+});
+
+// U03 (36 §3): the Command Center is the default landing; the 14 views stay
+// reachable as routes below (N6).
 const companyIndexRoute = createRoute({
   getParentRoute: () => companyRoute,
   path: "/",
-  beforeLoad: ({ params }) => {
-    throw redirect({ to: "/c/$companyId/agents", params });
-  },
+  component: CommandCenter,
 });
 
 const organizationRoute = createRoute({
@@ -162,6 +194,8 @@ const reportsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
+  themePreviewRoute,
+  officeWindowRoute,
   indexRoute,
   companyRoute.addChildren([
     companyIndexRoute,

@@ -112,6 +112,14 @@ export class OfficeSceneEngine {
     this.version += 1;
   }
 
+  /** REST-fetched floor plan (36 §7 — U04). Layout is presentation data —
+   *  motion still originates exclusively from projector instructions. */
+  setLayout(layout: OfficeLayout): void {
+    this.layout = layout;
+    this.layoutVersion += 1;
+    this.version += 1;
+  }
+
   // ---------- instruction intake (validated upstream by officeStore) ----------
 
   apply(raw: unknown): void {

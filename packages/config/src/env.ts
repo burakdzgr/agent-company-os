@@ -50,6 +50,9 @@ export const envSchema = z.object({
   TEMPORAL_NAMESPACE: z.string().min(1).default("acos"),
 
   // Security
+  // Single-user mode (Founder decision 2026-08-13): no login UI; the server
+  // transparently mints a Founder session. Set "false" to restore the login flow.
+  AUTH_AUTOLOGIN: boolFromString.default(true),
   MASTER_KEY: base64Key32,
   SESSION_SECRET: z.string({ error: "required — cookie signing secret" }).min(16, {
     message: "must be at least 16 characters",
@@ -105,6 +108,8 @@ export interface Config {
     readonly sessionSecret: string;
     readonly argon2MemoryKib: number;
     readonly internalApiToken: string;
+    /** Single-user mode: mint a Founder session for cookie-less requests. */
+    readonly autologinFounder: boolean;
   };
   readonly llm: {
     readonly anthropicApiKey: string | undefined;
@@ -173,6 +178,7 @@ export function loadConfig(processEnv: Record<string, string | undefined>): Conf
       sessionSecret: env.SESSION_SECRET,
       argon2MemoryKib: env.ARGON2_MEMORY_KIB,
       internalApiToken: env.INTERNAL_API_TOKEN,
+      autologinFounder: env.AUTH_AUTOLOGIN,
     },
     llm: {
       anthropicApiKey: env.ANTHROPIC_API_KEY,

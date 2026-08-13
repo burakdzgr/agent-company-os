@@ -29,6 +29,7 @@ async function main(): Promise<void> {
     guardedDb,
     masterKey: config.security.masterKey,
     internalApiToken: config.security.internalApiToken,
+    autologinFounder: config.security.autologinFounder,
     sandboxManagerUrl: config.sandbox.managerUrl,
     healthCheckers: buildCheckers({
       pool,

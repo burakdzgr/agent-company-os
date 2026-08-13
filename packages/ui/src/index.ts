@@ -2,6 +2,19 @@ export const packageName = "@acos/ui" as const;
 
 export { acosPreset } from "./preset.js";
 export {
+  acosDarkSurfaces,
+  acosDarkText,
+  acosDarkCss,
+  presenceColors,
+  presenceColor,
+  type PresenceStatus,
+} from "./theme/acosDark.js";
+export {
+  departmentColors,
+  departmentColor,
+  type Department,
+} from "./theme/departmentColors.js";
+export {
   cn,
   Button,
   Card,

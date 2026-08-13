@@ -3,18 +3,60 @@
 // frames into Zustand stores + TanStack Query invalidation. Stores are the
 // only WS consumers — components read stores/queries, never the socket.
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   EventSchema,
   PresenceStateSchema,
   type Event,
   type RealtimeStatus,
+  type Task,
 } from "@acos/contracts";
 import { getRealtimeClient } from "./client.js";
 import { invalidationKeysFor } from "./invalidation.js";
 import { useEventTicker } from "../stores/eventTicker.js";
 import { usePresence } from "../stores/presence.js";
 import { useOfficeStore } from "../stores/office.js";
+import { useNotifications } from "../stores/notifications.js";
+
+/** WS event → toast/bell mapping (36 §9 — U11). */
+function notifyFor(companyId: string, event: Event, queryClient: QueryClient): void {
+  const push = useNotifications.getState().push;
+  const payload = event.payload as Record<string, unknown>;
+  switch (event.type) {
+    case "approval.requested": {
+      const desc = String(payload.title ?? payload.kind ?? "yeni onay isteği");
+      push({ kind: "warn", title: "Onay bekliyor", desc });
+      // U14a: Electron shell → native OS notification (click opens Approvals)
+      window.acosDesktop?.notify("Onay bekliyor", desc, `/c/${companyId}/approvals`);
+      return;
+    }
+    case "task.completed": {
+      // goal-level only (36 §9) — resolve the kind from the cached board
+      const taskId = event.subject.taskId;
+      const cached = queryClient.getQueryData<Task[]>([companyId, "tasks", "board"]);
+      const task = taskId ? cached?.find((t) => t.id === taskId) : undefined;
+      if (task && (task.kind === "goal" || task.kind === "initiative")) {
+        push({ kind: "ok", title: "Hedef tamamlandı", desc: task.title });
+      }
+      return;
+    }
+    case "memory.created":
+      push({
+        kind: "ok",
+        title: "Yeni anı",
+        desc: String(payload.title ?? "şirket hafızasına eklendi"),
+      });
+      return;
+    case "security.alert": {
+      const desc = String(payload.reason ?? payload.kind ?? "detay için Events'e bak");
+      push({ kind: "danger", title: "Güvenlik uyarısı", desc });
+      window.acosDesktop?.notify("Güvenlik uyarısı", desc, `/c/${companyId}/events`);
+      return;
+    }
+    default:
+      return;
+  }
+}
 
 export function useRealtimeStatus(): RealtimeStatus {
   const [status, setStatus] = useState<RealtimeStatus>(() => getRealtimeClient().getStatus());
@@ -55,6 +97,7 @@ export function RealtimeDispatcher({ companyId }: { companyId: string }) {
           invalidated.add(cacheKey);
           void queryClient.invalidateQueries({ queryKey: key as unknown[] });
         }
+        notifyFor(companyId, event, queryClient);
       }
     });
 

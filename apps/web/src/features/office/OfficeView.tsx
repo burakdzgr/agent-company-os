@@ -3,9 +3,11 @@
 // agent card popover with the "Open in Agent Monitor" link, and the debug
 // inspector surface (last applied causeEventId). No animation code here —
 // the office lint rule bans it outside the Pixi bridge.
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Button, Card, StatusPill } from "@acos/ui";
+import { api, keys } from "../../lib/api.js";
 import { useOfficeStore } from "../../stores/office.js";
 import { usePresence } from "../../stores/presence.js";
 import { useRealtimeStatus } from "../../realtime/RealtimeDispatcher.js";
@@ -17,8 +19,27 @@ export function OfficeView() {
   const snapshot = usePresence((s) => s.snapshot);
   const badges = usePresence((s) => s.badges);
   const engine = useOfficeStore((s) => s.engine);
+  const setLayout = useOfficeStore((s) => s.setLayout);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+
+  // floor plan (U04): read-only REST projection of the projector's layout
+  const layoutQuery = useQuery({
+    queryKey: [companyId, "office", "layout"],
+    queryFn: () => api.office.layout(companyId),
+  });
+  useEffect(() => {
+    if (layoutQuery.data) setLayout(layoutQuery.data);
+  }, [layoutQuery.data, setLayout]);
+
+  const agentsQuery = useQuery({
+    queryKey: keys.agents(companyId),
+    queryFn: () => api.agents.list(companyId),
+  });
+  const avatarUrls = useMemo(
+    () => new Map((agentsQuery.data ?? []).map((agent) => [agent.id, agent.avatarUrl])),
+    [agentsQuery.data],
+  );
 
   const selected = selectedAgentId
     ? snapshot?.agents.find((a) => a.agentId === selectedAgentId)
@@ -39,8 +60,8 @@ export function OfficeView() {
         </div>
       </div>
 
-      <Card className="overflow-hidden bg-[#0f1420] p-0">
-        <OfficeCanvas onSelectAgent={setSelectedAgentId} />
+      <Card className="h-[540px] overflow-hidden bg-[#0f1420] p-0">
+        <OfficeCanvas onSelectAgent={setSelectedAgentId} avatarUrls={avatarUrls} />
       </Card>
 
       {selected && (

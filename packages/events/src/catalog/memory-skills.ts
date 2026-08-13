@@ -1,4 +1,4 @@
-// 10.5 Memory & skills (19 types).
+// 10.5 Memory & skills (20 types).
 import { MEMORY_SCOPES, MEMORY_TYPES } from "@acos/domain";
 import { defineEvent } from "../define.js";
 import { z, u, uReq, s, int, num, diff, uArr, strArr, ts } from "./common.js";
@@ -62,6 +62,13 @@ defineEvent({
   type: "agent.skill.updated",
   version: 1,
   payload: z.object({ agentId: u, skillId: u, fromLevel: int, toLevel: int, confidence: num, evidenceCount: int }),
+});
+// U12 (36 §10): emergent-discovery read-model surfaces a candidate for the
+// first time — evidence-based (≥N repeated accepted works, not yet a skill).
+defineEvent({
+  type: "agent.skill.candidate.proposed",
+  version: 1,
+  payload: z.object({ agentId: u, skillName: s, score: num, taskCount: int }),
 });
 defineEvent({
   type: "memory.relation.created",

@@ -29,3 +29,38 @@ export type SkillEvidenceDto = z.infer<typeof SkillEvidenceDtoSchema>;
 
 export const SkillEvidenceResponseSchema = z.object({ items: z.array(SkillEvidenceDtoSchema) });
 export type SkillEvidenceResponse = z.infer<typeof SkillEvidenceResponseSchema>;
+
+// ---------- emergent skill discovery (36 §10 — U12) ----------
+
+export const SkillCandidateSchema = z.object({
+  agentId: z.uuid(),
+  agentName: z.string(),
+  skillName: z.string(),
+  reason: z.string(),
+  score: z.number().min(0).max(1),
+  taskCount: z.number().int(),
+  evidenceTaskIds: z.array(z.uuid()),
+});
+export type SkillCandidate = z.infer<typeof SkillCandidateSchema>;
+
+export const SkillCandidatesResponseSchema = z.object({
+  items: z.array(SkillCandidateSchema),
+});
+export type SkillCandidatesResponse = z.infer<typeof SkillCandidatesResponseSchema>;
+
+export const PromoteSkillRequestSchema = z.object({
+  agentId: z.uuid(),
+  skillName: z.string().min(1).max(80),
+  evidenceTaskIds: z.array(z.uuid()).min(1).max(20),
+  category: z.string().min(1).max(40).optional(),
+});
+export type PromoteSkillRequest = z.infer<typeof PromoteSkillRequestSchema>;
+
+export const PromoteSkillResponseSchema = z.object({
+  skillId: z.uuid(),
+  agentSkillId: z.uuid(),
+  level: z.number().int(),
+  confidence: z.number(),
+  evidenceCount: z.number().int(),
+});
+export type PromoteSkillResponse = z.infer<typeof PromoteSkillResponseSchema>;

@@ -12,10 +12,11 @@ import {
   CostEntriesResponseSchema,
   CostForecastResponseSchema,
   CostSummaryResponseSchema,
+  LlmUsageResponseSchema,
   ReportListResponseSchema,
 } from "@acos/contracts";
 import { periodStart, type GuardedDb } from "@acos/db";
-import { agents, artifacts, budgets, costEntries, projects, tasks } from "@acos/db/schema";
+import { agents, artifacts, budgets, costEntries, llmCalls, projects, tasks } from "@acos/db/schema";
 import { ApiError } from "../../app.js";
 import type { CompanyService } from "../companies/service.js";
 
@@ -46,6 +47,40 @@ export async function registerCostRoutes(
     const role = await deps.companiesSvc().membership(userId, companyId);
     if (!role) throw new ApiError("not_found", "company not found");
   }
+
+  // today's llm_calls aggregate — the top-bar token/cache pill (36 §9 — U11)
+  typed.get(
+    "/api/v1/companies/:companyId/llm/usage",
+    {
+      schema: {
+        params: CompanyParamsSchema,
+        response: { 200: LlmUsageResponseSchema },
+        tags: ["costs"],
+      },
+    },
+    async (request) => {
+      const user = request.requireUser();
+      const { companyId } = request.params;
+      await requireMember(user.id, companyId);
+      const db = deps.guardedDb();
+      const [row] = await db
+        .select({
+          calls: sql<number>`count(*)::int`,
+          tokensIn: sql<number>`coalesce(sum(${llmCalls.tokensIn}), 0)::int`,
+          tokensOut: sql<number>`coalesce(sum(${llmCalls.tokensOut}), 0)::int`,
+          tokensCached: sql<number>`coalesce(sum(${llmCalls.tokensCached}), 0)::int`,
+          costCents: sql<number>`coalesce(sum(${llmCalls.costCents}), 0)::int`,
+        })
+        .from(llmCalls)
+        .where(
+          and(
+            eq(llmCalls.companyId, companyId),
+            sql`${llmCalls.createdAt} >= date_trunc('day', now())`,
+          ),
+        );
+      return row!;
+    },
+  );
 
   typed.get(
     "/api/v1/companies/:companyId/costs",

@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 import { login, openCompany } from "./helpers";
 
 test("events timeline: paged history + live WS delivery", async ({ page }) => {
+  test.setTimeout(180_000); // long-lived stacks accumulate history to page through
   await login(page);
   await openCompany(page, "Acme Technologies");
 
@@ -18,11 +19,15 @@ test("events timeline: paged history + live WS delivery", async ({ page }) => {
   await page.getByTestId("live-toggle").click(); // → Paged
   await expect(page.getByTestId("event-timeline")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId("event-timeline")).toContainText("agent.hired");
-  for (let i = 0; i < 20; i++) {
+  // bounded by the pages actually available (50/page), not a fixed click
+  // count — a long-lived stack's history can span hundreds of pages
+  const timeline = page.getByTestId("event-timeline");
+  for (let i = 0; i < 300; i++) {
+    if ((await timeline.getByText("company.created").count()) > 0) break;
     const older = page.getByRole("button", { name: "Load older events" });
     if ((await older.count()) === 0) break;
     await older.click();
-    await page.waitForTimeout(400); // let the next page land before re-checking
+    await page.waitForTimeout(250); // let the next page land before re-checking
   }
   await expect(page.getByTestId("event-timeline")).toContainText("company.created", {
     timeout: 15_000,

@@ -23,6 +23,7 @@ import {
 
 export const SESSION_COOKIE = "acos_session";
 export const CSRF_COOKIE = "acos_csrf";
+export const SESSION_COOKIE_OPTIONS = { path: "/", httpOnly: true, sameSite: "lax" as const };
 const SESSION_IDLE_HOURS = 24;
 const SESSION_ABSOLUTE_DAYS = 30;
 const LOGIN_MAX_FAILURES = 5;
@@ -184,6 +185,45 @@ export class AuthService {
     await this.db.update(users).set({ lastLoginAt: sql`now()` }).where(eq(users.id, user.id));
     await this.audit({
       action: "auth.login.succeeded",
+      actorKind: "user",
+      actorId: user.id,
+      ip: input.ip ?? null,
+    });
+    return { kind: "ok", user, sessionToken, csrfToken };
+  }
+
+  /**
+   * Single-user mode (AUTH_AUTOLOGIN, Founder decision 2026-08-13): mint a
+   * real session for the platform owner without credentials. The session /
+   * CSRF / audit substrate stays intact — only the password prompt is gone.
+   * Unavailable until first-run setup (or seed) has created the owner.
+   */
+  async autologinFounder(input: {
+    ip?: string | undefined;
+    userAgent?: string | undefined;
+  }): Promise<
+    { kind: "ok"; user: UserRow; sessionToken: string; csrfToken: string } | { kind: "unavailable" }
+  > {
+    const [user] = await this.db
+      .select()
+      .from(users)
+      .where(and(eq(users.platformRole, "owner"), eq(users.status, "active")))
+      .orderBy(users.createdAt)
+      .limit(1);
+    if (!user) return { kind: "unavailable" };
+
+    const sessionToken = opaqueToken();
+    const csrfToken = opaqueToken();
+    await this.db.insert(sessions).values({
+      userId: user.id,
+      tokenHash: sha256(sessionToken),
+      expiresAt: new Date(Date.now() + SESSION_IDLE_HOURS * 3_600_000),
+      ip: input.ip ?? null,
+      userAgent: input.userAgent ?? null,
+    });
+    await this.db.update(users).set({ lastLoginAt: sql`now()` }).where(eq(users.id, user.id));
+    await this.audit({
+      action: "auth.autologin.succeeded",
       actorKind: "user",
       actorId: user.id,
       ip: input.ip ?? null,
