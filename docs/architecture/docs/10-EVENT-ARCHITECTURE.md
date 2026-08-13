@@ -313,6 +313,7 @@ Payload lists key fields beyond the envelope's subject refs. All events `v1` unl
 | `skill.created` | server:skills | WS | skillId, name, category | D | id |
 | `skill.evidence.recorded` | task/review/experiment hooks | WS | agentSkillId, kind, weight, ref | D | id; evidence row unique per (ref, kind) |
 | `agent.skill.updated` | deterministic recompute (`_DECISIONS` §11) | NF (level-up), WS | agentId, skillId, fromLevel, toLevel, confidence, evidenceCount | D | recompute idempotent; id |
+| `agent.skill.candidate.proposed` | server:skills emergent discovery (36 §10, U12) | WS | agentId, skillName, score, taskCount | D | first-sight per (agentId, skillName) |
 | `memory.relation.created` | consolidation | WS (Observatory) | relationId, fromMemoryId, toMemoryId, kind | D | id |
 | `memory.promotion.proposed` | promotion rules engine | NF (approver agent), WS | promotionId, sourceMemoryId, targetScope | D | id |
 | `memory.evidence.added` | consolidation / evidence hooks | WS | memoryId, evidenceId, kind, weight | D | id |
@@ -425,7 +426,7 @@ Payload lists key fields beyond the envelope's subject refs. All events `v1` unl
 | `campaign.spend.recorded` | ads adapter | CA, WS | campaignRef, amountCents | D | id |
 | `integration.connected` / `integration.call.failed` | integration adapters | NF (blockers, on failure), WS | connectionId, platform / error | D | id |
 
-Catalog count: 189 durable types + 1 ephemeral. Any new event type must land in
+Catalog count: 190 durable types + 1 ephemeral. Any new event type must land in
 `packages/events/src/catalog/` with schema + a row in this table in the same PR (CI check compares
 registry keys against this doc's table). `[WRITER-DECISION]` (doc-registry consistency check).
 

@@ -24,6 +24,12 @@ states, and models. If a writer needs something not decided here, they choose it
 - A8. Legal/financial actions are always Founder-approval-gated regardless of autonomy config.
 - A9. No GPU assumed; media generation uses external APIs (Phase 2+).
 - A10. Licensing/monetization of the platform itself: out of scope for architecture.
+- A11. **(Founder decision 2026-08-13)** Single-user mode is the shipped default: there is NO login
+  UI — the server transparently mints the Founder session on cookie-less `/api/v1` GETs
+  (`AUTH_AUTOLOGIN`, default `true`). The auth substrate itself (sessions, CSRF, PATs, TOTP, audit,
+  rate limits) stays fully in place and multi-user capable per A1; `AUTH_AUTOLOGIN=false` restores
+  the classic login flow. Founder identity, S6 founder-only approvals and S7 audit attribution are
+  unaffected — every request still runs as a real authenticated user with a real session row.
 
 **Founder-clarification items (genuinely business-level, deferred, non-blocking):** target pricing
 model for the platform; which social platforms matter first in Phase 2; whether multi-human org
