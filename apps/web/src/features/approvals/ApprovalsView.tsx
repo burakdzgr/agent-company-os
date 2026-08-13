@@ -32,25 +32,25 @@ function ExpiryBar({ approval }: { approval: Approval }) {
   const ratio = Math.min(Math.max((now - created) / Math.max(expires - created, 1), 0), 1);
   const hoursLeft = Math.max(Math.round((expires - now) / 3_600_000), 0);
   return (
-    <div className="flex items-center gap-2" title={`expires ${new Date(expires).toLocaleString()}`}>
+    <div className="flex items-center gap-2" title={`bitiş: ${new Date(expires).toLocaleString()}`}>
       <div className="h-1.5 w-24 overflow-hidden rounded bg-ink-100">
         <div
           className={cn("h-full", ratio > 0.85 ? "bg-red-500" : ratio > 0.5 ? "bg-amber-500" : "bg-emerald-500")}
           style={{ width: `${Math.round(ratio * 100)}%` }}
         />
       </div>
-      <span className="text-xs text-ink-400">{hoursLeft}h left</span>
+      <span className="text-xs text-ink-400">{hoursLeft} sa kaldı</span>
     </div>
   );
 }
 
 const BRIEF_SECTIONS: Array<{ key: "request" | "reason" | "recommendation" | "risk" | "impact" | "urgency"; label: string }> = [
-  { key: "request", label: "Request" },
-  { key: "reason", label: "Reason" },
-  { key: "recommendation", label: "Recommendation" },
+  { key: "request", label: "Talep" },
+  { key: "reason", label: "Gerekçe" },
+  { key: "recommendation", label: "Öneri" },
   { key: "risk", label: "Risk" },
-  { key: "impact", label: "Impact" },
-  { key: "urgency", label: "Urgency" },
+  { key: "impact", label: "Etki" },
+  { key: "urgency", label: "Aciliyet" },
 ];
 
 function BriefPanel({ detail }: { detail: ApprovalDetail }) {
@@ -65,7 +65,7 @@ function BriefPanel({ detail }: { detail: ApprovalDetail }) {
       ))}
       <section>
         <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-          Attempted autonomously
+          Otonom denendi
         </h4>
         <ul className="list-disc pl-5 text-ink-800">
           {brief.attempted.map((item, i) => (
@@ -74,14 +74,14 @@ function BriefPanel({ detail }: { detail: ApprovalDetail }) {
         </ul>
       </section>
       <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">Options</h4>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">Seçenekler</h4>
         <table className="mt-1 w-full text-left text-xs">
           <thead>
             <tr className="text-ink-500">
-              <th className="py-1 pr-2 font-medium">Option</th>
-              <th className="py-1 pr-2 font-medium">Pros</th>
-              <th className="py-1 pr-2 font-medium">Cons</th>
-              <th className="py-1 font-medium">Cost</th>
+              <th className="py-1 pr-2 font-medium">Seçenek</th>
+              <th className="py-1 pr-2 font-medium">Artılar</th>
+              <th className="py-1 pr-2 font-medium">Eksiler</th>
+              <th className="py-1 font-medium">Maliyet</th>
             </tr>
           </thead>
           <tbody>
@@ -106,11 +106,11 @@ function BriefPanel({ detail }: { detail: ApprovalDetail }) {
       ))}
       <section className="flex flex-wrap gap-4 text-xs text-ink-600">
         <span>
-          Cost: <MoneyText cents={brief.cost.amount_cents} currency={brief.cost.currency} />
+          Maliyet: <MoneyText cents={brief.cost.amount_cents} currency={brief.cost.currency} />
           {brief.cost.period ? ` / ${brief.cost.period}` : ""}
         </span>
-        {brief.cost.budget_line && <span>Budget line: {brief.cost.budget_line}</span>}
-        <span>Deadline: {brief.deadline ? new Date(brief.deadline).toLocaleString() : "—"}</span>
+        {brief.cost.budget_line && <span>Bütçe kalemi: {brief.cost.budget_line}</span>}
+        <span>Son tarih: {brief.deadline ? new Date(brief.deadline).toLocaleString() : "—"}</span>
       </section>
     </div>
   );
@@ -177,7 +177,7 @@ function ApprovalCard({
             <span className="truncate font-medium text-ink-900">{approval.title}</span>
           </div>
           <p className="mt-1 text-xs text-ink-500">
-            #{approval.number} · requested by {approval.requesterName ?? "unknown agent"} ·{" "}
+            #{approval.number} · talep eden: {approval.requesterName ?? "bilinmeyen ajan"} ·{" "}
             {new Date(approval.createdAt).toLocaleString()}
             {approval.costCents !== null && approval.costCents > 0 && (
               <>
@@ -197,24 +197,24 @@ function ApprovalCard({
               <BriefPanel detail={detail.data} />
               <div>
                 <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">
-                  Endorsement chain
+                  Onay zinciri
                 </h4>
                 <ChainTimeline detail={detail.data} />
               </div>
               {detail.data.task && (
                 <p className="text-xs text-ink-600">
-                  Linked task: TASK-{detail.data.task.number} · {detail.data.task.title} (
+                  Bağlı görev: TASK-{detail.data.task.number} · {detail.data.task.title} (
                   {detail.data.task.status})
                 </p>
               )}
               {detail.data.decisionNote && (
                 <p className="text-sm text-ink-700">
-                  <span className="font-medium">Decision note:</span> {detail.data.decisionNote}
+                  <span className="font-medium">Karar notu:</span> {detail.data.decisionNote}
                 </p>
               )}
             </>
           ) : (
-            <p className="text-sm text-ink-400">Loading brief…</p>
+            <p className="text-sm text-ink-400">Brief yükleniyor…</p>
           )}
 
           {pending && (
@@ -222,14 +222,14 @@ function ApprovalCard({
               <Textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="Decision note (required for REJECT / REQUEST EXECUTIVE REVIEW)"
+                placeholder="Karar notu (RED / YÖNETİCİ İNCELEMESİ için zorunlu)"
                 rows={2}
                 name="decisionNote"
               />
               {error && <p className="text-xs text-red-600">{error}</p>}
               <div className="flex gap-2">
                 <Button onClick={() => verdict.mutate("approved")} disabled={verdict.isPending} data-testid="approve">
-                  APPROVE
+                  ONAYLA
                 </Button>
                 <Button
                   variant="danger"
@@ -237,7 +237,7 @@ function ApprovalCard({
                   disabled={verdict.isPending || needsNote}
                   data-testid="reject"
                 >
-                  REJECT
+                  REDDET
                 </Button>
                 <Button
                   variant="ghost"
@@ -245,7 +245,7 @@ function ApprovalCard({
                   disabled={verdict.isPending || needsNote}
                   data-testid="needs-review"
                 >
-                  REQUEST EXECUTIVE REVIEW
+                  YÖNETİCİ İNCELEMESİ
                 </Button>
               </div>
             </div>
@@ -273,10 +273,10 @@ export function ApprovalsView() {
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <div className="flex items-center gap-2">
-        <h1 className="flex-1 text-lg font-semibold text-ink-900">Approval Center</h1>
+        <h1 className="flex-1 text-lg font-semibold text-ink-900">Onay Merkezi</h1>
         {(["inbox", "history"] as const).map((t) => (
           <Button key={t} variant={tab === t ? "primary" : "ghost"} onClick={() => setTab(t)} data-testid={`tab-${t}`}>
-            {t === "inbox" ? "Inbox" : "History"}
+            {t === "inbox" ? "Gelen" : "Geçmiş"}
           </Button>
         ))}
       </div>
@@ -286,8 +286,8 @@ export function ApprovalsView() {
       {items.length === 0 && (
         <Card className="p-8 text-center text-sm text-ink-400">
           {tab === "inbox"
-            ? "No pending approvals — escalations from agents land here as structured briefs."
-            : "No decided approvals yet."}
+            ? "Bekleyen onay yok — ajan eskalasyonları buraya yapılandırılmış brief olarak düşer."
+            : "Henüz karara bağlanmış onay yok."}
         </Card>
       )}
     </div>

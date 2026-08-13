@@ -52,14 +52,14 @@ function AttachedTerminal({ session }: { session: TerminalSessionDto }) {
     fit.fit();
     const onResize = () => fit.fit();
     window.addEventListener("resize", onResize);
-    term.writeln(`\x1b[2m— attached to ${session.title} —\x1b[0m`);
+    term.writeln(`\x1b[2m— ${session.title} oturumuna bağlanıldı —\x1b[0m`);
 
     const client = getRealtimeClient();
     // fresh pane = no scrollback: take the FULL ring, not a cursor resume
     clearTopicCursor(`terminal:${session.id}`);
     const unsubscribe = client.subscribe(`terminal:${session.id}`, (frames, meta) => {
       if (meta.kind === "gap") {
-        term.writeln(`\r\n\x1b[33m--- output truncated ---\x1b[0m`);
+        term.writeln(`\r\n\x1b[33m--- çıktı kırpıldı ---\x1b[0m`);
         return;
       }
       for (const raw of frames) {
@@ -91,14 +91,14 @@ function AttachedTerminal({ session }: { session: TerminalSessionDto }) {
             onClick={() => setFollow((v) => !v)}
             data-testid="follow-toggle"
           >
-            {follow ? "⏸ follow" : "▶ follow"}
+            {follow ? "⏸ takip" : "▶ takip"}
           </Button>
           <a
             href={api.terminals.logUrl(companyId, session.id)}
             download
             className="text-xs text-accent-600 hover:underline"
           >
-            download log
+            log indir
           </a>
         </div>
       </div>
@@ -131,12 +131,12 @@ export function TerminalsView() {
     <div className="flex h-full min-h-0 gap-3 p-3">
       <Card className="flex w-80 shrink-0 flex-col gap-1 overflow-y-auto p-2">
         <h2 className="px-1 py-1 text-xs font-semibold uppercase tracking-wide text-ink-400">
-          Terminal sessions
+          Terminal oturumları
         </h2>
-        {sessions.isLoading && <div className="p-2 text-sm text-ink-400">Loading…</div>}
+        {sessions.isLoading && <div className="p-2 text-sm text-ink-400">Yükleniyor…</div>}
         {!sessions.isLoading && items.length === 0 && (
           <div className="p-2 text-sm text-ink-400" data-testid="terminals-empty">
-            No active sessions.
+            Aktif oturum yok.
           </div>
         )}
         {items.map((s) => (
@@ -168,7 +168,7 @@ export function TerminalsView() {
         <AttachedTerminal key={selected.id} session={selected} />
       ) : (
         <Card className="flex flex-1 items-center justify-center text-sm text-ink-400">
-          Select a session to attach.
+          Bağlanmak için oturum seçin.
         </Card>
       )}
     </div>

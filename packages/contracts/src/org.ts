@@ -29,6 +29,11 @@ export const CreateOrgUnitRequestSchema = z.object({
 
 export const MoveOrgUnitRequestSchema = z.object({ parentId: z.uuid().nullable() });
 
+export const ArchiveOrgUnitResponseSchema = z.object({
+  id: z.uuid(),
+  archivedAt: z.iso.datetime(),
+});
+
 export const PositionSchema = z.object({
   id: z.uuid(),
   title: z.string(),

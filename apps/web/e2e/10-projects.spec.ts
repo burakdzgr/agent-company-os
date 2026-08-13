@@ -15,7 +15,7 @@ test("greenfield project: 3-field create → intake → active; GOAL cascades on
 
   await login(page);
   await openCompany(page, "Acme");
-  await page.getByRole("link", { name: "PROJECTS" }).click();
+  await page.getByTestId("nav-projects").click();
 
   await page.getByTestId("project-create-open").click();
   await page.fill('input[name="name"]', name);
@@ -43,7 +43,7 @@ test("greenfield project: 3-field create → intake → active; GOAL cascades on
   await expect(page.getByTestId("report-missing")).toBeVisible();
 
   // the routed GOAL cascaded through the scripted org onto the board
-  await page.getByRole("link", { name: "TASKS" }).click();
+  await page.getByTestId("nav-tasks").click();
   await expect(
     page.getByText("Deliver: Analyze this project and implement feature X").first(),
   ).toBeVisible({ timeout: 120_000 });

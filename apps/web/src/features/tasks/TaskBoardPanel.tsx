@@ -15,19 +15,17 @@ import { cn } from "@acos/ui";
 import { api, keys } from "../../lib/api.js";
 import { useTeamMemberSet } from "../../lib/teamFilter.js";
 import { useFocus } from "../../stores/focus.js";
+import { useUiPrefs } from "../../stores/uiPrefs.js";
 
 type TaskStatus = Task["status"];
 
-const CORE: TaskStatus[] = [
-  "BACKLOG",
-  "ASSIGNED",
-  "IN_PROGRESS",
-  "REVIEW",
-  "CHANGES_REQUESTED",
-  "QA",
-  "APPROVAL",
-  "DONE",
-];
+// Founder direktifi (2026-08-14): sade board — ASSIGNED/CHANGES_REQUESTED/
+// APPROVAL artık yalnız DOLUYKEN görünür (kart asla kaybolmaz), çekirdek 5
+// kolon kalır. "DEPLOY READY" DONE'dan sonra gelen PRESENTASYONEL kolondur:
+// 16-durum makinesi sabittir (CLAUDE.md) — bu bir board işareti, durum değil.
+const CORE: TaskStatus[] = ["BACKLOG", "IN_PROGRESS", "REVIEW", "QA", "DONE"];
+const DEPLOY_READY = "DEPLOY_READY" as const;
+type BoardColumn = TaskStatus | typeof DEPLOY_READY;
 const COLUMN_ORDER: TaskStatus[] = [
   "DRAFT",
   "BACKLOG",
@@ -46,6 +44,26 @@ const COLUMN_ORDER: TaskStatus[] = [
   "FAILED",
   "CANCELLED",
 ];
+
+// Görünen kolon başlıkları — testid'ler ham enum'la kalır (board-column-DONE)
+const STATUS_TR: Record<TaskStatus, string> = {
+  DRAFT: "TASLAK",
+  BACKLOG: "BEKLEYEN",
+  PLANNED: "PLANLANDI",
+  ASSIGNED: "ATANDI",
+  IN_PROGRESS: "SÜRÜYOR",
+  WAITING: "BEKLİYOR",
+  BLOCKED: "BLOKE",
+  REVIEW: "İNCELEME",
+  CHANGES_REQUESTED: "DEĞİŞİKLİK İSTENDİ",
+  QA: "QA",
+  QA_FAILED: "QA KALDI",
+  APPROVAL: "ONAY",
+  REJECTED: "REDDEDİLDİ",
+  DONE: "BİTTİ",
+  FAILED: "BAŞARISIZ",
+  CANCELLED: "İPTAL",
+};
 
 const PRIORITY_COLOR: Record<Task["priority"], string> = {
   P0: "#ff4d4d",
@@ -128,8 +146,10 @@ export function TaskBoardPanel() {
   const { companyId } = useParams({ from: "/c/$companyId" });
   const queryClient = useQueryClient();
   const [draggingTask, setDraggingTask] = useState<Task | null>(null);
-  const [overColumn, setOverColumn] = useState<TaskStatus | null>(null);
+  const [overColumn, setOverColumn] = useState<BoardColumn | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const deployReadyIds = useUiPrefs((s) => s.deployReadyTaskIds);
+  const toggleDeployReady = useUiPrefs((s) => s.toggleDeployReady);
 
   const tasks = useQuery({
     queryKey: [companyId, "tasks", "board"],
@@ -166,16 +186,47 @@ export function TaskBoardPanel() {
       (t.ownerAgentId !== null && members.has(t.ownerAgentId)) ||
       t.orgUnitId === team?.unitId,
   );
-  const byStatus = new Map<TaskStatus, Task[]>();
+  const byStatus = new Map<BoardColumn, Task[]>();
   for (const task of items) {
-    const bucket = byStatus.get(task.status) ?? [];
+    // DONE + Founder deploy-ready mark → the presentational column
+    const column: BoardColumn =
+      task.status === "DONE" && deployReadyIds.includes(task.id) ? DEPLOY_READY : task.status;
+    const bucket = byStatus.get(column) ?? [];
     bucket.push(task);
-    byStatus.set(task.status, bucket);
+    byStatus.set(column, bucket);
   }
-  const columns = COLUMN_ORDER.filter(
-    (status) => CORE.includes(status) || (byStatus.get(status)?.length ?? 0) > 0,
-  );
-  const legalTargets = draggingTask ? TASK_NEXT_STATUSES[draggingTask.status] : [];
+  const columns: BoardColumn[] = [
+    ...COLUMN_ORDER.filter(
+      (status) => CORE.includes(status) || (byStatus.get(status)?.length ?? 0) > 0,
+    ),
+  ];
+  columns.splice(columns.indexOf("DONE") + 1, 0, DEPLOY_READY); // DONE'dan hemen sonra
+  const legalTargets: BoardColumn[] = draggingTask
+    ? [
+        ...TASK_NEXT_STATUSES[draggingTask.status],
+        ...(draggingTask.status === "DONE" ? [DEPLOY_READY] : []),
+      ]
+    : [];
+
+  function handleDrop(task: Task, column: BoardColumn): void {
+    if (column === DEPLOY_READY) {
+      if (task.status !== "DONE") {
+        setError(
+          `${task.displayNumber} → Deploy Ready reddedildi — yalnız DONE görevler işaretlenebilir (durum makinesi sabit; bu görsel bir işaret)`,
+        );
+        window.setTimeout(() => setError(null), 6000);
+        return;
+      }
+      if (!deployReadyIds.includes(task.id)) toggleDeployReady(task.id);
+      return;
+    }
+    // dragging a deploy-ready card back to DONE clears the mark
+    if (column === "DONE" && task.status === "DONE") {
+      if (deployReadyIds.includes(task.id)) toggleDeployReady(task.id);
+      return;
+    }
+    if (task.status !== column) transition.mutate({ task, to: column });
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-acos-bg1">
@@ -232,11 +283,16 @@ export function TaskBoardPanel() {
                 setOverColumn(null);
                 const id = e.dataTransfer.getData("text/task-id");
                 const task = items.find((t) => t.id === id);
-                if (task && task.status !== status) transition.mutate({ task, to: status });
+                if (task) handleDrop(task, status);
               }}
             >
-              <div className="flex items-center justify-between border-b border-acos-line px-2 py-1 text-[8.5px] uppercase tracking-wide text-acos-fg2">
-                <span>{status}</span>
+              <div
+                className={cn(
+                  "flex items-center justify-between border-b border-acos-line px-2 py-1 text-[8.5px] uppercase tracking-wide",
+                  status === DEPLOY_READY ? "text-[#2ec26a]" : "text-acos-fg2",
+                )}
+              >
+                <span>{status === DEPLOY_READY ? "🚀 Deploy Ready" : (STATUS_TR[status] ?? status)}</span>
                 <span className="font-mono tabular-nums">{byStatus.get(status)?.length ?? 0}</span>
               </div>
               <div className="min-h-[30px] flex-1 overflow-y-auto p-1">

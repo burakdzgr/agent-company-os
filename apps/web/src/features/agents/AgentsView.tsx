@@ -34,29 +34,29 @@ export function AgentsView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-lg font-bold text-ink-900">Agents</h1>
+        <h1 className="text-lg font-bold text-ink-900">Ajanlar</h1>
         <div className="flex items-center gap-2">
           <Select
-            aria-label="Status filter"
+            aria-label="Durum filtresi"
             className="!w-40"
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <option value="">all statuses</option>
-            <option value="active">active</option>
-            <option value="paused">paused</option>
-            <option value="draft">draft</option>
-            <option value="offboarded">offboarded</option>
+            <option value="">tüm durumlar</option>
+            <option value="active">aktif</option>
+            <option value="paused">duraklatıldı</option>
+            <option value="draft">taslak</option>
+            <option value="offboarded">işten çıkarıldı</option>
           </Select>
           <Button onClick={() => setHireOpen(true)} data-testid="hire-button">
-            Hire agent
+            Ajan işe al
           </Button>
         </div>
       </div>
 
       {filtered.length === 0 ? (
         <p className="py-12 text-center text-sm text-ink-400">
-          No agents yet — hire from Organization.
+          Henüz ajan yok — Organizasyon'dan işe alın.
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="agent-grid">

@@ -72,7 +72,7 @@ test("live npm output streams into xterm; reload replays the ring and continues 
   // ---- UI: Terminals view lists the session; attach shows the LIVE flow ----
   await login(page);
   await openCompany(page, "Acme");
-  await page.getByRole("link", { name: "TERMINALS" }).click();
+  await page.getByTestId("nav-terminals").click();
 
   // first-touch provisioning (worktree clone + container) happens before the
   // session opens — the list poll picks it up. Rows are keyed by THIS run's

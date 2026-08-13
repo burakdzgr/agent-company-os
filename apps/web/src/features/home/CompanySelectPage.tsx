@@ -23,8 +23,8 @@ export function CompanySelectPage() {
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-ink-900">Your companies</h1>
-        <Button onClick={() => setOpen(true)}>New company</Button>
+        <h1 className="text-xl font-bold text-ink-900">Şirketleriniz</h1>
+        <Button onClick={() => setOpen(true)}>Yeni şirket</Button>
       </div>
       <div className="grid gap-3 sm:grid-cols-2" data-testid="company-list">
         {companies.data?.map((company) => (
@@ -38,11 +38,11 @@ export function CompanySelectPage() {
           </Link>
         ))}
         {companies.data?.length === 0 && (
-          <p className="text-sm text-ink-400">No companies yet — create the first one.</p>
+          <p className="text-sm text-ink-400">Henüz şirket yok — ilkini oluşturun.</p>
         )}
       </div>
 
-      <Dialog open={open} title="Create company" onClose={() => setOpen(false)}>
+      <Dialog open={open} title="Şirket oluştur" onClose={() => setOpen(false)}>
         <form
           className="space-y-3"
           onSubmit={(e) => {
@@ -50,7 +50,7 @@ export function CompanySelectPage() {
             create.mutate();
           }}
         >
-          <Field label="Name">
+          <Field label="Ad">
             <Input name="companyName" value={name} onChange={(e) => setName(e.target.value)} required />
           </Field>
           <Field label="Slug (kebab-case)">
@@ -64,7 +64,7 @@ export function CompanySelectPage() {
           </Field>
           {create.isError && <p className="text-sm text-danger">{String(create.error)}</p>}
           <Button type="submit" disabled={create.isPending} className="w-full justify-center">
-            Create
+            Oluştur
           </Button>
         </form>
       </Dialog>

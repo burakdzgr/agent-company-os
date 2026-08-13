@@ -1,16 +1,24 @@
 // Org engine (04 §1–4, §6; _DECISIONS §5): units/positions CRUD, typed edges
 // with the on-write forest/cycle check (per-company advisory lock + recursive
 // CTE), escalation-chain walk ending at the virtual Founder, read models.
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { type CompanyContext, type GuardedDb, type Tx } from "@acos/db";
 import { orgUnits, positions } from "@acos/db/schema";
-import { orgEdges } from "@acos/db/schema";
+import { agents, orgEdges } from "@acos/db/schema";
 import { emitDomainEvent } from "../events/emit.js";
 
 export class OrgCycleError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "OrgCycleError";
+  }
+}
+
+/** Archive/reorg preconditions (04 §1) — maps to HTTP 409 in routes. */
+export class OrgConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OrgConflictError";
   }
 }
 
@@ -129,6 +137,93 @@ export class OrgService {
       .select()
       .from(orgUnits)
       .where(and(eq(orgUnits.companyId, ctx.companyId), isNull(orgUnits.archivedAt)));
+  }
+
+  /**
+   * 04 §1: soft-archive a unit. Preconditions (409): no active child units,
+   * no non-offboarded agents placed in it. Remaining active unit edges are
+   * ended, then archived_at is set — org.unit.archived is catalogued.
+   */
+  async archiveUnit(ctx: CompanyContext, unitId: string) {
+    return this.db.transaction(async (tx) => {
+      await orgLockInTx(tx, ctx);
+      const [unit] = await tx
+        .select()
+        .from(orgUnits)
+        .where(
+          and(
+            eq(orgUnits.companyId, ctx.companyId),
+            eq(orgUnits.id, unitId),
+            isNull(orgUnits.archivedAt),
+          ),
+        )
+        .for("update");
+      if (!unit) return undefined;
+
+      const [child] = await tx
+        .select({ id: orgUnits.id })
+        .from(orgUnits)
+        .where(
+          and(
+            eq(orgUnits.companyId, ctx.companyId),
+            eq(orgUnits.parentId, unitId),
+            isNull(orgUnits.archivedAt),
+          ),
+        )
+        .limit(1);
+      if (child) {
+        throw new OrgConflictError("UNIT_HAS_CHILDREN: önce alt birimleri taşıyın veya arşivleyin");
+      }
+      // draft (hiç aktive edilmemiş) ajanlar bloklamaz — draft→offboarded
+      // geçişi makinede yok; yerleşimleri placement endpoint'iyle düzeltilir
+      const [member] = await tx
+        .select({ id: agents.id })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.companyId, ctx.companyId),
+            eq(agents.orgUnitId, unitId),
+            inArray(agents.status, ["active", "paused"]),
+          ),
+        )
+        .limit(1);
+      if (member) {
+        throw new OrgConflictError(
+          "UNIT_HAS_AGENTS: önce birimdeki ajanları başka birime taşıyın veya işten çıkarın",
+        );
+      }
+
+      const endedEdges = await tx
+        .update(orgEdges)
+        .set({ endedAt: sql`now()` })
+        .where(
+          and(
+            eq(orgEdges.companyId, ctx.companyId),
+            eq(orgEdges.toUnitId, unitId),
+            isNull(orgEdges.endedAt),
+          ),
+        )
+        .returning({ id: orgEdges.id, endedAt: orgEdges.endedAt });
+      for (const edge of endedEdges) {
+        await emitDomainEvent(tx, ctx, {
+          type: "org.edge.ended",
+          actor: { kind: "founder", id: null },
+          payload: { edgeId: edge.id, endedAt: edge.endedAt?.toISOString(), reason: "unit.archived" },
+        });
+      }
+
+      const [archived] = await tx
+        .update(orgUnits)
+        .set({ archivedAt: sql`now()` })
+        .where(and(eq(orgUnits.companyId, ctx.companyId), eq(orgUnits.id, unitId)))
+        .returning();
+      await emitDomainEvent(tx, ctx, {
+        type: "org.unit.archived",
+        actor: { kind: "founder", id: null },
+        payload: { orgUnitId: unitId, archivedAt: archived!.archivedAt!.toISOString() },
+      });
+      return archived!;
+    });
   }
 
   // ---------- positions ----------

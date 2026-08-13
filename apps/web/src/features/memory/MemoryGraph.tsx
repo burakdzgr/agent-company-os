@@ -111,7 +111,7 @@ export function MemoryGraph({
     <Card className="p-2" data-testid="memory-graph">
       {graph.data?.capped && (
         <p className="p-2 text-xs" style={{ color: "#ffcb47" }}>
-          Graph capped at 500 nodes — narrow the filters.
+          Graf 500 düğümle sınırlı — filtreleri daraltın.
         </p>
       )}
       <div ref={containerRef} style={{ height: 560, background: "#08090d", borderRadius: 8 }} />

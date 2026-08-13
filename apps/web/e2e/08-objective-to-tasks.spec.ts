@@ -11,8 +11,8 @@ test("Founder objective decomposes through the hierarchy; inbox stays empty", as
   test.setTimeout(240_000);
   await login(page);
   await openCompany(page, "Acme Technologies");
-  await page.getByRole("link", { name: "TASKS", exact: true }).click();
-  await expect(page.getByTestId("kanban-board").or(page.getByText("No tasks"))).toBeVisible({
+  await page.getByTestId("nav-tasks").click();
+  await expect(page.getByTestId("kanban-board").or(page.getByText("Görev yok"))).toBeVisible({
     timeout: 15_000,
   });
 
@@ -57,7 +57,7 @@ test("Founder objective decomposes through the hierarchy; inbox stays empty", as
   ).toBeVisible({ timeout: 90_000 });
 
   // step 14: real inter-agent communication persisted in task threads
-  await page.getByRole("link", { name: "COMMUNICATION", exact: true }).click();
+  await page.getByTestId("nav-communication").click();
   await expect(page.getByText("task_thread").first()).toBeVisible({ timeout: 15_000 });
   const thread = page
     .locator('[data-testid^="channel-"]', { hasText: "task_thread" })
@@ -67,7 +67,7 @@ test("Founder objective decomposes through the hierarchy; inbox stays empty", as
 
   // step 15: the office renders the run from projector instructions only —
   // the debug hook proves real instructions were applied (no fake animation)
-  await page.getByRole("link", { name: "OFFICE", exact: true }).click();
+  await page.getByTestId("nav-office").click();
   await expect
     .poll(
       () =>
@@ -82,8 +82,8 @@ test("Founder objective decomposes through the hierarchy; inbox stays empty", as
 
   // step 25 (M3 flavor): the Founder inbox stayed empty — the whole cascade
   // ran without a single routine escalation
-  await page.getByRole("link", { name: "APPROVALS", exact: true }).click();
-  await expect(page.getByText("No pending approvals", { exact: false })).toBeVisible({
+  await page.getByTestId("nav-approvals").click();
+  await expect(page.getByText("Bekleyen onay yok", { exact: false })).toBeVisible({
     timeout: 15_000,
   });
 });

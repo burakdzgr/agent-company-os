@@ -68,7 +68,7 @@ function GridXterm({ session, fontSize }: { session: TerminalSessionDto; fontSiz
     clearTopicCursor(`terminal:${session.id}`);
     const unsubscribe = client.subscribe(`terminal:${session.id}`, (frames, meta) => {
       if (meta.kind === "gap") {
-        term.writeln(`\r\n\x1b[33m--- output truncated ---\x1b[0m`);
+        term.writeln(`\r\n\x1b[33m--- çıktı kırpıldı ---\x1b[0m`);
         return;
       }
       for (const raw of frames) {

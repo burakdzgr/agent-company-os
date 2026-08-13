@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   AgentSchema,
   AgentSessionSchema,
+  ChangeAgentPlacementRequestSchema,
   HireAgentRequestSchema,
   LifecycleActionRequestSchema,
   ModelBindingSchema,
@@ -127,6 +128,26 @@ export async function registerAgentRoutes(
       const ctx = await requireCompany(request, request.params.id);
       const agent = await agentsSvc().update(ctx, request.params.agentId, request.body);
       if (!agent) throw new ApiError("not_found", "agent not found");
+      return toApiAgent(agent);
+    },
+  );
+
+  app.patch(
+    "/api/v1/companies/:id/agents/:agentId/placement",
+    {
+      schema: {
+        operationId: "changeAgentPlacement",
+        tags: ["agents"],
+        params: agentParam,
+        body: ChangeAgentPlacementRequestSchema,
+        response: { 200: AgentSchema },
+      },
+    },
+    async (request) => {
+      const ctx = await requireCompany(request, request.params.id);
+      const agent = await agentsSvc()
+        .changePlacement(ctx, request.params.agentId, request.body)
+        .catch(mapAgentError);
       return toApiAgent(agent);
     },
   );

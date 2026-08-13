@@ -101,7 +101,7 @@ export function RosterPanel() {
               params={{ companyId, agentId: agent.id }}
               onClick={(e) => e.stopPropagation()}
               className="text-[10px] text-acos-fg2 hover:text-acos-fg0"
-              title="Agent Monitor"
+              title="Ajan Monitörü"
             >
               ↗
             </Link>

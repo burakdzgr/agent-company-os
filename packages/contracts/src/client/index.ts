@@ -15,6 +15,7 @@ import {
 } from "../auth.js";
 import { CompanySchema, CompanySettingsSchema, type Company, type CompanySettings } from "../companies.js";
 import {
+  ArchiveOrgUnitResponseSchema,
   EscalationChainSchema,
   OrgEdgeSchema,
   OrgUnitSchema,
@@ -214,6 +215,14 @@ export function createAcosClient(options: AcosClientOptions) {
         body: { name: string; slug: string; kind: "department" | "team" | "office" | "division"; parentId?: string | null },
       ): Promise<OrgUnit> =>
         OrgUnitSchema.parse(await post(`/api/v1/companies/${companyId}/org/units`, body)),
+      moveUnit: async (companyId: string, unitId: string, parentId: string | null): Promise<OrgUnit> =>
+        OrgUnitSchema.parse(
+          await request("PATCH", `/api/v1/companies/${companyId}/org/units/${unitId}`, { parentId }),
+        ),
+      archiveUnit: async (companyId: string, unitId: string): Promise<{ id: string; archivedAt: string }> =>
+        ArchiveOrgUnitResponseSchema.parse(
+          await post(`/api/v1/companies/${companyId}/org/units/${unitId}/archive`, {}),
+        ),
       listPositions: async (companyId: string): Promise<Position[]> =>
         z.array(PositionSchema).parse(await get(`/api/v1/companies/${companyId}/org/positions`)),
       createPosition: async (
@@ -261,6 +270,19 @@ export function createAcosClient(options: AcosClientOptions) {
         },
       ): Promise<Agent> =>
         AgentSchema.parse(await post(`/api/v1/companies/${companyId}/agents`, body)),
+      changePlacement: async (
+        companyId: string,
+        agentId: string,
+        body: {
+          orgUnitId?: string;
+          positionId?: string;
+          seniority?: string;
+          managerAgentId?: string | null;
+        },
+      ): Promise<Agent> =>
+        AgentSchema.parse(
+          await request("PATCH", `/api/v1/companies/${companyId}/agents/${agentId}/placement`, body),
+        ),
       lifecycle: async (
         companyId: string,
         agentId: string,

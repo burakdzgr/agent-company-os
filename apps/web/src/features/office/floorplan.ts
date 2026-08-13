@@ -127,7 +127,7 @@ export function computeFloorplan(layout: OfficeLayout): Floorplan {
   });
 
   const meeting: MeetingSpec | null = meetingZone
-    ? { rect: meetingZone.rect, label: meetingZone.label ?? "Meeting" }
+    ? { rect: meetingZone.rect, label: meetingZone.label ?? "Toplantı" }
     : null;
 
   const entrance = centeredDoor(bounds, bounds.y + bounds.h - WALL);

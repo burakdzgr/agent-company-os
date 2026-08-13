@@ -34,7 +34,7 @@ export function AgentDetailView() {
     },
   });
 
-  if (!agent.data) return <p className="text-sm text-ink-400">Loading…</p>;
+  if (!agent.data) return <p className="text-sm text-ink-400">Yükleniyor…</p>;
   const a = agent.data;
 
   return (
@@ -47,24 +47,24 @@ export function AgentDetailView() {
               {a.name}
             </h1>
             <p className="text-sm text-ink-400">
-              {a.displayNumber} · {a.seniority} · autonomy L{a.autonomyLevel}
+              {a.displayNumber} · {a.seniority} · otonomi L{a.autonomyLevel}
             </p>
           </div>
           <AgentStatusPill status={a.status} />
           <div className="ml-auto flex gap-2">
             {a.status === "active" && (
               <Button variant="secondary" onClick={() => lifecycle.mutate("pause")}>
-                Pause
+                Duraklat
               </Button>
             )}
             {a.status === "paused" && (
               <Button variant="secondary" onClick={() => lifecycle.mutate("resume")}>
-                Resume
+                Devam
               </Button>
             )}
             {a.status !== "offboarded" && (
               <Button variant="danger" onClick={() => lifecycle.mutate("offboard")}>
-                Offboard
+                İşten çıkar
               </Button>
             )}
           </div>
@@ -73,41 +73,41 @@ export function AgentDetailView() {
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Model bindings (identity ⊥ model)">
+        <Card title="Model bağları (kimlik ⊥ model)">
           <DataTable
             rows={bindings.data ?? []}
             rowKey={(binding) => binding.id}
-            empty="No overrides — company profiles apply."
+            empty="Özel bağ yok — şirket profilleri geçerli."
             columns={[
-              { header: "Purpose", cell: (binding) => binding.purpose },
+              { header: "Amaç", cell: (binding) => binding.purpose },
               { header: "Model", cell: (binding) => binding.model },
-              { header: "Priority", cell: (binding) => String(binding.priority) },
+              { header: "Öncelik", cell: (binding) => String(binding.priority) },
             ]}
           />
         </Card>
 
-        <Card title="Escalation chain">
+        <Card title="Eskalasyon zinciri">
           <ol className="space-y-1 text-sm" data-testid="escalation-chain">
             {chain.data?.map((hop, index) => (
               <li key={index} className="text-ink-800">
-                {index + 1}. {hop.kind === "founder" ? "Founder (virtual)" : hop.name}
+                {index + 1}. {hop.kind === "founder" ? "Founder (sanal)" : hop.name}
               </li>
             ))}
           </ol>
         </Card>
       </div>
 
-      <Card title="Sessions (agent workflows land with T31)">
+      <Card title="Oturumlar">
         <DataTable
           rows={sessions.data ?? []}
           rowKey={(session) => session.id}
-          empty="No sessions yet."
+          empty="Henüz oturum yok."
           columns={[
-            { header: "Workflow", cell: (session) => session.workflowId },
-            { header: "Status", cell: (session) => session.status },
-            { header: "Steps", cell: (session) => String(session.stepsCount) },
+            { header: "İş akışı", cell: (session) => session.workflowId },
+            { header: "Durum", cell: (session) => session.status },
+            { header: "Adım", cell: (session) => String(session.stepsCount) },
             {
-              header: "Started",
+              header: "Başlangıç",
               cell: (session) => new Date(session.startedAt).toLocaleString(),
             },
           ]}

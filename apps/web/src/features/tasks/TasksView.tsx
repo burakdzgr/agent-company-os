@@ -11,17 +11,19 @@ import { Button, Card, Dialog, Field, Input, Select, StatusPill, Textarea, cn } 
 import { api, keys } from "../../lib/api.js";
 import { TaskDag } from "./TaskDag.js";
 
-const COLUMNS: Array<{ label: string; statuses: string[] }> = [
-  { label: "Draft", statuses: ["DRAFT"] },
-  { label: "Backlog", statuses: ["BACKLOG"] },
-  { label: "Planned", statuses: ["PLANNED"] },
-  { label: "Assigned", statuses: ["ASSIGNED"] },
-  { label: "In Progress", statuses: ["IN_PROGRESS", "WAITING", "BLOCKED"] },
-  { label: "Review", statuses: ["REVIEW", "CHANGES_REQUESTED"] },
-  { label: "QA", statuses: ["QA", "QA_FAILED"] },
-  { label: "Approval", statuses: ["APPROVAL", "REJECTED"] },
-  { label: "Done", statuses: ["DONE"] },
-  { label: "Closed", statuses: ["FAILED", "CANCELLED"] },
+// id = kararlı testid anahtarı (data-testid={`column-${id}`}); label = görünen
+// Türkçe başlık. e2e 06/08/13 column-Draft/Backlog/… testid'lerine bağlı.
+const COLUMNS: Array<{ id: string; label: string; statuses: string[] }> = [
+  { id: "Draft", label: "Taslak", statuses: ["DRAFT"] },
+  { id: "Backlog", label: "Bekleyen", statuses: ["BACKLOG"] },
+  { id: "Planned", label: "Planlandı", statuses: ["PLANNED"] },
+  { id: "Assigned", label: "Atandı", statuses: ["ASSIGNED"] },
+  { id: "In Progress", label: "Sürüyor", statuses: ["IN_PROGRESS", "WAITING", "BLOCKED"] },
+  { id: "Review", label: "İnceleme", statuses: ["REVIEW", "CHANGES_REQUESTED"] },
+  { id: "QA", label: "QA", statuses: ["QA", "QA_FAILED"] },
+  { id: "Approval", label: "Onay", statuses: ["APPROVAL", "REJECTED"] },
+  { id: "Done", label: "Bitti", statuses: ["DONE"] },
+  { id: "Closed", label: "Kapandı", statuses: ["FAILED", "CANCELLED"] },
 ];
 
 const PRIORITY_TONE = { P0: "danger", P1: "warn", P2: "accent", P3: "neutral" } as const;
@@ -89,12 +91,12 @@ function TaskDetail({
         <p className="text-ink-600">{task.objective}</p>
         <div className="flex flex-wrap gap-2 text-xs text-ink-500">
           <StatusPill tone="accent">{task.status}</StatusPill>
-          <span>kind: {task.kind}</span>
+          <span>tür: {task.kind}</span>
           <span>risk: {task.risk}</span>
-          <span>depth: {task.delegationDepth}</span>
+          <span>derinlik: {task.delegationDepth}</span>
           {task.ownerAgentId && (
             <span>
-              owner: {agents.data?.find((a) => a.id === task.ownerAgentId)?.name ?? task.ownerAgentId}
+              sahip: {agents.data?.find((a) => a.id === task.ownerAgentId)?.name ?? task.ownerAgentId}
             </span>
           )}
         </div>
@@ -117,19 +119,19 @@ function TaskDetail({
               → {to}
             </Button>
           ))}
-          {nextStatuses.length === 0 && <span className="text-xs text-ink-400">terminal state</span>}
+          {nextStatuses.length === 0 && <span className="text-xs text-ink-400">uç durum</span>}
         </div>
 
         {(task.status === "PLANNED" || task.status === "ASSIGNED") && (
           <div className="flex items-end gap-2 border-t border-ink-100 pt-3">
             <div className="flex-1">
-              <Field label="Assign owner">
+              <Field label="Sahip ata">
                 <Select
                   value={assignee}
                   onChange={(e) => setAssignee(e.target.value)}
                   name="taskAssignee"
                 >
-                  <option value="">pick an agent…</option>
+                  <option value="">bir ajan seçin…</option>
                   {agents.data
                     ?.filter((a) => a.status === "active")
                     .map((a) => (
@@ -141,7 +143,7 @@ function TaskDetail({
               </Field>
             </div>
             <Button disabled={!assignee || assign.isPending} onClick={() => assign.mutate()} data-testid="assign-button">
-              Assign
+              Ata
             </Button>
           </div>
         )}
@@ -176,7 +178,7 @@ function TaskReviews({ companyId, taskId }: { companyId: string; taskId: string 
   };
   return (
     <div className="border-t border-ink-100 pt-3" data-testid="task-reviews">
-      <h4 className="mb-1 text-xs font-semibold uppercase text-ink-400">Reviews</h4>
+      <h4 className="mb-1 text-xs font-semibold uppercase text-ink-400">İncelemeler</h4>
       <div className="space-y-1">
         {items.map((r) => (
           <div key={r.id} className="rounded bg-ink-50 px-2 py-1.5 text-xs" data-testid="review-row">
@@ -184,10 +186,10 @@ function TaskReviews({ companyId, taskId }: { companyId: string; taskId: string 
               <StatusPill tone={TONE[r.status] ?? "neutral"}>{r.status}</StatusPill>
               <span className="font-medium">{r.kind}</span>
               <span className="text-ink-400">
-                {r.authorName ?? "?"} → {r.reviewerName ?? "unassigned"}
+                {r.authorName ?? "?"} → {r.reviewerName ?? "atanmadı"}
               </span>
               {r.mergedCommit && (
-                <code className="text-ink-400">merged @ {r.mergedCommit.slice(0, 8)}</code>
+                <code className="text-ink-400">merge @ {r.mergedCommit.slice(0, 8)}</code>
               )}
               <Button
                 variant="ghost"
@@ -195,7 +197,7 @@ function TaskReviews({ companyId, taskId }: { companyId: string; taskId: string 
                 onClick={() => setDiffFor(diffFor === r.id ? null : r.id)}
                 data-testid="review-diff-toggle"
               >
-                {diffFor === r.id ? "hide diff" : "diff"}
+                {diffFor === r.id ? "diff'i gizle" : "diff"}
               </Button>
             </div>
             {r.verdictMd && <p className="mt-1 text-ink-500">{r.verdictMd}</p>}
@@ -204,7 +206,7 @@ function TaskReviews({ companyId, taskId }: { companyId: string; taskId: string 
                 className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-ink-100 p-2 font-mono text-[11px]"
                 data-testid="review-diff"
               >
-                {diff.isLoading ? "loading diff…" : (diff.data?.diff ?? "(no diff)")}
+                {diff.isLoading ? "diff yükleniyor…" : (diff.data?.diff ?? "(diff yok)")}
               </pre>
             )}
           </div>
@@ -264,11 +266,11 @@ function CreateTaskDialog({
 
   if (!open) return null;
   return (
-    <Dialog open onClose={onClose} title="New task">
+    <Dialog open onClose={onClose} title="Yeni görev">
       <div className="space-y-3">
         <div className="flex gap-2">
           <div className="w-36">
-            <Field label="Kind">
+            <Field label="Tür">
               <Select value={kind} onChange={(e) => setKind(e.target.value)} name="taskKind">
                 {["goal", "initiative", "epic", "task", "subtask"].map((k) => (
                   <option key={k}>{k}</option>
@@ -277,7 +279,7 @@ function CreateTaskDialog({
             </Field>
           </div>
           <div className="w-28">
-            <Field label="Priority">
+            <Field label="Öncelik">
               <Select value={priority} onChange={(e) => setPriority(e.target.value)} name="taskPriority">
                 {["P0", "P1", "P2", "P3"].map((p) => (
                   <option key={p}>{p}</option>
@@ -287,9 +289,9 @@ function CreateTaskDialog({
           </div>
           {parentKind[kind] !== null && (
             <div className="flex-1">
-              <Field label={`Parent (${parentKind[kind]})`}>
+              <Field label={`Üst görev (${parentKind[kind]})`}>
                 <Select value={parentId} onChange={(e) => setParentId(e.target.value)} name="taskParent">
-                  <option value="">{kind === "task" ? "none (ad-hoc)" : "required…"}</option>
+                  <option value="">{kind === "task" ? "yok (ad-hoc)" : "zorunlu…"}</option>
                   {parentOptions.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.displayNumber} {p.title}
@@ -300,10 +302,10 @@ function CreateTaskDialog({
             </div>
           )}
         </div>
-        <Field label="Title">
+        <Field label="Başlık">
           <Input value={title} onChange={(e) => setTitle(e.target.value)} name="taskTitle" />
         </Field>
-        <Field label="Objective">
+        <Field label="Hedef">
           <Textarea
             value={objective}
             onChange={(e) => setObjective(e.target.value)}
@@ -314,14 +316,14 @@ function CreateTaskDialog({
         {error && <p className="text-xs text-danger">{error}</p>}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            Vazgeç
           </Button>
           <Button
             disabled={!title || !objective || create.isPending}
             onClick={() => create.mutate()}
             data-testid="create-task-submit"
           >
-            Create
+            Oluştur
           </Button>
         </div>
       </div>
@@ -374,37 +376,37 @@ export function TasksView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-ink-900">Tasks</h1>
+        <h1 className="text-lg font-semibold text-ink-900">Görevler</h1>
         <div className="flex rounded-md border border-ink-200 p-0.5">
           {(["kanban", "tree", "dag"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={cn(
-                "rounded px-3 py-1 text-xs font-medium capitalize",
+                "rounded px-3 py-1 text-xs font-medium",
                 tab === t ? "bg-accent-500/10 text-accent-600" : "text-ink-500 hover:bg-ink-50",
               )}
               data-testid={`tab-${t}`}
             >
-              {t}
+              {t === "kanban" ? "Kanban" : t === "tree" ? "Ağaç" : "DAG"}
             </button>
           ))}
         </div>
         <Button className="ml-auto" onClick={() => setCreateOpen(true)} data-testid="new-task-button">
-          New task
+          Yeni görev
         </Button>
       </div>
 
       {rows.length === 0 && !tasks.isLoading ? (
         <p className="py-12 text-center text-sm text-ink-400">
-          No tasks — give the CEO an objective.
+          Görev yok — CEO'ya bir hedef verin.
         </p>
       ) : tab === "kanban" ? (
         <div className="flex gap-3 overflow-x-auto pb-2" data-testid="kanban-board">
           {COLUMNS.map((column) => {
             const cards = rows.filter((t) => column.statuses.includes(t.status));
             return (
-              <div key={column.label} className="w-56 shrink-0" data-testid={`column-${column.label}`}>
+              <div key={column.id} className="w-56 shrink-0" data-testid={`column-${column.id}`}>
                 <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
                   {column.label} <span className="text-ink-300">{cards.length}</span>
                 </p>

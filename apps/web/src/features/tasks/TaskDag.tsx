@@ -103,7 +103,7 @@ export function TaskDag({
     <div ref={containerRef} className="h-[480px] w-full" data-testid="task-dag" />
   ) : (
     <p className="py-10 text-center text-sm text-ink-400" data-testid="task-dag-empty">
-      No dependencies yet — the DAG appears when tasks block each other.
+      Henüz bağımlılık yok — görevler birbirini blokladıkça DAG belirir.
     </p>
   );
 }

@@ -8,11 +8,17 @@ import { Button, Card, StatusPill, cn } from "@acos/ui";
 import { api } from "../../lib/api.js";
 
 const PERIODS: Array<{ label: string; days: number }> = [
-  { label: "24h", days: 1 },
-  { label: "7d", days: 7 },
-  { label: "30d", days: 30 },
+  { label: "24s", days: 1 },
+  { label: "7g", days: 7 },
+  { label: "30g", days: 30 },
 ];
 const GROUPS = ["kind", "agent", "project", "task"] as const;
+const GROUP_LABELS: Record<(typeof GROUPS)[number], string> = {
+  kind: "tür",
+  agent: "ajan",
+  project: "proje",
+  task: "görev",
+};
 
 const cents = (n: number) => `$${(n / 100).toFixed(2)}`;
 
@@ -47,7 +53,7 @@ export function CostsView() {
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-lg font-semibold">Costs</h2>
+        <h2 className="text-lg font-semibold">Maliyetler</h2>
         <div className="flex gap-1">
           {PERIODS.map((period) => (
             <Button
@@ -67,7 +73,7 @@ export function CostsView() {
               data-testid={`costs-group-${group}`}
               onClick={() => setGroupBy(group)}
             >
-              by {group}
+              {GROUP_LABELS[group]}
             </Button>
           ))}
         </div>
@@ -75,7 +81,7 @@ export function CostsView() {
 
       <Card className="p-4">
         <div data-testid="costs-total">
-          <p className="text-xs uppercase text-ink-400">Total spend ({days === 1 ? "24h" : `${days}d`})</p>
+          <p className="text-xs uppercase text-ink-400">Toplam harcama ({days === 1 ? "24s" : `${days}g`})</p>
           <p className="text-2xl font-semibold">{cents(summary.data?.totalCents ?? 0)}</p>
         </div>
         <div className="mt-3 flex flex-col gap-1">
@@ -93,14 +99,14 @@ export function CostsView() {
           ))}
           {summary.data && summary.data.groups.length === 0 && (
             <p className="text-sm text-ink-400" data-testid="costs-empty">
-              No spend in this window yet.
+              Bu aralıkta harcama yok.
             </p>
           )}
         </div>
       </Card>
 
       <Card className="p-4">
-        <h3 className="mb-2 text-sm font-semibold">Burn-rate projections (26 §8)</h3>
+        <h3 className="mb-2 text-sm font-semibold">Harcama hızı projeksiyonları</h3>
         <div className="flex flex-col gap-2" data-testid="costs-forecast">
           {(forecast.data?.items ?? []).map((row) => (
             <div key={row.budgetId} className="flex items-center gap-3 text-sm">
@@ -108,16 +114,16 @@ export function CostsView() {
                 {row.scopeKind} · {row.period} ({row.kind})
               </span>
               <span className="font-mono">
-                {cents(row.spentCents)} spent → {cents(row.projectedCents)} projected of{" "}
+                {cents(row.spentCents)} harcandı → {cents(row.projectedCents)} öngörü /{" "}
                 {cents(row.limitCents)}
               </span>
               <StatusPill tone={row.breach ? "warn" : "ok"}>
-                {row.breach ? "forecast breach" : "on track"}
+                {row.breach ? "aşım öngörüsü" : "yolunda"}
               </StatusPill>
             </div>
           ))}
           {forecast.data && forecast.data.items.length === 0 && (
-            <p className="text-sm text-ink-400">No active budgets.</p>
+            <p className="text-sm text-ink-400">Aktif bütçe yok.</p>
           )}
         </div>
       </Card>
@@ -126,10 +132,10 @@ export function CostsView() {
         <table className="w-full text-sm" data-testid="costs-ledger">
           <thead>
             <tr className="border-b bg-acos-bg2 text-left">
-              <th className="p-2 font-medium">When</th>
-              <th className="p-2 font-medium">Kind</th>
+              <th className="p-2 font-medium">Zaman</th>
+              <th className="p-2 font-medium">Tür</th>
               <th className="p-2 font-medium">Ref</th>
-              <th className="p-2 font-medium">Amount</th>
+              <th className="p-2 font-medium">Tutar</th>
             </tr>
           </thead>
           <tbody>

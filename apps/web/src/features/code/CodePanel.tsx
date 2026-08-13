@@ -86,7 +86,7 @@ export function CodePanel() {
         <span className="font-semibold text-acos-fg0">{agent?.name ?? "—"}</span>
         {task ? (
           <span>
-            Task: <span className="font-mono text-acos-fg1">{task.displayNumber}</span> ·{" "}
+            Görev: <span className="font-mono text-acos-fg1">{task.displayNumber}</span> ·{" "}
             {task.status}
           </span>
         ) : (

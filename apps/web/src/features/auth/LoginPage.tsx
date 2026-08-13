@@ -31,7 +31,7 @@ export function LoginPage() {
       }
       await navigate({ to: "/" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "login failed");
+      setError(err instanceof Error ? err.message : "giriş başarısız");
     } finally {
       setBusy(false);
     }
@@ -41,9 +41,9 @@ export function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-ink-50 p-4">
       <div className="w-full max-w-sm space-y-4">
         <h1 className="text-center text-2xl font-bold text-ink-900">ACOS</h1>
-        <Card title="Sign in">
+        <Card title="Giriş yap">
           <form onSubmit={submit} className="space-y-3">
-            <Field label="Email">
+            <Field label="E-posta">
               <Input
                 name="email"
                 type="email"
@@ -53,7 +53,7 @@ export function LoginPage() {
                 required
               />
             </Field>
-            <Field label="Password">
+            <Field label="Parola">
               <Input
                 name="password"
                 type="password"
@@ -64,7 +64,7 @@ export function LoginPage() {
               />
             </Field>
             {needsTotp && (
-              <Field label="Authenticator code">
+              <Field label="Doğrulayıcı kodu">
                 <Input
                   name="totpCode"
                   inputMode="numeric"
@@ -77,15 +77,15 @@ export function LoginPage() {
             )}
             {error && <p className="text-sm text-danger">{error}</p>}
             <Button type="submit" disabled={busy} className="w-full justify-center">
-              {busy ? "Signing in…" : "Sign in"}
+              {busy ? "Giriş yapılıyor…" : "Giriş yap"}
             </Button>
           </form>
         </Card>
         {setupStatus.data?.needed && (
           <p className="text-center text-sm text-ink-600">
-            First run?{" "}
+            İlk kurulum mu?{" "}
             <a href="/setup" className="text-accent-600 underline">
-              Create the Founder account
+              Founder hesabını oluştur
             </a>
           </p>
         )}

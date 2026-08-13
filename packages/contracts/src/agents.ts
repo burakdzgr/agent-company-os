@@ -52,6 +52,24 @@ export const UpdateAgentRequestSchema = z.object({
   autonomyLevel: z.number().int().min(0).max(5).optional(),
 });
 
+/**
+ * Org yerleşim değişikliği (04 §6 uyumlu): birim/pozisyon/kıdem/yönetici.
+ * managerAgentId: null = üst seviye (yönetici yok); undefined = dokunma.
+ * Edge rewiring is server-side in one tx (member_of/reports_to + inverse
+ * manages), with the org advisory lock and the reports_to cycle check.
+ */
+export const ChangeAgentPlacementRequestSchema = z
+  .object({
+    orgUnitId: z.uuid().optional(),
+    positionId: z.uuid().optional(),
+    seniority: z.string().min(1).optional(),
+    managerAgentId: z.uuid().nullable().optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), {
+    message: "at least one placement field is required",
+  });
+export type ChangeAgentPlacementRequest = z.infer<typeof ChangeAgentPlacementRequestSchema>;
+
 export const LifecycleActionRequestSchema = z.object({
   reason: z.string().optional(),
   topLevel: z.boolean().optional(),

@@ -21,7 +21,7 @@ test("communication: team channel auto-provisions; Founder message persists", as
   expect(created.ok()).toBe(true);
   const unit = await created.json();
 
-  await page.getByRole("link", { name: "COMMUNICATION", exact: true }).click();
+  await page.getByTestId("nav-communication").click();
   const channels = await (
     await page.request.get(`/api/v1/companies/${companyId}/channels?kind=team`)
   ).json();

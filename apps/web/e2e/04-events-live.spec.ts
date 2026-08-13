@@ -9,7 +9,7 @@ test("events timeline: paged history + live WS delivery", async ({ page }) => {
   await login(page);
   await openCompany(page, "Acme Technologies");
 
-  await page.getByRole("link", { name: "EVENTS" }).click();
+  await page.getByTestId("nav-events").click();
 
   // WS connects through the same-origin /ws proxy
   await expect(page.getByTestId("status-bar")).toContainText("ws: open", { timeout: 15_000 });
@@ -24,7 +24,7 @@ test("events timeline: paged history + live WS delivery", async ({ page }) => {
   const timeline = page.getByTestId("event-timeline");
   for (let i = 0; i < 300; i++) {
     if ((await timeline.getByText("company.created").count()) > 0) break;
-    const older = page.getByRole("button", { name: "Load older events" });
+    const older = page.getByRole("button", { name: "Daha eski olayları yükle" });
     if ((await older.count()) === 0) break;
     await older.click();
     await page.waitForTimeout(250); // let the next page land before re-checking

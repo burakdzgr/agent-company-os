@@ -66,7 +66,7 @@ function Placeholder({ title, note }: { title: string; note: string }) {
 const components: Record<string, FunctionComponent<IDockviewPanelProps>> = {
   memory: lazyPanel(() => <MemoryPanel />, "dark"),
   skills: lazyPanel(() => <SkillsPanel />, "dark"),
-  browser: () => <Placeholder title="Tarayıcı" note="Phase 2 — browser sandbox MVP'de yok" />,
+  browser: () => <Placeholder title="Tarayıcı" note="Faz 2 — tarayıcı sandbox'ı MVP'de yok" />,
   terminals: lazyPanel(() => <TerminalGrid />, "dark"),
   reports: lazyPanel(() => <ReportsPanel />, "dark"),
   tasks: lazyPanel(() => <TaskBoardPanel />, "dark"),

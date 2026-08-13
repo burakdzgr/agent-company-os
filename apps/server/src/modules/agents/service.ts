@@ -16,6 +16,8 @@ import {
   modelProfiles,
   modelProviders,
   orgEdges,
+  orgUnits,
+  positions,
   projectMembers,
   projects,
 } from "@acos/db/schema";
@@ -321,6 +323,172 @@ export class AgentsService {
 
   async resume(ctx: CompanyContext, agentId: string, reason?: string): Promise<AgentRow> {
     return this.transition(ctx, agentId, "active", "agent.resumed", { reason });
+  }
+
+  /**
+   * Org yerleşim değişikliği (04 §6): unit/position/seniority/manager — one
+   * tx under the org advisory lock. Old member_of / reports_to (+ inverse
+   * manages) edges are ended and new ones created via createEdgeInTx (cycle
+   * check + channel membership sync + org.edge.created included). Emits
+   * agent.updated {diff} + org.reorg.applied.
+   */
+  async changePlacement(
+    ctx: CompanyContext,
+    agentId: string,
+    patch: {
+      orgUnitId?: string | undefined;
+      positionId?: string | undefined;
+      seniority?: string | undefined;
+      managerAgentId?: string | null | undefined;
+    },
+  ): Promise<AgentRow> {
+    return this.db.transaction(async (tx) => {
+      await orgLockInTx(tx, ctx);
+      const [agent] = await tx
+        .select()
+        .from(agents)
+        .where(and(eq(agents.companyId, ctx.companyId), eq(agents.id, agentId)))
+        .for("update");
+      if (!agent) throw new AgentLifecycleError("AGENT_NOT_FOUND");
+      if (agent.status === "offboarded") {
+        throw new AgentLifecycleError("AGENT_OFFBOARDED: işten çıkarılmış ajan taşınamaz");
+      }
+
+      const diff: Record<string, unknown> = {};
+
+      if (patch.orgUnitId !== undefined && patch.orgUnitId !== agent.orgUnitId) {
+        const [unit] = await tx
+          .select({ id: orgUnits.id })
+          .from(orgUnits)
+          .where(
+            and(
+              eq(orgUnits.companyId, ctx.companyId),
+              eq(orgUnits.id, patch.orgUnitId),
+              isNull(orgUnits.archivedAt),
+            ),
+          );
+        if (!unit) throw new AgentLifecycleError("UNIT_NOT_FOUND: hedef birim yok veya arşivli");
+        const endedMember = await tx
+          .update(orgEdges)
+          .set({ endedAt: sql`now()` })
+          .where(
+            and(
+              eq(orgEdges.companyId, ctx.companyId),
+              eq(orgEdges.fromAgentId, agentId),
+              eq(orgEdges.kind, "member_of"),
+              isNull(orgEdges.endedAt),
+            ),
+          )
+          .returning({ id: orgEdges.id, endedAt: orgEdges.endedAt });
+        for (const edge of endedMember) {
+          await emitDomainEvent(tx, ctx, {
+            type: "org.edge.ended",
+            actor: { kind: "founder", id: null },
+            agentId,
+            payload: {
+              edgeId: edge.id,
+              endedAt: edge.endedAt?.toISOString(),
+              reason: "placement.changed",
+            },
+          });
+        }
+        await this.org.createEdgeInTx(tx, ctx, {
+          fromAgentId: agentId,
+          kind: "member_of",
+          toUnitId: patch.orgUnitId,
+        });
+        diff.orgUnitId = patch.orgUnitId;
+      }
+
+      if (patch.positionId !== undefined && patch.positionId !== agent.positionId) {
+        const [position] = await tx
+          .select({ id: positions.id })
+          .from(positions)
+          .where(
+            and(
+              eq(positions.companyId, ctx.companyId),
+              eq(positions.id, patch.positionId),
+              isNull(positions.archivedAt),
+            ),
+          );
+        if (!position) throw new AgentLifecycleError("POSITION_NOT_FOUND: pozisyon yok veya arşivli");
+        diff.positionId = patch.positionId;
+      }
+
+      if (patch.seniority !== undefined && patch.seniority !== agent.seniority) {
+        diff.seniority = patch.seniority;
+      }
+
+      if (patch.managerAgentId !== undefined) {
+        if (patch.managerAgentId === agentId) {
+          throw new AgentLifecycleError("SELF_MANAGER: ajan kendine raporlayamaz");
+        }
+        // end current reports_to (from agent) + its inverse manages (to agent)
+        const endedReporting = await tx
+          .update(orgEdges)
+          .set({ endedAt: sql`now()` })
+          .where(
+            and(
+              eq(orgEdges.companyId, ctx.companyId),
+              isNull(orgEdges.endedAt),
+              or(
+                and(eq(orgEdges.fromAgentId, agentId), eq(orgEdges.kind, "reports_to")),
+                and(eq(orgEdges.toAgentId, agentId), eq(orgEdges.kind, "manages")),
+              ),
+            ),
+          )
+          .returning({ id: orgEdges.id, endedAt: orgEdges.endedAt });
+        for (const edge of endedReporting) {
+          await emitDomainEvent(tx, ctx, {
+            type: "org.edge.ended",
+            actor: { kind: "founder", id: null },
+            agentId,
+            payload: {
+              edgeId: edge.id,
+              endedAt: edge.endedAt?.toISOString(),
+              reason: "placement.changed",
+            },
+          });
+        }
+        if (patch.managerAgentId !== null) {
+          const [manager] = await tx
+            .select({ id: agents.id, status: agents.status })
+            .from(agents)
+            .where(and(eq(agents.companyId, ctx.companyId), eq(agents.id, patch.managerAgentId)));
+          if (!manager || manager.status === "offboarded") {
+            throw new AgentLifecycleError("MANAGER_NOT_FOUND: yönetici yok veya işten çıkarılmış");
+          }
+          await this.org.createEdgeInTx(tx, ctx, {
+            fromAgentId: agentId,
+            kind: "reports_to",
+            toAgentId: patch.managerAgentId,
+          });
+        }
+      }
+
+      let updated = agent;
+      if (Object.keys(diff).length > 0) {
+        const [row] = await tx
+          .update(agents)
+          .set(diff)
+          .where(and(eq(agents.companyId, ctx.companyId), eq(agents.id, agentId)))
+          .returning();
+        updated = row!;
+        await emitDomainEvent(tx, ctx, {
+          type: "agent.updated",
+          actor: { kind: "founder", id: null },
+          agentId,
+          payload: { diff },
+        });
+      }
+      await emitDomainEvent(tx, ctx, {
+        type: "org.reorg.applied",
+        actor: { kind: "founder", id: null },
+        agentId,
+        payload: { operation: "agent.placement.changed", movedIds: [agentId], initiator: "founder" },
+      });
+      return updated;
+    });
   }
 
   /** 05 §3.3 (v1): end all edges, re-point direct reports, retain memory/history. */

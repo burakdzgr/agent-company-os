@@ -7,7 +7,7 @@ test("login → Acme visible → org chart shows the 8 seeded reporting lines", 
   await login(page);
   await openCompany(page, "Acme Technologies");
 
-  await page.getByRole("link", { name: "ORGANIZATION" }).click();
+  await page.getByTestId("nav-organization").click();
   await expect(page.getByTestId("org-chart")).toBeVisible();
 
   // seed units + positions present
@@ -19,11 +19,11 @@ test("login → Acme visible → org chart shows the 8 seeded reporting lines", 
 test("create a new unit through the UI (demo step 3)", async ({ page }) => {
   await login(page);
   await openCompany(page, "Acme Technologies");
-  await page.getByRole("link", { name: "ORGANIZATION" }).click();
+  await page.getByTestId("nav-organization").click();
 
   const slug = `growth-${Date.now() % 100000}`;
   await page.fill('input[name="unitName"]', "Growth");
   await page.fill('input[name="unitSlug"]', slug);
-  await page.getByRole("button", { name: "Create unit" }).click();
+  await page.getByRole("button", { name: "Birim oluştur" }).click();
   await expect(page.getByRole("cell", { name: "Growth" }).first()).toBeVisible();
 });

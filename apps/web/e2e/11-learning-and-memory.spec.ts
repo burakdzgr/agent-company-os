@@ -62,7 +62,7 @@ test("failure → consolidation → Observatory with provenance; contradiction q
 
   // ---- demo 21: the consolidated memory appears in the Observatory ----
   // (.first(): persistent-stack re-runs accumulate one lesson per run)
-  await page.getByRole("link", { name: "MEMORY" }).click();
+  await page.getByTestId("nav-memory").click();
   const row = page
     .getByTestId("memory-row")
     .filter({ hasText: "Signup e2e test is order-dependent" })

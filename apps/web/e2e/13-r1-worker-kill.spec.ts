@@ -62,8 +62,8 @@ test("R1: killing agent-worker mid-cascade loses nothing — the run resumes and
     qa: await countTasks(QA_TASK, true),
   };
 
-  await page.getByRole("link", { name: "TASKS", exact: true }).click();
-  await expect(page.getByTestId("kanban-board").or(page.getByText("No tasks"))).toBeVisible({
+  await page.getByTestId("nav-tasks").click();
+  await expect(page.getByTestId("kanban-board").or(page.getByText("Görev yok"))).toBeVisible({
     timeout: 15_000,
   });
 

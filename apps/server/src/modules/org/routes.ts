@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
+  ArchiveOrgUnitResponseSchema,
   CreateOrgEdgeRequestSchema,
   CreateOrgUnitRequestSchema,
   CreatePositionRequestSchema,
@@ -16,7 +17,7 @@ import {
 import { companyContext, type CompanyContext } from "@acos/db";
 import { ApiError } from "../../app.js";
 import type { CompanyService } from "../companies/service.js";
-import { OrgCycleError, type OrgService } from "./service.js";
+import { OrgConflictError, OrgCycleError, type OrgService } from "./service.js";
 
 const idParam = z.object({ id: z.uuid() });
 
@@ -45,6 +46,9 @@ function toApiEdge(e: {
 function mapOrgError(err: unknown): never {
   if (err instanceof OrgCycleError) {
     throw new ApiError("org_cycle_detected", err.message);
+  }
+  if (err instanceof OrgConflictError) {
+    throw new ApiError("state_precondition_failed", err.message);
   }
   const root = (err as { cause?: unknown }).cause ?? err;
   const pg = root as { code?: string; constraint?: string };
@@ -124,6 +128,26 @@ export async function registerOrgRoutes(
         .catch(mapOrgError);
       if (!unit) throw new ApiError("not_found", "unit not found");
       return toApiUnit(unit);
+    },
+  );
+
+  app.post(
+    "/api/v1/companies/:id/org/units/:unitId/archive",
+    {
+      schema: {
+        operationId: "archiveOrgUnit",
+        tags: ["org"],
+        params: idParam.extend({ unitId: z.uuid() }),
+        response: { 200: ArchiveOrgUnitResponseSchema },
+      },
+    },
+    async (request) => {
+      const ctx = await requireCompany(request, request.params.id);
+      const unit = await orgSvc()
+        .archiveUnit(ctx, request.params.unitId)
+        .catch(mapOrgError);
+      if (!unit) throw new ApiError("not_found", "unit not found");
+      return { id: unit.id, archivedAt: unit.archivedAt!.toISOString() };
     },
   );
 

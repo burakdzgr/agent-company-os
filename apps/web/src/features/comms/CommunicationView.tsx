@@ -26,7 +26,7 @@ function channelLabel(channel: Channel, agentNames: Map<string, string>): string
       .map((part) => (part === "founder" ? "Founder" : (agentNames.get(part) ?? part.slice(-6))));
     return names.join(" ↔ ");
   }
-  if (channel.kind === "task_thread") return `Task thread ${channel.taskId?.slice(-6)}`;
+  if (channel.kind === "task_thread") return `Görev kanalı ${channel.taskId?.slice(-6)}`;
   return `${channel.kind} ${channel.id.slice(-6)}`;
 }
 
@@ -65,7 +65,7 @@ export function CommunicationView() {
     <div className="flex h-[calc(100vh-9rem)] gap-4">
       <Card className="w-72 shrink-0 overflow-y-auto p-2">
         <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
-          Channels
+          Kanallar
         </p>
         {(channels.data ?? []).map((channel) => (
           <button
@@ -83,7 +83,7 @@ export function CommunicationView() {
         ))}
         {(channels.data ?? []).length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-ink-400">
-            Channels appear as teams and tasks are created.
+            Takımlar ve görevler oluştukça kanallar burada belirir.
           </p>
         )}
       </Card>
@@ -99,7 +99,7 @@ export function CommunicationView() {
                 <div key={message.id} className="text-sm">
                   <span className="font-medium text-ink-800">
                     {message.senderAgentId
-                      ? (agentNames.get(message.senderAgentId) ?? "Agent")
+                      ? (agentNames.get(message.senderAgentId) ?? "Ajan")
                       : "Founder"}
                   </span>
                   <span className="ml-2 text-xs text-ink-400">
@@ -114,7 +114,7 @@ export function CommunicationView() {
                 </div>
               ))}
               {(messages.data ?? []).length === 0 && (
-                <p className="py-8 text-center text-sm text-ink-400">No messages yet.</p>
+                <p className="py-8 text-center text-sm text-ink-400">Henüz mesaj yok.</p>
               )}
             </div>
             <footer className="flex gap-2 border-t border-ink-100 p-3">
@@ -124,7 +124,7 @@ export function CommunicationView() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && draft.trim()) send.mutate();
                 }}
-                placeholder="Message as Founder…"
+                placeholder="Founder olarak yaz…"
                 name="messageDraft"
               />
               <Button
@@ -132,13 +132,13 @@ export function CommunicationView() {
                 onClick={() => send.mutate()}
                 data-testid="send-message"
               >
-                Send
+                Gönder
               </Button>
             </footer>
           </>
         ) : (
           <p className="flex flex-1 items-center justify-center text-sm text-ink-400">
-            Pick a channel.
+            Bir kanal seçin.
           </p>
         )}
       </Card>

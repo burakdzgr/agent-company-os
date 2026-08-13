@@ -15,6 +15,11 @@ interface UiPrefsState {
   /** Bumped on every preset request so CommandCenter re-applies even the same preset. */
   presetSeq: number;
   requestPreset: (preset: CommandPreset) => void;
+  /** Founder's presentational "Deploy Ready" marks on DONE tasks — the
+   *  16-state machine is FIXED (CLAUDE.md), so this is a board-level flag,
+   *  not a task status. */
+  deployReadyTaskIds: string[];
+  toggleDeployReady: (taskId: string) => void;
 }
 
 export const useUiPrefs = create<UiPrefsState>()(
@@ -28,6 +33,13 @@ export const useUiPrefs = create<UiPrefsState>()(
       presetSeq: 0,
       requestPreset: (preset) =>
         set((s) => ({ activePreset: preset, presetSeq: s.presetSeq + 1 })),
+      deployReadyTaskIds: [],
+      toggleDeployReady: (taskId) =>
+        set((s) => ({
+          deployReadyTaskIds: s.deployReadyTaskIds.includes(taskId)
+            ? s.deployReadyTaskIds.filter((id) => id !== taskId)
+            : [...s.deployReadyTaskIds, taskId],
+        })),
     }),
     {
       name: "acos-ui-prefs",
@@ -35,6 +47,7 @@ export const useUiPrefs = create<UiPrefsState>()(
         navCollapsed: s.navCollapsed,
         commandCenterLayout: s.commandCenterLayout,
         activePreset: s.activePreset,
+        deployReadyTaskIds: s.deployReadyTaskIds,
       }),
     },
   ),

@@ -10,8 +10,8 @@ test("tasks board: groom → assign; owner-only transition refused for the Found
 }) => {
   await login(page);
   await openCompany(page, "Acme Technologies");
-  await page.getByRole("link", { name: "TASKS", exact: true }).click();
-  await expect(page.getByTestId("kanban-board").or(page.getByText("No tasks"))).toBeVisible({
+  await page.getByTestId("nav-tasks").click();
+  await expect(page.getByTestId("kanban-board").or(page.getByText("Görev yok"))).toBeVisible({
     timeout: 15_000,
   });
 
@@ -50,6 +50,6 @@ test("tasks board: groom → assign; owner-only transition refused for the Found
   await expect(page.getByTestId("transition-error")).toContainText("task_transition_invalid", {
     timeout: 15_000,
   });
-  await page.getByRole("button", { name: "Close dialog" }).click();
+  await page.getByRole("button", { name: "Diyaloğu kapat" }).click();
   await expect(page.getByTestId("column-Assigned").getByText(title)).toBeVisible();
 });

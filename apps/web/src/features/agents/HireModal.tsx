@@ -223,7 +223,7 @@ export function HireModal({ open, onClose }: { open: boolean; onClose: () => voi
             })}
           </div>
 
-          <label className={labelClass}>AI engine (kimlik modelden bağımsız kalır)</label>
+          <label className={labelClass}>AI motoru (kimlik modelden bağımsız kalır)</label>
           <div className="grid grid-cols-3 gap-1.5">
             {ENGINES.map((item, i) => (
               <button
@@ -251,7 +251,7 @@ export function HireModal({ open, onClose }: { open: boolean; onClose: () => voi
             className={inputClass}
             data-testid="hire-model"
           >
-            <option value="">Default (şirket model profili)</option>
+            <option value="">Varsayılan (şirket model profili)</option>
             {engine.models.map((m) => (
               <option key={m} value={m}>
                 {m}
@@ -261,7 +261,7 @@ export function HireModal({ open, onClose }: { open: boolean; onClose: () => voi
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className={labelClass}>Expertise</label>
+              <label className={labelClass}>Uzmanlık</label>
               <input
                 data-testid="hire-expertise"
                 value={expertiseDraft}

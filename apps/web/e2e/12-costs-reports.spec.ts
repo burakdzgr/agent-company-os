@@ -65,7 +65,7 @@ test("costs dashboard shows ledger totals + forecast; reports view renders the e
   await openCompany(page, "Acme");
 
   // ---- COSTS: totals from the real ledger + forecast row ----
-  await page.getByRole("link", { name: "COSTS" }).click();
+  await page.getByTestId("nav-costs").click();
   const total = page.getByTestId("costs-total");
   await expect(total).toBeVisible();
   // ≥ this run's 1300¢ (persistent stacks accumulate earlier runs' spend)
@@ -80,12 +80,12 @@ test("costs dashboard shows ledger totals + forecast; reports view renders the e
   await expect(
     page.getByTestId("costs-bar").filter({ hasText: `Report Demo ${marker}` }),
   ).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByTestId("costs-forecast")).toContainText("projected", {
+  await expect(page.getByTestId("costs-forecast")).toContainText("öngörü", {
     timeout: 15_000,
   });
 
   // ---- REPORTS: the executive report renders with the ledger numbers ----
-  await page.getByRole("link", { name: "REPORTS" }).click();
+  await page.getByTestId("nav-reports").click();
   const row = page
     .getByTestId("report-row")
     .filter({ hasText: `Report Demo ${marker}` })

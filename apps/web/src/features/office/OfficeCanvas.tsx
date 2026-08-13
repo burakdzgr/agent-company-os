@@ -209,7 +209,7 @@ function paintFloorplan(layer: Container, plan: Floorplan, cell: number): void {
     layer.addChild(label);
   }
   const lobby = new Text({
-    text: "LOBBY",
+    text: "LOBİ",
     style: { fill: 0xc9c4e0, fontSize: 11, fontFamily: "monospace" },
   });
   lobby.alpha = 0.55;

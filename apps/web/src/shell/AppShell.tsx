@@ -30,22 +30,24 @@ const PRESETS: Array<{ key: CommandPreset; label: string }> = [
   { key: "overview", label: "Genel" },
 ];
 
-const NAV_ITEMS: Array<{ label: string; icon: string; path?: string }> = [
-  { label: "COMMAND", icon: "◧", path: "/c/$companyId" },
-  { label: "OFFICE", icon: "🏢", path: "/c/$companyId/office" },
-  { label: "TASKS", icon: "▦", path: "/c/$companyId/tasks" },
-  { label: "AGENTS", icon: "👤", path: "/c/$companyId/agents" },
-  { label: "PROJECTS", icon: "📁", path: "/c/$companyId/projects" },
-  { label: "MEMORY", icon: "🧠", path: "/c/$companyId/memory" },
-  { label: "ORGANIZATION", icon: "🌐", path: "/c/$companyId/organization" },
-  { label: "SKILLS", icon: "🎓", path: "/c/$companyId/skills" },
-  { label: "COMMUNICATION", icon: "💬", path: "/c/$companyId/communication" },
-  { label: "TERMINALS", icon: "⌨", path: "/c/$companyId/terminals" },
-  { label: "APPROVALS", icon: "✓", path: "/c/$companyId/approvals" },
-  { label: "EVENTS", icon: "⚡", path: "/c/$companyId/events" },
-  { label: "REPORTS", icon: "📄", path: "/c/$companyId/reports" },
-  { label: "COSTS", icon: "＄", path: "/c/$companyId/costs" },
-  { label: "SETTINGS", icon: "⚙" },
+// id = kararlı test/route anahtarı (data-testid={`nav-${id}`}); label = görünen
+// + erişilebilir Türkçe ad. e2e seçicileri nav-* testid'lerini kullanır.
+const NAV_ITEMS: Array<{ id: string; label: string; icon: string; path?: string }> = [
+  { id: "command", label: "KOMUTA", icon: "◧", path: "/c/$companyId" },
+  { id: "office", label: "OFİS", icon: "🏢", path: "/c/$companyId/office" },
+  { id: "tasks", label: "GÖREVLER", icon: "▦", path: "/c/$companyId/tasks" },
+  { id: "agents", label: "AJANLAR", icon: "👤", path: "/c/$companyId/agents" },
+  { id: "projects", label: "PROJELER", icon: "📁", path: "/c/$companyId/projects" },
+  { id: "memory", label: "HAFIZA", icon: "🧠", path: "/c/$companyId/memory" },
+  { id: "organization", label: "ORGANİZASYON", icon: "🌐", path: "/c/$companyId/organization" },
+  { id: "skills", label: "YETENEKLER", icon: "🎓", path: "/c/$companyId/skills" },
+  { id: "communication", label: "İLETİŞİM", icon: "💬", path: "/c/$companyId/communication" },
+  { id: "terminals", label: "TERMİNALLER", icon: "⌨", path: "/c/$companyId/terminals" },
+  { id: "approvals", label: "ONAYLAR", icon: "✓", path: "/c/$companyId/approvals" },
+  { id: "events", label: "OLAYLAR", icon: "⚡", path: "/c/$companyId/events" },
+  { id: "reports", label: "RAPORLAR", icon: "📄", path: "/c/$companyId/reports" },
+  { id: "costs", label: "MALİYETLER", icon: "＄", path: "/c/$companyId/costs" },
+  { id: "settings", label: "AYARLAR", icon: "⚙" },
 ];
 
 function GlobalSearch({ companyId }: { companyId: string }) {
@@ -240,7 +242,7 @@ export function AppShell() {
           A<b style={{ color: "#2ec26a" }}>C</b>OS
         </span>
         <select
-          aria-label="Company"
+          aria-label="Şirket"
           value={companyId}
           onChange={(e) =>
             void navigate({ to: "/c/$companyId", params: { companyId: e.target.value } })
@@ -362,21 +364,23 @@ export function AppShell() {
           {NAV_ITEMS.map((item) =>
             item.path ? (
               <Link
-                key={item.label}
+                key={item.id}
                 to={item.path as "/c/$companyId/agents"}
                 params={{ companyId }}
                 activeOptions={{ exact: item.path === "/c/$companyId" }}
                 aria-label={item.label}
                 title={item.label}
+                data-testid={`nav-${item.id}`}
                 className="flex h-8 w-8 items-center justify-center rounded-md text-[15px] text-acos-fg1 hover:bg-acos-bg3 hover:text-acos-fg0 [&.active]:bg-acos-bg3 [&.active]:text-dept-engineering"
               >
                 <span aria-hidden>{item.icon}</span>
               </Link>
             ) : (
               <span
-                key={item.label}
+                key={item.id}
                 aria-label={item.label}
                 title={`${item.label} — daha sonraki bir görevle gelir`}
+                data-testid={`nav-${item.id}`}
                 className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-md text-[15px] text-acos-fg2/50"
               >
                 <span aria-hidden>{item.icon}</span>
@@ -438,7 +442,7 @@ export function AppShell() {
               className="rounded border border-acos-line px-1 text-[8.5px]"
               style={{ color: companyBudget.breach ? "#ff4d4d" : "#3fd0a0" }}
             >
-              {companyBudget.breach ? "breach riski" : "on track"}
+              {companyBudget.breach ? "aşım riski" : "yolunda"}
             </span>
           </span>
         )}

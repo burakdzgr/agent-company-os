@@ -63,7 +63,7 @@ function Inspector({
   if (!detail.data) {
     return (
       <Card className="p-4 text-sm text-ink-400">
-        <div data-testid="memory-inspector">Loading…</div>
+        <div data-testid="memory-inspector">Yükleniyor…</div>
       </Card>
     );
   }
@@ -77,8 +77,8 @@ function Inspector({
             {memory.title}
           </h3>
           <p className="text-xs text-ink-400">
-            {memory.scope} · {memory.type} · importance {memory.importance.toFixed(2)} ·
-            confidence {memory.confidence.toFixed(2)}
+            {memory.scope} · {memory.type} · önem {memory.importance.toFixed(2)} ·
+            güven {memory.confidence.toFixed(2)}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -91,13 +91,13 @@ function Inspector({
       <p className="whitespace-pre-wrap text-sm">{memory.content}</p>
 
       <section data-testid="inspector-provenance">
-        <h4 className="text-xs font-semibold uppercase text-ink-400">Why this exists</h4>
+        <h4 className="text-xs font-semibold uppercase text-ink-400">Neden var</h4>
         <p className="text-xs">
-          Source event: {memory.sourceEventId ?? "(none)"} · Creator:{" "}
+          Kaynak olay: {memory.sourceEventId ?? "(yok)"} · Oluşturan:{" "}
           {memory.createdByAgentName ?? "system"}
         </p>
         <h4 className="mt-2 text-xs font-semibold uppercase text-ink-400">
-          Evidence ({evidence.length})
+          Kanıt ({evidence.length})
         </h4>
         <ul className="text-xs">
           {evidence.map((item) => (
@@ -106,13 +106,13 @@ function Inspector({
               <span className="font-mono">{item.ref.slice(0, 24)}</span>
             </li>
           ))}
-          {evidence.length === 0 && <li className="text-ink-400">(none)</li>}
+          {evidence.length === 0 && <li className="text-ink-400">(yok)</li>}
         </ul>
       </section>
 
       <section>
         <h4 className="text-xs font-semibold uppercase text-ink-400">
-          Related ({relations.length})
+          İlişkili ({relations.length})
         </h4>
         <ul className="text-xs">
           {relations.map((relation) => (
@@ -129,13 +129,13 @@ function Inspector({
               {relation.otherTitle}
             </li>
           ))}
-          {relations.length === 0 && <li className="text-ink-400">(none)</li>}
+          {relations.length === 0 && <li className="text-ink-400">(yok)</li>}
         </ul>
       </section>
 
       <section data-testid="inspector-history">
         <h4 className="text-xs font-semibold uppercase text-ink-400">
-          History ({versions.length})
+          Geçmiş ({versions.length})
         </h4>
         <ul className="text-xs">
           {versions.map((version) => (
@@ -157,15 +157,15 @@ function Inspector({
             setEditing(true);
           }}
         >
-          Founder edit
+          Founder düzenlemesi
         </Button>
       )}
       {isFounder && editing && (
         <div className="flex flex-col gap-2 border-t pt-2">
-          <Field label="Title">
+          <Field label="Başlık">
             <Input name="memoryTitle" value={title} onChange={(e) => setTitle(e.target.value)} />
           </Field>
-          <Field label="Importance (0–1)">
+          <Field label="Önem (0–1)">
             <Input
               name="memoryImportance"
               value={importance}
@@ -185,17 +185,17 @@ function Inspector({
                 })
               }
             >
-              Save
+              Kaydet
             </Button>
             <Button
               variant="secondary"
               data-testid="memory-archive"
               onClick={() => patch.mutate({ archive: true, note: "founder archive" })}
             >
-              Archive
+              Arşivle
             </Button>
             <Button variant="ghost" onClick={() => setEditing(false)}>
-              Cancel
+              Vazgeç
             </Button>
           </div>
         </div>
@@ -225,7 +225,7 @@ function ContradictionQueue({ companyId, isFounder }: { companyId: string; isFou
     return (
       <Card className="p-6 text-sm text-ink-400">
         <div data-testid="contradictions-empty" className="contents" />
-        No unresolved contradictions.
+        Çözülmemiş çelişki yok.
       </Card>
     );
   }
@@ -234,14 +234,14 @@ function ContradictionQueue({ companyId, isFounder }: { companyId: string; isFou
       {items.map((pair) => (
         <Card key={pair.relationId} className="p-4">
           <div data-testid="contradiction-pair">
-          <p className="mb-2 text-xs font-semibold uppercase text-red-600">Contradiction</p>
+          <p className="mb-2 text-xs font-semibold uppercase text-red-600">Çelişki</p>
           <div className="grid grid-cols-2 gap-3">
             {[pair.a, pair.b].map((side) => (
               <div key={side.id} className="rounded border p-2">
                 <p className="text-sm font-medium">{side.title}</p>
                 <p className="text-xs text-ink-600">{side.content}</p>
                 <p className="mt-1 text-xs text-ink-400">
-                  conf {side.confidence.toFixed(2)} · {side.scope}
+                  güven {side.confidence.toFixed(2)} · {side.scope}
                 </p>
                 {isFounder && (
                   <Button
@@ -252,7 +252,7 @@ function ContradictionQueue({ companyId, isFounder }: { companyId: string; isFou
                       resolve.mutate({ relationId: pair.relationId, winnerMemoryId: side.id })
                     }
                   >
-                    Keep this
+                    Bunu koru
                   </Button>
                 )}
               </div>
@@ -264,6 +264,15 @@ function ContradictionQueue({ companyId, isFounder }: { companyId: string; isFou
     </div>
   );
 }
+
+const TAB_LABELS = { list: "LİSTE", graph: "GRAF", queues: "KUYRUKLAR" } as const;
+const STATUS_LABELS: Record<string, string> = {
+  all: "tümü",
+  active: "aktif",
+  candidate: "aday",
+  superseded: "geçersiz",
+  archived: "arşivli",
+};
 
 export function MemoryView() {
   const { companyId } = useParams({ from: "/c/$companyId" });
@@ -292,7 +301,7 @@ export function MemoryView() {
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="flex flex-wrap items-center gap-3">
-        <h2 className="text-lg font-semibold">Memory Observatory</h2>
+        <h2 className="text-lg font-semibold">Hafıza Gözlemevi</h2>
         <div className="flex gap-1">
           {(["list", "graph", "queues"] as const).map((key) => (
             <Button
@@ -301,7 +310,7 @@ export function MemoryView() {
               data-testid={`memory-tab-${key}`}
               onClick={() => setTab(key)}
             >
-              {key.toUpperCase()}
+              {TAB_LABELS[key]}
               {key === "queues" && badges.contradictions > 0 && (
                 <span
                   data-testid="contradiction-badge"
@@ -320,7 +329,7 @@ export function MemoryView() {
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
           >
-            <option value="">all types</option>
+            <option value="">tüm türler</option>
             {TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
@@ -335,13 +344,13 @@ export function MemoryView() {
           >
             {["all", "active", "candidate", "superseded", "archived"].map((s) => (
               <option key={s} value={s}>
-                {s}
+                {STATUS_LABELS[s] ?? s}
               </option>
             ))}
           </select>
           <Input
             name="memorySearch"
-            placeholder="search…"
+            placeholder="ara…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -355,13 +364,13 @@ export function MemoryView() {
               <table className="w-full text-sm" data-testid="memory-table">
                 <thead>
                   <tr className="border-b bg-acos-bg2 text-left">
-                    <th className="p-2 font-medium">Title</th>
-                    <th className="p-2 font-medium">Type</th>
-                    <th className="p-2 font-medium">Scope</th>
-                    <th className="p-2 font-medium">Imp</th>
-                    <th className="p-2 font-medium">Conf</th>
-                    <th className="p-2 font-medium">Retrievals</th>
-                    <th className="p-2 font-medium">Status</th>
+                    <th className="p-2 font-medium">Başlık</th>
+                    <th className="p-2 font-medium">Tür</th>
+                    <th className="p-2 font-medium">Kapsam</th>
+                    <th className="p-2 font-medium">Önem</th>
+                    <th className="p-2 font-medium">Güven</th>
+                    <th className="p-2 font-medium">Erişim</th>
+                    <th className="p-2 font-medium">Durum</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -391,7 +400,7 @@ export function MemoryView() {
                   {list.data && list.data.items.length === 0 && (
                     <tr>
                       <td className="p-4 text-ink-400" colSpan={7} data-testid="memory-empty">
-                        No memories match — the company learns as tasks complete.
+                        Eşleşen anı yok — şirket görevler tamamlandıkça öğrenir.
                       </td>
                     </tr>
                   )}

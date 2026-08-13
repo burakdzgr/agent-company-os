@@ -44,16 +44,16 @@ export function SkillsView() {
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-baseline justify-between">
-        <h2 className="text-lg font-semibold">Skills matrix</h2>
+        <h2 className="text-lg font-semibold">Yetenek matrisi</h2>
         <p className="text-xs text-ink-400">
-          Levels are recomputed deterministically from the evidence trail — never set by a model.
+          Seviyeler kanıt izinden deterministik hesaplanır — asla bir model tarafından atanmaz.
         </p>
       </div>
-      {matrix.isLoading && <p className="text-sm text-ink-400">Loading…</p>}
+      {matrix.isLoading && <p className="text-sm text-ink-400">Yükleniyor…</p>}
       {matrix.data && agents.length === 0 && (
         <Card className="p-6 text-sm text-ink-400" data-testid="skills-empty">
-          No skill evidence yet — levels appear when tagged tasks complete and reviews are
-          accepted.
+          Henüz yetenek kanıtı yok — etiketli görevler tamamlanıp incelemeler kabul edilince
+          seviyeler belirir.
         </Card>
       )}
       {agents.length > 0 && (
@@ -61,7 +61,7 @@ export function SkillsView() {
           <table className="w-full text-sm" data-testid="skills-matrix">
             <thead>
               <tr className="border-b bg-acos-bg2 text-left">
-                <th className="p-2 font-medium">Agent</th>
+                <th className="p-2 font-medium">Ajan</th>
                 {skills.map(([skillId, name]) => (
                   <th key={skillId} className="p-2 font-medium">
                     {name}
@@ -80,7 +80,7 @@ export function SkillsView() {
                         {cell ? (
                           <span
                             data-testid={`skill-cell-${cell.skillName}`}
-                            title={`confidence ${cell.confidence.toFixed(2)} — ${cell.evidenceCount} evidence rows`}
+                            title={`güven ${cell.confidence.toFixed(2)} — ${cell.evidenceCount} kanıt satırı`}
                             className={cn(
                               "inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-semibold",
                               LEVEL_TONE[cell.level] ?? LEVEL_TONE[1],

@@ -22,7 +22,7 @@ export function ReportsView() {
   return (
     <div className="grid gap-4 p-4 md:grid-cols-[320px_1fr]">
       <div className="flex flex-col gap-2">
-        <h2 className="text-lg font-semibold">Executive reports</h2>
+        <h2 className="text-lg font-semibold">Yönetici raporları</h2>
         {items.map((report) => (
           <Card
             key={report.id}
@@ -43,7 +43,7 @@ export function ReportsView() {
         {reports.data && items.length === 0 && (
           <Card className="p-6 text-sm text-ink-400">
             <div data-testid="reports-empty">
-              No executive reports yet — the CEO reports when a project completes.
+              Henüz yönetici raporu yok — proje tamamlanınca CEO raporlar.
             </div>
           </Card>
         )}
@@ -55,7 +55,7 @@ export function ReportsView() {
               className="whitespace-pre-wrap font-sans text-sm"
               data-testid="report-content"
             >
-              {selected.contentMd ?? "(empty)"}
+              {selected.contentMd ?? "(boş)"}
             </pre>
           </Card>
         )}

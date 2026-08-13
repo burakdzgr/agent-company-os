@@ -54,7 +54,7 @@ export function TeamPanel() {
               </span>
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[8.5px] text-acos-fg2">
-              {leadId && agentName.get(leadId) && <span>Lead: {agentName.get(leadId)}</span>}
+              {leadId && agentName.get(leadId) && <span>Lider: {agentName.get(leadId)}</span>}
               {[...byBadge.entries()].map(([badge, count]) => (
                 <span
                   key={badge}

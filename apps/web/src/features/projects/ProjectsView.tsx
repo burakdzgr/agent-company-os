@@ -46,29 +46,29 @@ function CreateProjectForm({ companyId, onDone }: { companyId: string; onDone: (
   return (
     <Card className="flex flex-col gap-3 p-4">
       <div data-testid="project-create-form" className="contents" />
-      <h3 className="text-sm font-semibold">New project</h3>
-      <Field label="Name">
+      <h3 className="text-sm font-semibold">Yeni proje</h3>
+      <Field label="Ad">
         <Input name="name" value={name} onChange={(e) => setName(e.target.value)} />
       </Field>
-      <Field label="Business goal / desired outcome">
+      <Field label="İş hedefi / istenen sonuç">
         <Textarea
           name="objective"
           rows={3}
           value={objective}
           onChange={(e) => setObjective(e.target.value)}
-          placeholder="What should this project achieve, in business terms?"
+          placeholder="Bu proje iş açısından neyi başarmalı?"
         />
       </Field>
-      <Field label="Constraints (optional)">
+      <Field label="Kısıtlar (opsiyonel)">
         <Textarea
           name="constraints"
           rows={2}
           value={constraints}
           onChange={(e) => setConstraints(e.target.value)}
-          placeholder="Budget, deadline, “don't touch X”…"
+          placeholder="Bütçe, son tarih, 'X'e dokunma'…"
         />
       </Field>
-      <Field label="Import from git URL (optional — empty = greenfield)">
+      <Field label="Git URL'den içe aktar (opsiyonel — boş = sıfırdan)">
         <Input
           name="sourceUrl"
           value={sourceUrl}
@@ -83,10 +83,10 @@ function CreateProjectForm({ companyId, onDone }: { companyId: string; onDone: (
           disabled={create.isPending || name.length < 2 || objective.length < 4}
           data-testid="project-create-submit"
         >
-          {create.isPending ? "Creating…" : "Create project"}
+          {create.isPending ? "Oluşturuluyor…" : "Proje oluştur"}
         </Button>
         <Button variant="ghost" onClick={onDone}>
-          Cancel
+          Vazgeç
         </Button>
       </div>
     </Card>
@@ -117,7 +117,7 @@ function ProjectDetail({ companyId, project }: { companyId: string; project: Pro
               onClick={() => setTab(t)}
               data-testid={`project-tab-${t}`}
             >
-              {t === "overview" ? "Overview" : "Intake Report"}
+              {t === "overview" ? "Genel" : "Analiz Raporu"}
             </Button>
           ))}
         </div>
@@ -125,25 +125,25 @@ function ProjectDetail({ companyId, project }: { companyId: string; project: Pro
       {tab === "overview" ? (
         <div className="flex flex-col gap-3 overflow-y-auto text-sm">
           <section>
-            <h4 className="text-xs font-semibold uppercase text-ink-400">Objective</h4>
+            <h4 className="text-xs font-semibold uppercase text-ink-400">Hedef</h4>
             <p className="whitespace-pre-wrap">{project.objective}</p>
           </section>
           {project.constraints && (
             <section>
-              <h4 className="text-xs font-semibold uppercase text-ink-400">Constraints</h4>
+              <h4 className="text-xs font-semibold uppercase text-ink-400">Kısıtlar</h4>
               <p className="whitespace-pre-wrap">{project.constraints}</p>
             </section>
           )}
           {project.repository && (
             <section>
-              <h4 className="text-xs font-semibold uppercase text-ink-400">Repository</h4>
+              <h4 className="text-xs font-semibold uppercase text-ink-400">Depo</h4>
               <p>
-                <code className="text-xs">{project.repository.barePath}</code> — default branch{" "}
+                <code className="text-xs">{project.repository.barePath}</code> — varsayılan dal{" "}
                 <code className="text-xs">{project.repository.defaultBranch}</code>
                 {project.repository.originUrl && (
                   <>
                     {" "}
-                    · imported from <code className="text-xs">{project.repository.originUrl}</code>
+                    · içe aktarıldı: <code className="text-xs">{project.repository.originUrl}</code>
                   </>
                 )}
               </p>
@@ -153,11 +153,11 @@ function ProjectDetail({ companyId, project }: { companyId: string; project: Pro
       ) : project.intakeReportArtifactId === null ? (
         <p className="text-sm text-ink-400" data-testid="report-missing">
           {project.status === "intake"
-            ? "Intake is running — the report lands here."
-            : "No intake report (greenfield project)."}
+            ? "Analiz sürüyor — rapor buraya düşecek."
+            : "Analiz raporu yok (sıfırdan proje)."}
         </p>
       ) : report.isLoading ? (
-        <p className="text-sm text-ink-400">Loading report…</p>
+        <p className="text-sm text-ink-400">Rapor yükleniyor…</p>
       ) : (
         <pre
           className="flex-1 overflow-auto whitespace-pre-wrap rounded bg-ink-50 p-3 text-xs leading-relaxed"
@@ -188,12 +188,12 @@ export function ProjectsView() {
     <div className="flex h-full min-h-0 gap-3 p-3">
       <div className="flex w-80 shrink-0 flex-col gap-2">
         <Button onClick={() => setCreating(true)} data-testid="project-create-open">
-          + New project
+          + Yeni proje
         </Button>
         <Card className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
-          {projects.isLoading && <div className="p-2 text-sm text-ink-400">Loading…</div>}
+          {projects.isLoading && <div className="p-2 text-sm text-ink-400">Yükleniyor…</div>}
           {!projects.isLoading && items.length === 0 && (
-            <div className="p-2 text-sm text-ink-400">No projects yet.</div>
+            <div className="p-2 text-sm text-ink-400">Henüz proje yok.</div>
           )}
           {items.map((p) => (
             <button
@@ -222,7 +222,7 @@ export function ProjectsView() {
         <ProjectDetail key={selected.id} companyId={companyId} project={selected} />
       ) : (
         <Card className="flex flex-1 items-center justify-center text-sm text-ink-400">
-          Select a project or create one.
+          Bir proje seçin ya da oluşturun.
         </Card>
       )}
     </div>

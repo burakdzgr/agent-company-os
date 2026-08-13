@@ -19,7 +19,7 @@ export function SetupPage() {
       await api.auth.setup({ email, password, displayName });
       await navigate({ to: "/" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "setup failed");
+      setError(err instanceof Error ? err.message : "kurulum başarısız");
     } finally {
       setBusy(false);
     }
@@ -28,16 +28,16 @@ export function SetupPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-ink-50 p-4">
       <div className="w-full max-w-sm space-y-4">
-        <h1 className="text-center text-2xl font-bold text-ink-900">ACOS — first run</h1>
-        <Card title="Create the Founder account">
+        <h1 className="text-center text-2xl font-bold text-ink-900">ACOS — ilk kurulum</h1>
+        <Card title="Founder hesabını oluştur">
           <form onSubmit={submit} className="space-y-3">
-            <Field label="Display name">
+            <Field label="Görünen ad">
               <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} required />
             </Field>
-            <Field label="Email">
+            <Field label="E-posta">
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </Field>
-            <Field label="Password (min 12 chars)">
+            <Field label="Parola (en az 12 karakter)">
               <Input
                 type="password"
                 minLength={12}
@@ -48,7 +48,7 @@ export function SetupPage() {
             </Field>
             {error && <p className="text-sm text-danger">{error}</p>}
             <Button type="submit" disabled={busy} className="w-full justify-center">
-              {busy ? "Creating…" : "Create & sign in"}
+              {busy ? "Oluşturuluyor…" : "Oluştur & giriş yap"}
             </Button>
           </form>
         </Card>

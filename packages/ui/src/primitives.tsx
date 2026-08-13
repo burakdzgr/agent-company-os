@@ -118,7 +118,7 @@ export function Dialog({
           <h2 className="text-base font-semibold text-ink-900">{title}</h2>
           <button
             onClick={onClose}
-            aria-label="Close dialog"
+            aria-label="Diyaloğu kapat"
             className="rounded px-2 text-ink-400 hover:bg-ink-100 hover:text-ink-800"
           >
             ✕
@@ -149,7 +149,7 @@ export function DataTable<Row>({
   empty?: ReactNode;
 }) {
   if (rows.length === 0) {
-    return <p className="py-6 text-center text-sm text-ink-400">{empty ?? "No records."}</p>;
+    return <p className="py-6 text-center text-sm text-ink-400">{empty ?? "Kayıt yok."}</p>;
   }
   return (
     <table className="w-full text-left text-sm">

@@ -67,7 +67,7 @@ export function HireWizard({
   });
 
   return (
-    <Dialog open={open} title="Hire agent" onClose={onClose}>
+    <Dialog open={open} title="Ajan işe al" onClose={onClose}>
       <form
         className="space-y-3"
         data-testid="hire-wizard"
@@ -76,18 +76,18 @@ export function HireWizard({
           hire.mutate();
         }}
       >
-        <Field label="Name">
+        <Field label="İsim">
           <Input name="agentName" value={name} onChange={(e) => setName(e.target.value)} required />
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Position">
+          <Field label="Pozisyon">
             <Select
               name="agentPosition"
               value={positionId}
               onChange={(e) => setPositionId(e.target.value)}
               required
             >
-              <option value="">— select —</option>
+              <option value="">— seçin —</option>
               {positions.data?.map((position) => (
                 <option key={position.id} value={position.id}>
                   {position.title}
@@ -95,14 +95,14 @@ export function HireWizard({
               ))}
             </Select>
           </Field>
-          <Field label="Primary unit">
+          <Field label="Birim">
             <Select
               name="agentUnit"
               value={orgUnitId}
               onChange={(e) => setOrgUnitId(e.target.value)}
               required
             >
-              <option value="">— select —</option>
+              <option value="">— seçin —</option>
               {units.data?.map((unit) => (
                 <option key={unit.id} value={unit.id}>
                   {unit.name}
@@ -110,13 +110,13 @@ export function HireWizard({
               ))}
             </Select>
           </Field>
-          <Field label="Manager">
+          <Field label="Yönetici">
             <Select
               name="agentManager"
               value={managerAgentId}
               onChange={(e) => setManagerAgentId(e.target.value)}
             >
-              <option value="">— top level —</option>
+              <option value="">— üst seviye —</option>
               {agents.data
                 ?.filter((agent) => agent.status === "active")
                 .map((agent) => (
@@ -126,7 +126,7 @@ export function HireWizard({
                 ))}
             </Select>
           </Field>
-          <Field label="Seniority">
+          <Field label="Kıdem">
             <Select value={seniority} onChange={(e) => setSeniority(e.target.value as never)}>
               {SENIORITIES.map((level) => (
                 <option key={level} value={level}>
@@ -136,7 +136,7 @@ export function HireWizard({
             </Select>
           </Field>
         </div>
-        <Field label={`Autonomy level (L${autonomyLevel})`}>
+        <Field label={`Otonomi seviyesi (L${autonomyLevel})`}>
           <input
             type="range"
             min={0}
@@ -146,7 +146,7 @@ export function HireWizard({
             className="w-full"
           />
         </Field>
-        <Field label="Persona (short professional bio)">
+        <Field label="Persona (kısa profesyonel özgeçmiş)">
           <Textarea
             name="agentPersona"
             rows={3}
@@ -157,7 +157,7 @@ export function HireWizard({
         </Field>
         {error && <p className="text-sm text-danger">{error}</p>}
         <Button type="submit" disabled={hire.isPending} className="w-full justify-center">
-          {hire.isPending ? "Hiring…" : "Hire & activate"}
+          {hire.isPending ? "İşe alınıyor…" : "İşe al & aktifleştir"}
         </Button>
       </form>
     </Dialog>

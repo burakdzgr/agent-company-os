@@ -84,14 +84,14 @@ export function EventsView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-ink-900">Events</h1>
+        <h1 className="text-lg font-semibold text-ink-900">Olaylar</h1>
         <StatusPill tone={status === "open" ? "ok" : status === "replaying" ? "accent" : "warn"}>
           ws: {status}
         </StatusPill>
         <div className="ml-auto flex items-center gap-2">
           <Input
-            aria-label="Type filter"
-            placeholder="types (comma, prefix ok: agent.*)"
+            aria-label="Tür filtresi"
+            placeholder="türler (virgüllü, önek olur: agent.*)"
             className="!w-72"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
@@ -101,7 +101,7 @@ export function EventsView() {
             onClick={() => setLive((v) => !v)}
             data-testid="live-toggle"
           >
-            {live ? "● Live" : "Paged"}
+            {live ? "● Canlı" : "Sayfalı"}
           </Button>
         </div>
       </div>
@@ -110,8 +110,8 @@ export function EventsView() {
         {events.length === 0 ? (
           <p className="py-8 text-center text-sm text-ink-400">
             {live
-              ? "Events will appear as your company acts."
-              : "No events match the current filters."}
+              ? "Şirketiniz hareket ettikçe olaylar burada akar."
+              : "Filtrelere uyan olay yok."}
           </p>
         ) : (
           <div data-testid="event-timeline">
@@ -123,7 +123,7 @@ export function EventsView() {
         {!live && paged.hasNextPage && (
           <div className="pt-3 text-center">
             <Button variant="ghost" onClick={() => void paged.fetchNextPage()}>
-              Load older events
+              Daha eski olayları yükle
             </Button>
           </div>
         )}

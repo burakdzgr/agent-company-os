@@ -48,14 +48,14 @@ export function OfficeView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-ink-900">Office</h1>
+        <h1 className="text-lg font-semibold text-ink-900">Ofis</h1>
         <StatusPill tone={status === "open" ? "ok" : "warn"}>ws: {status}</StatusPill>
         <span className="text-xs text-ink-400" data-testid="office-agent-count">
-          {snapshot?.agents.length ?? 0} agents on the floor
+          {snapshot?.agents.length ?? 0} ajan ofiste
         </span>
         <div className="ml-auto">
           <Button variant="ghost" onClick={() => setInspectorOpen((v) => !v)}>
-            {inspectorOpen ? "Hide inspector" : "Debug inspector"}
+            {inspectorOpen ? "İnceleyiciyi gizle" : "Debug inceleyici"}
           </Button>
         </div>
       </div>
@@ -75,10 +75,10 @@ export function OfficeView() {
             </div>
             <div className="ml-auto flex gap-2">
               <Link to="/c/$companyId/agents/$agentId" params={{ companyId, agentId: selected.agentId }}>
-                <Button variant="secondary">Open in Agent Monitor</Button>
+                <Button variant="secondary">Ajan Monitöründe aç</Button>
               </Link>
               <Button variant="ghost" onClick={() => setSelectedAgentId(null)}>
-                Close
+                Kapat
               </Button>
             </div>
           </div>
@@ -88,7 +88,7 @@ export function OfficeView() {
       {inspectorOpen && (
         <Card className="p-4 text-xs" data-testid="office-inspector">
           <div className="mb-2 font-medium text-ink-700">
-            Every animation has a causal event id — last applied:{" "}
+            Her animasyonun nedensel olay id'si var — son uygulanan:{" "}
             <code data-testid="last-applied-event-id">{engine.lastAppliedEventId ?? "—"}</code>
           </div>
           <pre className="max-h-48 overflow-auto rounded bg-ink-50 p-2">

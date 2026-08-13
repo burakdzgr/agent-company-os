@@ -117,12 +117,12 @@ export function ThemePreviewPage() {
       <style>{previewCss}</style>
       <header className="flex items-baseline gap-3">
         <h1 className="text-base font-bold">
-          A<b style={{ color: departmentColors.operations }}>C</b>OS — acosDark Theme Preview
+          A<b style={{ color: departmentColors.operations }}>C</b>OS — acosDark Tema Önizleme
         </h1>
         <span className="text-[11px] text-acos-fg2">U01 · 36 §2 token seti</span>
       </header>
 
-      <SectionTitle>Surfaces + text</SectionTitle>
+      <SectionTitle>Yüzeyler + metin</SectionTitle>
       <div className="grid max-w-4xl grid-cols-2 gap-2 sm:grid-cols-4">
         {Object.entries(acosDarkSurfaces).map(([name, value]) => (
           <Swatch key={name} name={`--${name}`} value={value} />
@@ -132,7 +132,7 @@ export function ThemePreviewPage() {
         ))}
       </div>
 
-      <SectionTitle>Department accents</SectionTitle>
+      <SectionTitle>Departman vurguları</SectionTitle>
       <div className="grid max-w-4xl grid-cols-2 gap-2 sm:grid-cols-4">
         {Object.entries(departmentColors).map(([name, value]) => (
           <Swatch key={name} name={name} value={value} text={value} />
@@ -146,7 +146,7 @@ export function ThemePreviewPage() {
         ))}
       </div>
 
-      <SectionTitle>Typography</SectionTitle>
+      <SectionTitle>Tipografi</SectionTitle>
       <div className="max-w-xl rounded-md border border-acos-line bg-acos-bg1 px-3 py-2.5">
         <p className="text-[13px]">Inter 13px — yoğun komuta merkezi arayüz metni.</p>
         <p className="mt-1 font-mono text-[11px] tabular-nums text-acos-fg1">
@@ -154,7 +154,7 @@ export function ThemePreviewPage() {
         </p>
       </div>
 
-      <SectionTitle>Buttons</SectionTitle>
+      <SectionTitle>Butonlar</SectionTitle>
       <div className="flex flex-wrap items-center gap-2">
         <button
           className="rounded-md border px-2.5 py-1 text-[11px] font-semibold text-white"
@@ -182,7 +182,7 @@ export function ThemePreviewPage() {
         </button>
       </div>
 
-      <SectionTitle>Mock panel</SectionTitle>
+      <SectionTitle>Örnek panel</SectionTitle>
       <MockPanel />
     </div>
   );

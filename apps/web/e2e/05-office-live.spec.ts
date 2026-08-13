@@ -8,7 +8,7 @@ import { login, openCompany } from "./helpers";
 async function openOffice(page: Page): Promise<void> {
   await login(page);
   await openCompany(page, "Acme Technologies");
-  await page.getByRole("link", { name: "OFFICE", exact: true }).click();
+  await page.getByTestId("nav-office").click();
   await expect(page.getByTestId("office-agent-count")).toBeVisible({ timeout: 15_000 });
   await page.waitForFunction(() => (window.__acosOffice?.agentCount ?? 0) > 0, undefined, {
     timeout: 15_000,
@@ -88,7 +88,7 @@ test("M2: live hire appears in two browsers; reload catches up from the snapshot
     { timeout: 15_000 },
   );
   await expect(pageA.getByTestId("office-agent-count")).toHaveText(
-    `${countBefore + 1} agents on the floor`,
+    `${countBefore + 1} ajan ofiste`,
   );
 
   await contextA.close();
