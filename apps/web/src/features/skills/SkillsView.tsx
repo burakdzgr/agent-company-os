@@ -9,7 +9,7 @@ import type { SkillMatrixRow } from "@acos/contracts";
 import { api } from "../../lib/api.js";
 
 const LEVEL_TONE: Record<number, string> = {
-  1: "bg-neutral-200 text-neutral-700",
+  1: "bg-acos-bg3 text-ink-600",
   2: "bg-sky-100 text-sky-800",
   3: "bg-emerald-100 text-emerald-800",
   4: "bg-amber-100 text-amber-800",
@@ -45,13 +45,13 @@ export function SkillsView() {
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-baseline justify-between">
         <h2 className="text-lg font-semibold">Skills matrix</h2>
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-ink-400">
           Levels are recomputed deterministically from the evidence trail — never set by a model.
         </p>
       </div>
-      {matrix.isLoading && <p className="text-sm text-neutral-500">Loading…</p>}
+      {matrix.isLoading && <p className="text-sm text-ink-400">Loading…</p>}
       {matrix.data && agents.length === 0 && (
-        <Card className="p-6 text-sm text-neutral-500" data-testid="skills-empty">
+        <Card className="p-6 text-sm text-ink-400" data-testid="skills-empty">
           No skill evidence yet — levels appear when tagged tasks complete and reviews are
           accepted.
         </Card>
@@ -60,7 +60,7 @@ export function SkillsView() {
         <Card className="overflow-x-auto p-0">
           <table className="w-full text-sm" data-testid="skills-matrix">
             <thead>
-              <tr className="border-b bg-neutral-50 text-left">
+              <tr className="border-b bg-acos-bg2 text-left">
                 <th className="p-2 font-medium">Agent</th>
                 {skills.map(([skillId, name]) => (
                   <th key={skillId} className="p-2 font-medium">
@@ -92,7 +92,7 @@ export function SkillsView() {
                             </span>
                           </span>
                         ) : (
-                          <span className="text-neutral-300">—</span>
+                          <span className="text-ink-400">—</span>
                         )}
                       </td>
                     );

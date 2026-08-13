@@ -12,6 +12,7 @@ import { api, keys } from "../lib/api.js";
 import { useEventTicker } from "../stores/eventTicker.js";
 import { usePresence } from "../stores/presence.js";
 import { useUiPrefs, type CommandPreset } from "../stores/uiPrefs.js";
+import { useFocus } from "../stores/focus.js";
 import { RealtimeDispatcher, useRealtimeStatus } from "../realtime/RealtimeDispatcher.js";
 import { HireModal } from "../features/agents/HireModal.js";
 import { useNotifications } from "../stores/notifications.js";
@@ -105,32 +106,68 @@ function TeamChips({ companyId }: { companyId: string }) {
     queryKey: keys.orgEdges(companyId),
     queryFn: () => api.org.listEdges(companyId),
   });
+  const teamFilter = useFocus((s) => s.teamFilter);
+  const setTeamFilter = useFocus((s) => s.setTeamFilter);
   const teams = (units.data ?? []).filter((u) => u.kind === "team");
   const headcount = (unitId: string) =>
     (edges.data ?? []).filter(
       (e) => e.kind === "member_of" && e.toUnitId === unitId && e.endedAt === null,
     ).length;
-  const goOrg = () => void navigate({ to: "/c/$companyId/organization", params: { companyId } });
+
+  // P1-A: a chip FILTERS the Command Center to that team (0-member teams
+  // included — panels show their empty states); second click clears.
+  function toggle(team: { id: string; name: string }) {
+    setTeamFilter(
+      teamFilter?.unitId === team.id ? null : { unitId: team.id, name: team.name },
+    );
+    void navigate({ to: "/c/$companyId", params: { companyId } });
+  }
 
   return (
     // N7: chips are decorative context — they yield first under ~1100px
     <div className="hidden min-w-0 items-center gap-1.5 lg:flex" data-testid="team-chips">
-      {teams.slice(0, 4).map((team) => (
+      {teams.slice(0, 6).map((team) => {
+        const active = teamFilter?.unitId === team.id;
+        return (
+          <button
+            key={team.id}
+            data-testid={`team-chip-${team.id}`}
+            onClick={() => toggle(team)}
+            title={`${team.name} — komuta merkezini bu takıma filtrele`}
+            className={cn(
+              "flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px]",
+              active
+                ? "border-dept-engineering bg-dept-engineering/15 text-acos-fg0"
+                : "border-acos-line bg-acos-bg2 text-acos-fg1 hover:border-acos-fg2",
+            )}
+          >
+            <span className="max-w-28 truncate">{team.name}</span>
+            <span
+              className={cn(
+                "rounded-full px-1.5 text-[9px] tabular-nums",
+                active ? "bg-dept-engineering text-acos-bg0" : "bg-acos-bg3",
+              )}
+            >
+              {headcount(team.id)}
+            </span>
+          </button>
+        );
+      })}
+      {teams.length > 6 && <span className="text-[10px] text-acos-fg2">+{teams.length - 6}</span>}
+      {teamFilter && (
         <button
-          key={team.id}
-          onClick={goOrg}
-          className="flex shrink-0 items-center gap-1.5 rounded-full border border-acos-line bg-acos-bg2 px-2 py-0.5 text-[11px] text-acos-fg1 hover:border-acos-fg2"
+          data-testid="team-filter-clear"
+          onClick={() => setTeamFilter(null)}
+          className="shrink-0 text-[10px] text-acos-fg2 hover:text-acos-fg0"
+          title="takım filtresini kaldır"
         >
-          <span className="max-w-20 truncate">{team.name}</span>
-          <span className="rounded-full bg-acos-bg3 px-1.5 text-[9px] tabular-nums">
-            {headcount(team.id)}
-          </span>
+          ✕ filtre
         </button>
-      ))}
-      {teams.length > 4 && (
-        <span className="text-[10px] text-acos-fg2">+{teams.length - 4}</span>
       )}
-      <button onClick={goOrg} className="shrink-0 text-[11px] text-acos-fg2 hover:text-acos-fg1">
+      <button
+        onClick={() => void navigate({ to: "/c/$companyId/organization", params: { companyId } })}
+        className="shrink-0 text-[11px] text-acos-fg2 hover:text-acos-fg1"
+      >
         + Takım
       </button>
     </div>
@@ -348,17 +385,11 @@ export function AppShell() {
           )}
         </nav>
 
-        <main className={cn("min-w-0 flex-1 overflow-auto", onCommandCenter ? "" : "p-2")}>
-          {onCommandCenter ? (
-            <div className="h-full">
-              <Outlet />
-            </div>
-          ) : (
-            /* Light island: pre-overhaul routes keep their styling until U05–U09. */
-            <div className="min-h-full rounded-lg bg-ink-50 p-4">
-              <Outlet />
-            </div>
-          )}
+        {/* P0-B: no more light island — every route renders on the dark canvas */}
+        <main className={cn("min-w-0 flex-1 overflow-auto", onCommandCenter ? "" : "p-4")}>
+          <div className={onCommandCenter ? "h-full" : "min-h-full"}>
+            <Outlet />
+          </div>
         </main>
       </div>
 

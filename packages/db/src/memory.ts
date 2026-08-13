@@ -3,7 +3,7 @@
 // activities, the promotion sweep (T45) and the Observatory REST surface all
 // persist/merge/query through the SAME rules — the company-scope assert, the
 // contradiction confidence cap and the versioning discipline cannot diverge.
-import { and, asc, eq, inArray, isNotNull, like, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import { parseEventPayload } from "@acos/events";
 import { appendEvents, type NewEventInput, type Tx } from "./outbox.js";
 import type { CompanyContext } from "./context.js";
@@ -420,6 +420,35 @@ export class MemoryConsolidationService {
 
       return { memoryId, status, confidence };
     });
+  }
+
+  /**
+   * P1-B (UI/UX review): deterministic exact-duplicate probe — an ACTIVE
+   * memory in the SAME scope with the SAME (case-insensitive) title. Runs
+   * BEFORE the embedding spend so the fast-merge path also works in the
+   * offline/scripted profile where embeddings are unavailable (the old flow
+   * skipped similarity entirely on embed failure and stacked duplicates).
+   */
+  async findExactActive(
+    ctx: CompanyContext,
+    input: { scope: string; scopeRef: string | null; title: string },
+  ): Promise<{ id: string } | null> {
+    const [row] = await this.db
+      .select({ id: memories.id })
+      .from(memories)
+      .where(
+        and(
+          eq(memories.companyId, ctx.companyId),
+          eq(memories.scope, input.scope),
+          input.scopeRef === null
+            ? isNull(memories.scopeRef)
+            : eq(memories.scopeRef, input.scopeRef),
+          eq(memories.status, "active"),
+          sql`lower(${memories.title}) = lower(${input.title})`,
+        ),
+      )
+      .limit(1);
+    return row ?? null;
   }
 
   /**

@@ -107,6 +107,26 @@ export async function memoryConsolidationWorkflow(
     // §5.8 confidence over the RESOLVED evidence
     const confidence = computeConsolidationConfidence(candidate.confidence, evidence.resolved);
 
+    // P1-B (UI/UX review): deterministic exact-title fast-merge BEFORE the
+    // embedding spend — same scope + same title ⇒ append evidence to the
+    // existing memory. Closes the duplicate-stacking hole where an embed
+    // failure (offline/scripted profile) skipped similarity entirely.
+    const exact = await activities.findExactActivity({
+      companyId: input.companyId,
+      scope,
+      scopeRef,
+      title: candidate.title,
+    });
+    if (exact) {
+      await activities.mergeIntoExistingActivity({
+        companyId: input.companyId,
+        memoryId: exact.id,
+        evidence: evidence.resolved,
+      });
+      report.merged += 1;
+      continue;
+    }
+
     // §5.4 embedding — failure persists with NULL + memory.embedding.failed
     const text = `${candidate.title}\n${candidate.summary}\n${candidate.content}`;
     const embedded = await activities.embedCandidateActivity({

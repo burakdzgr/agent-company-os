@@ -196,6 +196,9 @@ async function createWindow(): Promise<void> {
 
   try {
     await healthGate(mainWindow);
+    // deploy freshness: never let a cached index.html pin an old bundle —
+    // the SPA is served live from the stack, the shell must follow it
+    await mainWindow.webContents.session.clearCache();
     await mainWindow.loadURL(target.url);
   } catch {
     /* splash already shows the failure hint */

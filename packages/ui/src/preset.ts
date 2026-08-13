@@ -8,20 +8,24 @@ export const acosPreset = {
   theme: {
     extend: {
       colors: {
+        // P0-B (UI/UX review): the legacy `ink` scale is INVERTED to dark
+        // semantics — every pre-overhaul view (built on ink-50 surfaces +
+        // ink-800/900 text) flips to the acosDark language without a rewrite.
+        // Muted text tuned for WCAG AA on bg-acos-bg1.
         ink: {
-          50: "#f6f7f9",
-          100: "#e9ebf0",
-          200: "#d3d8e2",
-          400: "#8b94a7",
-          600: "#4b5568",
-          800: "#252c3b",
-          900: "#161b26",
-          950: "#0d1017",
+          50: "#131820",
+          100: "#1b222c",
+          200: "#232b36",
+          400: "#7c8794",
+          600: "#a9b4c0",
+          800: "#dbe3ea",
+          900: "#e6edf3",
+          950: "#05070b",
         },
         accent: {
-          400: "#6d8bff",
+          400: "#8aa3ff",
           500: "#4a6bfa",
-          600: "#3a55d9",
+          600: "#7d95ff", // text-accent-* stays readable on dark surfaces
         },
         ok: "#2fbf71",
         warn: "#e8a13c",

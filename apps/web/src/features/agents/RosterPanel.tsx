@@ -6,6 +6,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { cn, presenceColor } from "@acos/ui";
 import { api, keys } from "../../lib/api.js";
+import { useTeamMemberSet } from "../../lib/teamFilter.js";
 import { usePresence } from "../../stores/presence.js";
 import { useFocus } from "../../stores/focus.js";
 import { useTerminalGrid } from "../../stores/terminalGrid.js";
@@ -23,10 +24,23 @@ export function RosterPanel() {
   const closedAgentIds = useTerminalGrid((s) => s.closedAgentIds);
   const toggleTerminal = useTerminalGrid((s) => s.toggleAgent);
 
-  const items = (agents.data ?? []).filter((a) => a.status !== "offboarded");
+  const { team, members } = useTeamMemberSet(companyId);
+  const items = (agents.data ?? []).filter(
+    (a) => a.status !== "offboarded" && (members === null || members.has(a.id)),
+  );
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-acos-bg1" data-testid="roster-panel">
+      {team && (
+        <div className="border-b border-acos-line bg-dept-engineering/10 px-2 py-1 text-[9px] text-dept-engineering">
+          Filtre: {team.name}
+        </div>
+      )}
+      {team && items.length === 0 && (
+        <div className="p-3 text-[10px] text-acos-fg2" data-testid="roster-empty-team">
+          {team.name} takımında henüz üye yok — "+ Ajan Ekle" ile yerleştir.
+        </div>
+      )}
       {items.map((agent) => {
         const badge = badges[agent.id] ?? "OFFLINE";
         const selected = agent.id === selectedAgentId;

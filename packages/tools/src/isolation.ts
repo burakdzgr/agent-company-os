@@ -58,8 +58,10 @@ export const ISOLATION_LIMITS: Readonly<Record<IsolationLevel, IsolationLimits>>
   },
 };
 
-/** The internal workspaces network (compose `acos-workspaces`, 27 §12). */
-export const WORKSPACE_NETWORK = "acos-workspaces";
+/** The internal workspaces network (compose `acos-workspaces`, 27 §12).
+ *  Env-overridable so the ephemeral e2e stack (P0-A) attaches its workspace
+ *  containers to ITS OWN network instead of the dev stack's. */
+export const WORKSPACE_NETWORK = process.env.WORKSPACE_NETWORK ?? "acos-workspaces";
 export const EGRESS_PROXY_URL = "http://egress-proxy:3128";
 
 /** A container mount, mirroring Docker's HostConfig.Mounts entry. Worktree

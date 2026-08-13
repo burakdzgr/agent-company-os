@@ -7,13 +7,16 @@ networks:
   default: {}
   # S8: workspace containers live here; internal => no default route out.
   # The ONLY way out is egress-proxy. Subnet pinned to match squid.conf's
-  # `acl workspaces src 172.30.0.0/16`.
+  # `acl workspaces src 172.30.0.0/16`. Name/subnet are env-overridable so an
+  # EPHEMERAL e2e stack (compose.e2e.yaml, P0-A) can run beside the dev stack
+  # without a network-name/subnet collision (squid's ACL then denies e2e
+  # workspace egress — acceptable: no e2e spec reaches an external host).
   acos-workspaces:
-    name: acos-workspaces
+    name: ${WORKSPACE_NET_NAME:-acos-workspaces}
     internal: true
     ipam:
       config:
-        - subnet: 172.30.0.0/16
+        - subnet: ${WORKSPACE_SUBNET:-172.30.0.0/16}
 
 services:
   postgres:
@@ -23,7 +26,7 @@ services:
       POSTGRES_PASSWORD: acos
       POSTGRES_DB: acos
     ports:
-      - "5432:5432"
+      - "${PG_PORT:-5432}:5432"
     volumes:
       - "${DATA_DIR:-./data}/postgres:/var/lib/postgresql/data"
     healthcheck:
@@ -37,7 +40,7 @@ services:
     image: nats:2.10-alpine
     command: ["-js", "-sd", "/data", "-m", "8222"]
     ports:
-      - "4222:4222"
+      - "${NATS_PORT:-4222}:4222"
     volumes:
       - "${DATA_DIR:-./data}/nats:/data"
     healthcheck:
@@ -65,7 +68,7 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CLI_ADDRESS: temporal:7233
     ports:
-      - "7233:7233"
+      - "${TEMPORAL_PORT:-7233}:7233"
     healthcheck:
       test: ["CMD-SHELL", "temporal operator cluster health --address temporal:7233 | grep -q SERVING"]
       interval: 10s
@@ -82,7 +85,7 @@ services:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CORS_ORIGINS: http://localhost:3000,http://localhost:5173
     ports:
-      - "8080:8080"
+      - "${TEMPORAL_UI_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080 > /dev/null"]
       interval: 10s
@@ -244,6 +247,8 @@ services:
       SANDBOX_MANAGER_PORT: "3010"
       NATS_URL: nats://nats:4222
       DATA_DIR: /data
+      # workspace containers join THIS project's network (P0-A e2e isolation)
+      WORKSPACE_NETWORK: ${WORKSPACE_NET_NAME:-acos-workspaces}
       # shared internal bearer — execution-worker authenticates with the same token
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN:-dev-internal-token-change-me}
     volumes:

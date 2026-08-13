@@ -1,25 +1,25 @@
-// Memory relation graph (12 §8.2): nodes styled by type/scope, size ∝
-// importance, opacity ∝ confidence; edges styled per relation kind —
-// contradicts red dashed, derived_from thick directional, supports green,
-// supersedes gray, related_to thin. Server caps at 500 nodes.
+// Memory relation graph (12 §8.2; P1-B UI/UX review): nodes colored by TYPE
+// (failure/procedural/semantic/… — same palette as the Command Center panel),
+// size ∝ importance, opacity ∝ confidence; edges styled per relation kind.
+// Layout is a real force graph (cytoscape-fcose) with label overlap
+// management: labels wrap, carry an outline for contrast, and fade out
+// entirely below a zoom threshold so dense graphs stay readable.
 import { useEffect, useRef } from "react";
 import cytoscape from "cytoscape";
+import fcose from "cytoscape-fcose";
 import { useQuery } from "@tanstack/react-query";
 import { Card } from "@acos/ui";
 import { api } from "../../lib/api.js";
+import { memoryTypeColor } from "./MemoryPanel.js";
 
-const SCOPE_COLOR: Record<string, string> = {
-  company: "#7c3aed",
-  project: "#2563eb",
-  agent: "#059669",
-};
+cytoscape.use(fcose);
 
 const EDGE_STYLE: Record<string, { color: string; style: "solid" | "dashed"; width: number }> = {
-  contradicts: { color: "#dc2626", style: "dashed", width: 2.5 },
-  derived_from: { color: "#7c3aed", style: "solid", width: 3 },
-  supports: { color: "#16a34a", style: "solid", width: 1.5 },
-  supersedes: { color: "#6b7280", style: "solid", width: 2 },
-  related_to: { color: "#9ca3af", style: "solid", width: 1 },
+  contradicts: { color: "#ff4d4d", style: "dashed", width: 2.5 },
+  derived_from: { color: "#a879ff", style: "solid", width: 3 },
+  supports: { color: "#3fd0a0", style: "solid", width: 1.5 },
+  supersedes: { color: "#5c6773", style: "solid", width: 2 },
+  related_to: { color: "#3a424c", style: "solid", width: 1 },
 };
 
 export function MemoryGraph({
@@ -41,7 +41,7 @@ export function MemoryGraph({
       container: containerRef.current,
       elements: [
         ...graph.data.nodes.map((node) => ({
-          data: { ...node, label: node.title.slice(0, 40) },
+          data: { ...node, label: node.title.slice(0, 48) },
         })),
         ...graph.data.edges.map((edge, i) => ({
           data: { id: `e${i}`, source: edge.from, target: edge.to, kind: edge.kind },
@@ -53,20 +53,27 @@ export function MemoryGraph({
           style: {
             label: "data(label)",
             "text-wrap": "wrap",
-            "text-max-width": "120px",
+            "text-max-width": "110px",
             "font-size": "9px",
+            color: "#c6d0dc",
+            // outline keeps labels readable over edges; labels vanish when
+            // zoomed out so dense graphs don't become text soup
+            "text-outline-color": "#0a0c10",
+            "text-outline-width": 2,
+            "min-zoomed-font-size": 7,
             "text-valign": "bottom",
+            "text-margin-y": 4,
             shape: "ellipse",
-            width: (el: cytoscape.NodeSingular) => 20 + 30 * (el.data("importance") as number),
-            height: (el: cytoscape.NodeSingular) => 20 + 30 * (el.data("importance") as number),
+            width: (el: cytoscape.NodeSingular) => 16 + 30 * (el.data("importance") as number),
+            height: (el: cytoscape.NodeSingular) => 16 + 30 * (el.data("importance") as number),
             "background-color": (el: cytoscape.NodeSingular) =>
-              SCOPE_COLOR[el.data("scope") as string] ?? "#6b7280",
+              memoryTypeColor(el.data("type") as string),
             "background-opacity": (el: cytoscape.NodeSingular) =>
               0.35 + 0.65 * (el.data("confidence") as number),
             "border-width": (el: cytoscape.NodeSingular) =>
               el.data("status") === "candidate" ? 2 : 0,
             "border-style": "dashed",
-            "border-color": "#f59e0b",
+            "border-color": "#ffcb47",
           },
         },
         ...Object.entries(EDGE_STYLE).map(([kind, style]) => ({
@@ -75,13 +82,23 @@ export function MemoryGraph({
             width: style.width,
             "line-color": style.color,
             "line-style": style.style,
+            "line-opacity": 0.7,
             "target-arrow-shape": "triangle" as const,
             "target-arrow-color": style.color,
             "curve-style": "bezier" as const,
           },
         })),
+        { selector: "node:selected", style: { "border-width": 3, "border-color": "#4c9aff", "border-style": "solid" } },
       ],
-      layout: { name: "cose", animate: false, nodeRepulsion: () => 8000 },
+      // real force layout — fcose spreads clusters and avoids the cose blob
+      layout: {
+        name: "fcose",
+        animate: false,
+        nodeRepulsion: 6500,
+        idealEdgeLength: 90,
+        nodeSeparation: 60,
+        packComponents: true,
+      } as never,
     });
     cy.on("tap", "node", (event) => onSelect(event.target.id() as string));
     cy.on("tap", (event) => {
@@ -93,11 +110,11 @@ export function MemoryGraph({
   return (
     <Card className="p-2" data-testid="memory-graph">
       {graph.data?.capped && (
-        <p className="p-2 text-xs text-amber-600">
+        <p className="p-2 text-xs" style={{ color: "#ffcb47" }}>
           Graph capped at 500 nodes — narrow the filters.
         </p>
       )}
-      <div ref={containerRef} style={{ height: 560 }} />
+      <div ref={containerRef} style={{ height: 560, background: "#08090d", borderRadius: 8 }} />
     </Card>
   );
 }

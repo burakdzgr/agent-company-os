@@ -75,14 +75,14 @@ export function CostsView() {
 
       <Card className="p-4">
         <div data-testid="costs-total">
-          <p className="text-xs uppercase text-neutral-500">Total spend ({days === 1 ? "24h" : `${days}d`})</p>
+          <p className="text-xs uppercase text-ink-400">Total spend ({days === 1 ? "24h" : `${days}d`})</p>
           <p className="text-2xl font-semibold">{cents(summary.data?.totalCents ?? 0)}</p>
         </div>
         <div className="mt-3 flex flex-col gap-1">
           {(summary.data?.groups ?? []).map((group) => (
             <div key={group.key} className="flex items-center gap-2" data-testid="costs-bar">
               <span className="w-48 truncate text-xs">{group.name ?? group.key}</span>
-              <div className="h-3 flex-1 rounded bg-neutral-100">
+              <div className="h-3 flex-1 rounded bg-acos-bg3">
                 <div
                   className="h-3 rounded bg-blue-500"
                   style={{ width: `${Math.max(2, (group.amountCents / max) * 100)}%` }}
@@ -92,7 +92,7 @@ export function CostsView() {
             </div>
           ))}
           {summary.data && summary.data.groups.length === 0 && (
-            <p className="text-sm text-neutral-500" data-testid="costs-empty">
+            <p className="text-sm text-ink-400" data-testid="costs-empty">
               No spend in this window yet.
             </p>
           )}
@@ -117,7 +117,7 @@ export function CostsView() {
             </div>
           ))}
           {forecast.data && forecast.data.items.length === 0 && (
-            <p className="text-sm text-neutral-500">No active budgets.</p>
+            <p className="text-sm text-ink-400">No active budgets.</p>
           )}
         </div>
       </Card>
@@ -125,7 +125,7 @@ export function CostsView() {
       <Card className="overflow-x-auto p-0">
         <table className="w-full text-sm" data-testid="costs-ledger">
           <thead>
-            <tr className="border-b bg-neutral-50 text-left">
+            <tr className="border-b bg-acos-bg2 text-left">
               <th className="p-2 font-medium">When</th>
               <th className="p-2 font-medium">Kind</th>
               <th className="p-2 font-medium">Ref</th>

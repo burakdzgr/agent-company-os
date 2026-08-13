@@ -177,6 +177,9 @@ importers:
       cytoscape-dagre:
         specifier: ^4.0.0
         version: 4.0.0(cytoscape@3.34.0)
+      cytoscape-fcose:
+        specifier: ^2.2.0
+        version: 2.2.0(cytoscape@3.34.0)
       dockview-react:
         specifier: ^8.1.0
         version: 8.1.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -202,6 +205,9 @@ importers:
       '@types/cytoscape-dagre':
         specifier: ^2.3.4
         version: 2.3.4
+      '@types/cytoscape-fcose':
+        specifier: ^2.2.5
+        version: 2.2.5
       '@types/pg':
         specifier: ^8.21.0
         version: 8.21.0
@@ -2190,6 +2196,9 @@ packages:
   '@types/cytoscape-dagre@2.3.4':
     resolution: {integrity: sha512-uOGXuPfPLFoKZaegjHl9oj4tqONNJuhUl180FiJgRZ35rVijBs6J4UP1Ah6mA6S46h+7pv4ICqpgfdC3EADZlw==}
 
+  '@types/cytoscape-fcose@2.2.5':
+    resolution: {integrity: sha512-FaM6MM5zC4Yh72E60vkpbM4tstJS90wj3u1Vq/SMiK/MShhLaMd17QkmR39S14aUWdfNSlUEfx/g/XkDdFmXDA==}
+
   '@types/cytoscape@3.31.0':
     resolution: {integrity: sha512-EXHOHxqQjGxLDEh5cP4te6J0bi7LbCzmZkzsR6f703igUac8UGMdEohMyU3GHAayCTZrLQOMnaE/lqB2Ekh8Ww==}
     deprecated: This is a stub types definition. cytoscape provides its own type definitions, so you do not need this installed.
@@ -3019,6 +3028,9 @@ packages:
   core-util-is@1.0.3:
     resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
 
+  cose-base@2.2.0:
+    resolution: {integrity: sha512-AzlgcsCbUMymkADOJtQm3wO9S3ltPfYOFD5033keQn9NJzIbtnZj+UdBJe7DYml/8TdbtHJW3j58SOnKhWY/5g==}
+
   cpu-features@0.0.10:
     resolution: {integrity: sha512-9IkYqtX3YHPCzoVg1Py+o9057a3i0fp7S530UWokCSaFVTc7CwXPRiOjRjBQQ18ZCNafx78YfnG+HALxtVmOGA==}
     engines: {node: '>=10.0.0'}
@@ -3051,6 +3063,11 @@ packages:
     resolution: {integrity: sha512-wsDgi1hHpWfslQxe/Gd/xCCeg2YUDrzwulhHOSI7fMfll92FFVY2AWhSRulLiOVcyDE4zz0rRd/+1TBTw+ew5Q==}
     peerDependencies:
       cytoscape: ^3.2.22
+
+  cytoscape-fcose@2.2.0:
+    resolution: {integrity: sha512-ki1/VuRIHFCzxWNrsshHYPs6L7TvLu3DL+TyIGEsRcvVERmxokbf5Gdk7mFxZnTdiGtnA4cfSmjZJMviqSuZrQ==}
+    peerDependencies:
+      cytoscape: ^3.2.0
 
   cytoscape@3.34.0:
     resolution: {integrity: sha512-62rNSrioXw93uliKFBwjukeQyeWwH2PqDrTac31r2P6464u3AUvTk0xS4LVvT251g7IgkFunrI48ZEZGjywSOg==}
@@ -4159,6 +4176,9 @@ packages:
 
   keyv@4.5.4:
     resolution: {integrity: sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw==}
+
+  layout-base@2.0.1:
+    resolution: {integrity: sha512-dp3s92+uNI1hWIpPGH3jK2kxE2lMjdXdr+DH8ynZHpd6PUlH6x6cbuXnoMmiNumznqaNO31xu9e79F0uuZ0JFg==}
 
   lazy-val@1.0.5:
     resolution: {integrity: sha512-0/BnGCCfyUMkBpeDgWihanIAF9JmZhHBgUhEqzvf+adhNGLoP6TaiI5oF8oyb3I45P+PcnrqihSf01M0l0G5+Q==}
@@ -7207,6 +7227,10 @@ snapshots:
     dependencies:
       cytoscape: 3.34.0
 
+  '@types/cytoscape-fcose@2.2.5':
+    dependencies:
+      cytoscape: 3.34.0
+
   '@types/cytoscape@3.31.0':
     dependencies:
       cytoscape: 3.34.0
@@ -8129,6 +8153,10 @@ snapshots:
 
   core-util-is@1.0.3: {}
 
+  cose-base@2.2.0:
+    dependencies:
+      layout-base: 2.0.1
+
   cpu-features@0.0.10:
     dependencies:
       buildcheck: 0.0.7
@@ -8157,6 +8185,11 @@ snapshots:
 
   cytoscape-dagre@4.0.0(cytoscape@3.34.0):
     dependencies:
+      cytoscape: 3.34.0
+
+  cytoscape-fcose@2.2.0(cytoscape@3.34.0):
+    dependencies:
+      cose-base: 2.2.0
       cytoscape: 3.34.0
 
   cytoscape@3.34.0: {}
@@ -9490,6 +9523,8 @@ snapshots:
   keyv@4.5.4:
     dependencies:
       json-buffer: 3.0.1
+
+  layout-base@2.0.1: {}
 
   lazy-val@1.0.5: {}
 

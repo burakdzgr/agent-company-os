@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { api, keys } from "../../lib/api.js";
+import { useTeamMemberSet } from "../../lib/teamFilter.js";
 import { useOfficeStore } from "../../stores/office.js";
 import { usePresence } from "../../stores/presence.js";
 import { useFocus } from "../../stores/focus.js";
@@ -38,6 +39,7 @@ export function OfficePanel() {
     () => new Map((agents.data ?? []).map((agent) => [agent.id, agent.avatarUrl])),
     [agents.data],
   );
+  const { members: teamMembers } = useTeamMemberSet(companyId);
 
   function detach() {
     // Electron shell → second BrowserWindow (U14b); browser → popup window
@@ -77,6 +79,7 @@ export function OfficePanel() {
         <OfficeCanvas
           onSelectAgent={(agentId) => setSelectedAgent(agentId)}
           avatarUrls={avatarUrls}
+          focusAgentIds={teamMembers}
         />
       </div>
       <HireModal open={hireOpen} onClose={() => setHireOpen(false)} />

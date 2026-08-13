@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* P0-B: acosDark is the ONLY theme — applied at the root so every route,
+   popup window and modal sits on the dark canvas (36 §2). */
+@layer base {
+  html {
+    color-scheme: dark;
+    @apply bg-acos-bg0 text-acos-fg0;
+  }
+}
+
 /* new memories fade in on memory.created (36 §5) */
 @keyframes memFade {
   from {

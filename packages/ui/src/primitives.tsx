@@ -54,7 +54,7 @@ export function Card({
   className?: string;
 }) {
   return (
-    <section className={cn("rounded-card border border-ink-200 bg-white shadow-sm", className)}>
+    <section className={cn("rounded-card border border-ink-200 bg-acos-bg1 shadow-sm", className)}>
       {(title || actions) && (
         <header className="flex items-center justify-between border-b border-ink-100 px-4 py-2.5">
           <h3 className="text-sm font-semibold text-ink-800">{title}</h3>
@@ -69,7 +69,7 @@ export function Card({
 // ---------- form controls ----------
 
 const controlClass =
-  "w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-sm text-ink-800 outline-none focus:border-accent-400";
+  "w-full rounded-md border border-ink-200 bg-acos-bg2 px-2.5 py-1.5 text-sm text-ink-800 outline-none focus:border-accent-400";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input {...props} className={cn(controlClass, props.className)} />;
@@ -113,7 +113,7 @@ export function Dialog({
       aria-modal="true"
       aria-label={title}
     >
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-card bg-white shadow-xl">
+      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-card border border-ink-200 bg-acos-bg1 shadow-xl">
         <header className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
           <h2 className="text-base font-semibold text-ink-900">{title}</h2>
           <button

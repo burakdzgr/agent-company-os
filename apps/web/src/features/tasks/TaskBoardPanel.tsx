@@ -13,6 +13,7 @@ import { TASK_NEXT_STATUSES, type Task } from "@acos/contracts";
 import { AcosApiError } from "@acos/contracts/client";
 import { cn } from "@acos/ui";
 import { api, keys } from "../../lib/api.js";
+import { useTeamMemberSet } from "../../lib/teamFilter.js";
 import { useFocus } from "../../stores/focus.js";
 
 type TaskStatus = Task["status"];
@@ -158,7 +159,13 @@ export function TaskBoardPanel() {
     },
   });
 
-  const items = tasks.data ?? [];
+  const { team, members } = useTeamMemberSet(companyId);
+  const items = (tasks.data ?? []).filter(
+    (t) =>
+      members === null ||
+      (t.ownerAgentId !== null && members.has(t.ownerAgentId)) ||
+      t.orgUnitId === team?.unitId,
+  );
   const byStatus = new Map<TaskStatus, Task[]>();
   for (const task of items) {
     const bucket = byStatus.get(task.status) ?? [];
@@ -173,7 +180,10 @@ export function TaskBoardPanel() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-acos-bg1">
       <div className="flex h-6 shrink-0 items-center gap-2 border-b border-acos-line px-2 text-[9.5px] text-acos-fg2">
-        <span>{items.length} görev</span>
+        <span>
+          {items.length} görev
+          {team && <span className="text-dept-engineering"> · filtre: {team.name}</span>}
+        </span>
         <span className="text-acos-fg2/60">
           sürükle = yetkili geçiş; illegal olan gerçek 409 ile geri döner
         </span>

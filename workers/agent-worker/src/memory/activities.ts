@@ -173,6 +173,21 @@ export function createMemoryActivities(deps: MemoryActivityDeps) {
       }
     },
 
+    /** P1-B: deterministic exact-title duplicate probe — runs before the
+     *  embed spend so fast-merge also works in the offline/scripted profile. */
+    async findExactActivity(input: {
+      companyId: string;
+      scope: string;
+      scopeRef: string | null;
+      title: string;
+    }): Promise<{ id: string } | null> {
+      return service.findExactActive(companyContext(input.companyId), {
+        scope: input.scope,
+        scopeRef: input.scopeRef,
+        title: input.title,
+      });
+    },
+
     /** 12 §5.5: pgvector cosine top-k within the exact scope, same dimension. */
     async findSimilarActivity(input: {
       companyId: string;

@@ -46,8 +46,8 @@ function lazyPanel(
     }, [api]);
     if (!visible) return null;
     if (chrome === "dark") return <div className="h-full min-h-0">{render()}</div>;
-    // Light island: pre-overhaul views keep their styling until U05–U09.
-    return <div className="h-full overflow-auto bg-ink-50 p-3">{render()}</div>;
+    // routed views (dark since P0-B) hosted as a scrollable panel body
+    return <div className="h-full overflow-auto bg-acos-bg0 p-3">{render()}</div>;
   };
 }
 

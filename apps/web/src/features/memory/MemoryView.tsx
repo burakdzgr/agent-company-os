@@ -62,7 +62,7 @@ function Inspector({
 
   if (!detail.data) {
     return (
-      <Card className="p-4 text-sm text-neutral-500">
+      <Card className="p-4 text-sm text-ink-400">
         <div data-testid="memory-inspector">Loading…</div>
       </Card>
     );
@@ -76,7 +76,7 @@ function Inspector({
           <h3 className="text-sm font-semibold" data-testid="inspector-title">
             {memory.title}
           </h3>
-          <p className="text-xs text-neutral-500">
+          <p className="text-xs text-ink-400">
             {memory.scope} · {memory.type} · importance {memory.importance.toFixed(2)} ·
             confidence {memory.confidence.toFixed(2)}
           </p>
@@ -91,12 +91,12 @@ function Inspector({
       <p className="whitespace-pre-wrap text-sm">{memory.content}</p>
 
       <section data-testid="inspector-provenance">
-        <h4 className="text-xs font-semibold uppercase text-neutral-500">Why this exists</h4>
+        <h4 className="text-xs font-semibold uppercase text-ink-400">Why this exists</h4>
         <p className="text-xs">
           Source event: {memory.sourceEventId ?? "(none)"} · Creator:{" "}
           {memory.createdByAgentName ?? "system"}
         </p>
-        <h4 className="mt-2 text-xs font-semibold uppercase text-neutral-500">
+        <h4 className="mt-2 text-xs font-semibold uppercase text-ink-400">
           Evidence ({evidence.length})
         </h4>
         <ul className="text-xs">
@@ -106,12 +106,12 @@ function Inspector({
               <span className="font-mono">{item.ref.slice(0, 24)}</span>
             </li>
           ))}
-          {evidence.length === 0 && <li className="text-neutral-400">(none)</li>}
+          {evidence.length === 0 && <li className="text-ink-400">(none)</li>}
         </ul>
       </section>
 
       <section>
-        <h4 className="text-xs font-semibold uppercase text-neutral-500">
+        <h4 className="text-xs font-semibold uppercase text-ink-400">
           Related ({relations.length})
         </h4>
         <ul className="text-xs">
@@ -129,12 +129,12 @@ function Inspector({
               {relation.otherTitle}
             </li>
           ))}
-          {relations.length === 0 && <li className="text-neutral-400">(none)</li>}
+          {relations.length === 0 && <li className="text-ink-400">(none)</li>}
         </ul>
       </section>
 
       <section data-testid="inspector-history">
-        <h4 className="text-xs font-semibold uppercase text-neutral-500">
+        <h4 className="text-xs font-semibold uppercase text-ink-400">
           History ({versions.length})
         </h4>
         <ul className="text-xs">
@@ -223,7 +223,7 @@ function ContradictionQueue({ companyId, isFounder }: { companyId: string; isFou
   const items = queue.data?.items ?? [];
   if (items.length === 0) {
     return (
-      <Card className="p-6 text-sm text-neutral-500">
+      <Card className="p-6 text-sm text-ink-400">
         <div data-testid="contradictions-empty" className="contents" />
         No unresolved contradictions.
       </Card>
@@ -239,8 +239,8 @@ function ContradictionQueue({ companyId, isFounder }: { companyId: string; isFou
             {[pair.a, pair.b].map((side) => (
               <div key={side.id} className="rounded border p-2">
                 <p className="text-sm font-medium">{side.title}</p>
-                <p className="text-xs text-neutral-600">{side.content}</p>
-                <p className="mt-1 text-xs text-neutral-400">
+                <p className="text-xs text-ink-600">{side.content}</p>
+                <p className="mt-1 text-xs text-ink-400">
                   conf {side.confidence.toFixed(2)} · {side.scope}
                 </p>
                 {isFounder && (
@@ -354,7 +354,7 @@ export function MemoryView() {
             <Card className="overflow-x-auto p-0">
               <table className="w-full text-sm" data-testid="memory-table">
                 <thead>
-                  <tr className="border-b bg-neutral-50 text-left">
+                  <tr className="border-b bg-acos-bg2 text-left">
                     <th className="p-2 font-medium">Title</th>
                     <th className="p-2 font-medium">Type</th>
                     <th className="p-2 font-medium">Scope</th>
@@ -370,7 +370,7 @@ export function MemoryView() {
                       key={memory.id}
                       data-testid="memory-row"
                       className={cn(
-                        "cursor-pointer border-b last:border-b-0 hover:bg-neutral-50",
+                        "cursor-pointer border-b last:border-b-0 hover:bg-acos-bg2",
                         selectedId === memory.id && "bg-blue-50",
                       )}
                       onClick={() => setSelectedId(memory.id)}
@@ -390,7 +390,7 @@ export function MemoryView() {
                   ))}
                   {list.data && list.data.items.length === 0 && (
                     <tr>
-                      <td className="p-4 text-neutral-500" colSpan={7} data-testid="memory-empty">
+                      <td className="p-4 text-ink-400" colSpan={7} data-testid="memory-empty">
                         No memories match — the company learns as tasks complete.
                       </td>
                     </tr>

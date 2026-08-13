@@ -14,6 +14,7 @@ import "@xterm/xterm/css/xterm.css";
 import { cn, presenceColor } from "@acos/ui";
 import type { TerminalSessionDto } from "@acos/contracts";
 import { api, queryClient } from "../../lib/api.js";
+import { useTeamMemberSet } from "../../lib/teamFilter.js";
 import { clearTopicCursor, getRealtimeClient } from "../../realtime/client.js";
 import { usePresence } from "../../stores/presence.js";
 import { useFocus } from "../../stores/focus.js";
@@ -300,7 +301,12 @@ export function TerminalGrid() {
     refetchInterval: 10_000,
   });
 
-  const active = (sessions.data?.items ?? []).filter((s) => s.status === "active");
+  const { team, members } = useTeamMemberSet(companyId);
+  const active = (sessions.data?.items ?? []).filter(
+    (s) =>
+      s.status === "active" &&
+      (members === null || (s.agentId !== null && members.has(s.agentId))),
+  );
   const open = active.filter((s) => !s.agentId || !closedAgentIds.includes(s.agentId));
   const hiddenCount = active.length - open.length;
   const focused = focusedId ? (active.find((s) => s.id === focusedId) ?? null) : null;
@@ -311,6 +317,7 @@ export function TerminalGrid() {
         <span>
           {open.length} açık terminal
           {hiddenCount > 0 && ` · ${hiddenCount} gizli`}
+          {team && <span className="text-dept-engineering"> · filtre: {team.name}</span>}
         </span>
         {hiddenCount > 0 && (
           <button

@@ -18,6 +18,7 @@ import {
   type Spritesheet,
 } from "pixi.js";
 import { useOfficeStore } from "../../stores/office.js";
+import { useFocus } from "../../stores/focus.js";
 import type { OfficeSceneEngine } from "./sceneState.js";
 import { WALL, computeFloorplan, shade, type Floorplan } from "./floorplan.js";
 import {
@@ -219,10 +220,13 @@ function paintFloorplan(layer: Container, plan: Floorplan, cell: number): void {
 export function OfficeCanvas({
   onSelectAgent,
   avatarUrls,
+  focusAgentIds,
 }: {
   onSelectAgent?: (agentId: string) => void;
   /** agentId → agents.avatar_url (persistent identity → same character, U15) */
   avatarUrls?: ReadonlyMap<string, string | null>;
+  /** P1-A team filter: when set, avatars OUTSIDE the set render dimmed */
+  focusAgentIds?: ReadonlySet<string> | null;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const engine = useOfficeStore((s) => s.engine);
@@ -232,6 +236,11 @@ export function OfficeCanvas({
   snapshotCountRef.current = snapshotCount;
   const avatarUrlsRef = useRef(avatarUrls);
   avatarUrlsRef.current = avatarUrls;
+  const focusAgentIdsRef = useRef(focusAgentIds);
+  focusAgentIdsRef.current = focusAgentIds;
+  const selectedAgentId = useFocus((s) => s.selectedAgentId);
+  const selectedRef = useRef(selectedAgentId);
+  selectedRef.current = selectedAgentId;
 
   useEffect(() => {
     installDebugHook(engine, () => snapshotCountRef.current);
@@ -297,7 +306,11 @@ export function OfficeCanvas({
 
       const CELL = 32;
 
-      // fit the whole floorplan edge-to-edge until the user pans/zooms (36 §7)
+      // P2 (UI/UX review): FILL the panel edge-to-edge — fit the plan's
+      // width (the dominant axis of the auto-layout) instead of letterboxing
+      // the whole tall plan into a wide panel; the rooms anchor to the top
+      // and the rest is reachable by pan/zoom. Falls back to contain-fit
+      // when the plan is wider than tall relative to the panel.
       function fitCamera(): void {
         if (userAdjusted || !plan) return;
         const sw = app.screen.width;
@@ -305,12 +318,19 @@ export function OfficeCanvas({
         const pw = plan.bounds.w * CELL;
         const ph = plan.bounds.h * CELL;
         if (pw <= 0 || ph <= 0 || sw <= 0 || sh <= 0) return;
-        const scale = Math.min(sw / pw, sh / ph);
+        // cover-fit (capped): the floor always fills the panel; the overflow
+        // axis anchors to the plan's top/left and stays reachable by pan
+        const scale = Math.min(Math.max(sw / pw, sh / ph), 2.5);
         camera.scale.set(scale);
-        camera.position.set(
-          (sw - pw * scale) / 2 - plan.bounds.x * CELL * scale,
-          (sh - ph * scale) / 2 - plan.bounds.y * CELL * scale,
-        );
+        const x =
+          pw * scale > sw
+            ? -plan.bounds.x * CELL * scale + (sw - pw * scale) / 2 // center-crop wide plans
+            : (sw - pw * scale) / 2 - plan.bounds.x * CELL * scale;
+        const y =
+          ph * scale > sh
+            ? -plan.bounds.y * CELL * scale + 4 // rooms first for tall plans
+            : (sh - ph * scale) / 2 - plan.bounds.y * CELL * scale;
+        camera.position.set(x, y);
       }
       app.renderer.on("resize", fitCamera);
 
@@ -336,8 +356,17 @@ export function OfficeCanvas({
         camera.scale.set(next);
       });
 
+      let lastLabelsVisible: boolean | null = null;
       app.ticker.add((ticker) => {
         engine.tick(ticker.deltaMS / 1000);
+        // P2: zoom-thresholded name labels — react to wheel zoom immediately
+        const labelsVisible = camera.scale.x >= 0.85;
+        if (labelsVisible !== lastLabelsVisible) {
+          lastLabelsVisible = labelsVisible;
+          for (const [id, node] of avatarNodes) {
+            node.label.visible = labelsVisible || id === selectedRef.current;
+          }
+        }
         if (engine.layout && engine.layoutVersion !== renderedLayoutVersion) {
           renderedLayoutVersion = engine.layoutVersion;
           plan = computeFloorplan(engine.layout);
@@ -465,8 +494,11 @@ export function OfficeCanvas({
             node.label.position.set(0, 14);
           }
           node.label.text = avatar.name;
+          node.label.visible = camera.scale.x >= 0.85 || agentId === selectedRef.current;
           node.root.position.set(avatar.pos.x * CELL, avatar.pos.y * CELL);
           node.root.zIndex = avatar.pos.y;
+          const focusSet = focusAgentIdsRef.current;
+          node.root.alpha = focusSet && !focusSet.has(agentId) ? 0.22 : 1;
         }
         for (const [agentId, node] of avatarNodes) {
           if (!engine.avatars.has(agentId)) {

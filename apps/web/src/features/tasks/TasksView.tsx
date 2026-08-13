@@ -30,7 +30,7 @@ function TaskCard({ task, onSelect }: { task: Task; onSelect: (t: Task) => void 
   return (
     <button
       onClick={() => onSelect(task)}
-      className="w-full rounded-md border border-ink-200 bg-white p-2 text-left text-xs shadow-sm hover:shadow"
+      className="w-full rounded-md border border-ink-200 bg-acos-bg2 p-2 text-left text-xs shadow-sm hover:shadow"
       data-testid={`task-card-${task.number}`}
     >
       <div className="flex items-center gap-1.5">
