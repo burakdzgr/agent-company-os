@@ -12,6 +12,7 @@ import { Button, Card, DataTable, Dialog, Field, Input, Select } from "@acos/ui"
 import { AcosApiError } from "@acos/contracts/client";
 import { api, keys, queryClient } from "../../lib/api.js";
 import { OrgChart } from "./OrgChart.js";
+import { OrgImportModal } from "./OrgImportModal.js";
 import { HireWizard } from "../agents/HireWizard.js";
 
 const STATUS_TR: Record<string, string> = {
@@ -153,6 +154,7 @@ export function OrganizationView() {
   const edges = useQuery({ queryKey: keys.orgEdges(companyId), queryFn: () => api.org.listEdges(companyId) });
 
   const [hireOpen, setHireOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [placementFor, setPlacementFor] = useState<Agent | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetConfirm, setResetConfirm] = useState("");
@@ -163,6 +165,11 @@ export function OrganizationView() {
   const [positionTitle, setPositionTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // İşten çıkarılanlar bu ekranda GÖRÜNMEZ (Founder direktifi 2026-08-14):
+  // "Sıfırdan kur" sonrası sayfa gerçekten boş başlar. Geçmiş kayıtlar
+  // Ajanlar sayfasındaki durum filtresinden hâlâ erişilebilir.
+  const visibleAgents = (agents.data ?? []).filter((a) => a.status !== "offboarded");
+  const activeEdges = (edges.data ?? []).filter((e) => e.endedAt === null);
   const unitName_ = (id: string | null) => units.data?.find((u) => u.id === id)?.name ?? "—";
   const positionName = (id: string | null) =>
     positions.data?.find((p) => p.id === id)?.title ?? "—";
@@ -285,6 +292,14 @@ export function OrganizationView() {
           >
             Sıfırdan kur
           </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setImportOpen(true)}
+            data-testid="org-import-button"
+            title="JSON/CSV ile tüm organizasyonu içe aktar"
+          >
+            İçe aktar
+          </Button>
           <Button onClick={() => setHireOpen(true)} data-testid="hire-button">
             Ajan işe al
           </Button>
@@ -298,18 +313,19 @@ export function OrganizationView() {
       )}
 
       <Card title="Raporlama hatları (reports_to ormanı)">
-        {(agents.data?.length ?? 0) === 0 ? (
+        {visibleAgents.length === 0 ? (
           <p className="py-8 text-center text-sm text-ink-400">
-            Henüz ajan yok — şemayı görmek için ilk ajanı işe alın.
+            Henüz ajan yok — &quot;Ajan işe al&quot; ile tek tek ya da &quot;İçe aktar&quot; ile
+            JSON/CSV&apos;den tüm organizasyonu kurun.
           </p>
         ) : (
-          <OrgChart agents={agents.data ?? []} edges={edges.data ?? []} />
+          <OrgChart agents={visibleAgents} edges={activeEdges} />
         )}
       </Card>
 
       <Card title="Çalışanlar — rol ve yerleşim">
         <DataTable
-          rows={agents.data ?? []}
+          rows={visibleAgents}
           rowKey={(agent) => agent.id}
           empty="Henüz ajan yok."
           columns={[
@@ -484,6 +500,7 @@ export function OrganizationView() {
       </div>
 
       <HireWizard companyId={companyId} open={hireOpen} onClose={() => setHireOpen(false)} />
+      {importOpen && <OrgImportModal companyId={companyId} onClose={() => setImportOpen(false)} />}
       {placementFor && (
         <PlacementModal
           companyId={companyId}
