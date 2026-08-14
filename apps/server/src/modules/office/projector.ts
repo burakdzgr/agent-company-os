@@ -205,7 +205,14 @@ export class OfficeProjector {
       case "agent.hired": {
         const agentId = (payload.agentId as string) ?? actorAgent;
         if (!agentId) break;
-        const desk = assignHomeDesk(state.layout, agentId, null, state.unitsById);
+        // payload.orgUnitId (05 §1 hire event'i) → ajan kendi biriminin
+        // odasına oturur; yoksa herhangi bir boş masa
+        const desk = assignHomeDesk(
+          state.layout,
+          agentId,
+          (payload.orgUnitId as string | undefined) ?? null,
+          state.unitsById,
+        );
         state.agents.set(agentId, {
           name: (payload.name as string) ?? "Agent",
           cell: desk?.cell ?? ENTRANCE,
@@ -239,6 +246,52 @@ export class OfficeProjector {
         this.endInteractionsOf(state, actorAgent, envelope);
         if (this.setBadge(state, actorAgent, "OFFLINE"))
           emit({ type: "office.status.changed", agentId: actorAgent, badge: "OFFLINE", ...cause });
+        break;
+      }
+      // Org yapısı değişti (Founder kurulum/müdahale akışı — 2026-08-14 kök
+      // neden: layout ilk erişimde donuyordu, sonradan kurulan birimler oda
+      // alamıyordu). Kayıtlı layout yoksa oto-plan yeniden hesaplanır, mevcut
+      // avatarlar yeni planda birimlerinin masalarına yürütülür (causeEventId
+      // = tetikleyen org event'i — N2 korunur).
+      case "department.created":
+      case "team.created":
+      case "org.unit.created":
+      case "org.unit.archived":
+      case "org.reorg.applied": {
+        const data = await this.deps.loadCompanyData(envelope.companyId);
+        state.unitsById = new Map(data.units.map((u) => [u.id, u]));
+        state.reportsTo = data.reportsTo;
+        if (!data.savedLayout) {
+          state.layout = computeAutoLayout(data.units, data.agents);
+          state.layoutVersion += 1;
+        }
+        state.snapshotEpoch += 1;
+        const unitOf = new Map(data.agents.map((a) => [a.id, a.orgUnitId]));
+        for (const [agentId, agent] of state.agents) {
+          const from = agent.cell;
+          freeDesk(state.layout, agentId);
+          const desk = assignHomeDesk(
+            state.layout,
+            agentId,
+            unitOf.get(agentId) ?? null,
+            state.unitsById,
+          );
+          agent.deskId = desk?.id ?? null;
+          if (desk && (desk.cell.x !== from.x || desk.cell.y !== from.y)) {
+            agent.cell = desk.cell;
+            if (!stale) {
+              emit({
+                type: "office.avatar.moved",
+                agentId,
+                fromCell: from,
+                toCell: desk.cell,
+                path: gridPath(from, desk.cell),
+                reason: "desk_assign",
+                ...cause,
+              });
+            }
+          }
+        }
         break;
       }
       case "agent.offboarded": {

@@ -88,6 +88,36 @@ function envelope(
   };
 }
 
+describe("org yapısı değişince layout yeniden kurulur (2026-08-14 kök neden)", () => {
+  it("boş org'la donan plan, org.unit.created sonrası odaları kazanır ve avatarlar masaya yürür", async () => {
+    // boş şirketle boot (Founder senaryosu: önce ofis açıldı, org sonra kuruldu)
+    const data: OfficeCompanyData = { units: [], agents: [], reportsTo: {}, savedLayout: null };
+    const h = makeHarness(data);
+    await h.projector.snapshot(COMPANY); // state boş org'la donar
+
+    // ajan işe alındı (henüz oda yok — girişte kalır)
+    await h.projector.handleEvent(
+      envelope("agent.hired", { agentId: ALICE, name: "Alice", orgUnitId: DEPT }),
+    );
+
+    // org kuruldu → loader artık birimi + ajanı görüyor
+    data.units.push({ id: DEPT, name: "Engineering", kind: "department", parentId: null });
+    data.agents.push({ id: ALICE, name: "Alice", status: "active", orgUnitId: DEPT });
+    const unitEvent = envelope("org.unit.created", { orgUnitId: DEPT, kind: "department" });
+    const emitted = await h.projector.handleEvent(unitEvent);
+
+    const layout = await h.projector.layoutFor(COMPANY);
+    expect(layout.zones.some((z) => z.orgUnitId === DEPT)).toBe(true);
+
+    const move = emitted.find((i) => i.type === "office.avatar.moved");
+    expect(move).toBeDefined();
+    expect(move!.causeEventId).toBe(unitEvent.id); // N2: nedensel zincir korunur
+
+    const snapshot = await h.projector.snapshot(COMPANY);
+    expect(snapshot.agents.find((a) => a.agentId === ALICE)?.deskId).not.toBeNull();
+  });
+});
+
 describe("hard invariant: no instruction without causeEventId", () => {
   it("sealInstruction throws when causeEventId is missing", () => {
     expect(() =>
