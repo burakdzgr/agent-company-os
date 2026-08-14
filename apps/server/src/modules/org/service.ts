@@ -212,9 +212,14 @@ export class OrgService {
         });
       }
 
+      // slug'ı serbest bırak: unique kısıt arşivlileri de kapsıyor — aynı
+      // adla yeniden kurulabilsin (Founder akışı: arşivle → yeniden kur)
       const [archived] = await tx
         .update(orgUnits)
-        .set({ archivedAt: sql`now()` })
+        .set({
+          archivedAt: sql`now()`,
+          slug: sql`${orgUnits.slug} || '-arsiv-' || substr(${orgUnits.id}::text, 1, 8)`,
+        })
         .where(and(eq(orgUnits.companyId, ctx.companyId), eq(orgUnits.id, unitId)))
         .returning();
       await emitDomainEvent(tx, ctx, {
@@ -295,9 +300,13 @@ export class OrgService {
           "POSITION_IN_USE: bu pozisyonda çalışan ajan var — önce rolünü değiştirin veya işten çıkarın",
         );
       }
+      // unvanı serbest bırak (unique kısıt arşivlileri de kapsıyor)
       const [archived] = await tx
         .update(positions)
-        .set({ archivedAt: sql`now()` })
+        .set({
+          archivedAt: sql`now()`,
+          title: sql`${positions.title} || ' (arşiv ' || substr(${positions.id}::text, 1, 8) || ')'`,
+        })
         .where(and(eq(positions.companyId, ctx.companyId), eq(positions.id, positionId)))
         .returning();
       await emitDomainEvent(tx, ctx, {
