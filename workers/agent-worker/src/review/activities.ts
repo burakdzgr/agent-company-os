@@ -5,7 +5,7 @@
 // reviewer loop": first code review requests changes exactly once, the
 // re-review approves, QA approves — precisely the demo-19 shape; live-LLM
 // reviewer reasoning joins the nightly lane).
-import { ReviewsService, companyContext, type GuardedDb } from "@acos/db";
+import { ReviewsService, TaskStateService, companyContext, type GuardedDb } from "@acos/db";
 import { and, eq } from "drizzle-orm";
 import { agents, orgEdges, positions, tasks, workspaces } from "@acos/db/schema";
 
@@ -32,7 +32,7 @@ export interface ReviewActivityDeps {
         toolName: string;
         input: unknown;
         idempotencyKey: string;
-      }) => Promise<{ status: string; error?: string | undefined; reason?: string | null }>)
+      }) => Promise<{ status: string; error?: string | undefined; reason?: string | null; output?: unknown }>)
     | undefined;
   /** Next review round (code approved → qa) rides a fresh reviewWorkflow. */
   startReviewWorkflow?:
@@ -93,6 +93,20 @@ export function createReviewActivities(deps: ReviewActivityDeps) {
         taskStatus: "",
         detail: result.error ?? result.reason ?? result.status,
       };
+    }
+    // 2026-08-14 saha bulgusu: analiz/dokümantasyon görevlerinde dal boş —
+    // EMPTY_MERGE. QA onayı verilmişse kapanışı merge yerine SYSTEM yapar
+    // (QA→DONE kinds: qa|system); kod görevlerinde davranış değişmedi.
+    const output = result.output as { merged?: boolean; conflict?: { files?: string[] } } | undefined;
+    if (output?.merged === false && output.conflict?.files?.includes("EMPTY_MERGE")) {
+      const closed = await new TaskStateService(deps.guardedDb).transition(
+        ctx,
+        input.taskId,
+        "DONE",
+        { kind: "system" },
+        { note: "QA onaylı; merge edilecek değişiklik yok (analiz görevi) — system kapanışı" },
+      );
+      return { merged: false, taskStatus: closed.status, detail: "empty merge — closed by system" };
     }
     const [after] = await deps.guardedDb
       .select({ status: tasks.status })
