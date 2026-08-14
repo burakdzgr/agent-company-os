@@ -961,29 +961,46 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         case "think":
           return { ok: true, thought: true };
         case "complete_task": {
-          // T43 (recorded): after a changes_requested rework the owner's
-          // "done" cannot self-approve — the machine routes it back through
-          // re-review (CHANGES_REQUESTED→IN_PROGRESS→REVIEW, same row reset)
+          // 07 §10 + 16-durum makinesi: sahibin "bitti"si görevi yetkili
+          // olduğu kadar İLERLETİR — result kaydedilir, iş REVIEW'a taşınır
+          // ve inceleme açılır (kalite zinciri REVIEW→QA→DONE dışarıdan
+          // tamamlanır; T43 rework'ünde owner kendi işini onaylayamaz).
+          // 2026-08-14 saha bulgusu: eski hali ASSIGNED görevde HİÇBİR ŞEY
+          // yapmadan "completed" diyordu — görev yerinde kalıyor, döngü
+          // kapanıyordu (ilk canlı mühendis koşusu tam böyle yetim kaldı).
           const [row] = await guardedDb
             .select({ status: tasks.status })
             .from(tasks)
             .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
-          if (row && ["CHANGES_REQUESTED", "IN_PROGRESS"].includes(row.status)) {
-            const priorReviews = await reviewsService.listForTask(ctx, input.taskId);
-            if (priorReviews.length > 0) {
-              const owner = { kind: "agent" as const, agentId: input.agentId };
-              if (row.status === "CHANGES_REQUESTED") {
+          if (!row) return { ok: false, error: "TASK_NOT_FOUND" };
+          const owner = { kind: "agent" as const, agentId: input.agentId };
+          if (["ASSIGNED", "IN_PROGRESS", "CHANGES_REQUESTED"].includes(row.status)) {
+            try {
+              // 07 §10 sonuç sözleşmesi tasks.result'a yazılır (şema zaten
+              // AgentActionSchema'da doğrulandı)
+              await guardedDb
+                .update(tasks)
+                .set({ result: action.result })
+                .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
+              if (row.status !== "IN_PROGRESS") {
                 await taskState.transition(ctx, input.taskId, "IN_PROGRESS", owner);
               }
               await checkpointBranch(input);
-              await taskState.transition(ctx, input.taskId, "REVIEW", owner);
+              await taskState.transition(ctx, input.taskId, "REVIEW", owner, {
+                note: action.result.summary.slice(0, 500),
+              });
               const opened = await openCodeReview(ctx, input.taskId, input.agentId);
               return {
                 ok: true,
                 completed: false,
-                reReviewRequested: true,
+                reviewRequested: true,
                 ...(opened && { reviewId: opened.reviewId }),
               };
+            } catch (err) {
+              if (err instanceof TaskEngineError) {
+                return { ok: false, error: err.code, detail: err.message };
+              }
+              throw err;
             }
           }
           return { ok: true, completed: true };
