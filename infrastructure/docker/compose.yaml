@@ -122,6 +122,7 @@ services:
       # provisions the anthropic provider + model profiles
       LLM_MODE: ${LLM_MODE:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
     ports:
       # Container always listens on 3000; host side is overridable because dev
       # machines may already occupy 3000 (SERVER_PORT is only interpolated here,
@@ -179,6 +180,7 @@ services:
       # ModelRouter (32 §6); empty = live providers from model_providers rows.
       LLM_MODE: ${LLM_MODE:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       # use_tool → Tool Gateway internal HTTP (T40, S3)
       SERVER_INTERNAL_URL: http://server:3000
       # Dev fallbacks — override via .env in any real install (prod overlay requires them).

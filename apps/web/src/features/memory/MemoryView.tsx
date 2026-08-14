@@ -9,6 +9,7 @@ import { Button, Card, Field, Input, StatusPill, cn } from "@acos/ui";
 import type { MemoryDto } from "@acos/contracts";
 import { api } from "../../lib/api.js";
 import { MemoryGraph } from "./MemoryGraph.js";
+import { memoryTypeColor } from "./MemoryPanel.js";
 
 const STATUS_TONE: Record<string, "ok" | "warn" | "accent" | "neutral"> = {
   active: "ok",
@@ -265,7 +266,79 @@ function ContradictionQueue({ companyId, isFounder }: { companyId: string; isFou
   );
 }
 
-const TAB_LABELS = { list: "LİSTE", graph: "GRAF", queues: "KUYRUKLAR" } as const;
+const TAB_LABELS = {
+  list: "LİSTE",
+  graph: "GRAF",
+  timeline: "ZAMAN",
+  queues: "KUYRUKLAR",
+} as const;
+
+/** Zaman sekmesi (PROMPT1 kabulü): kronolojik anı akışı — gün başlıklı,
+ *  en yeni üstte; canlı memory.* invalidation'ıyla yeni anı akışta belirir. */
+function MemoryTimeline({
+  items,
+  selectedId,
+  onSelect,
+}: {
+  items: MemoryDto[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const sorted = [...items].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  const byDay = new Map<string, MemoryDto[]>();
+  for (const memory of sorted) {
+    const day = new Date(memory.createdAt).toLocaleDateString();
+    byDay.set(day, [...(byDay.get(day) ?? []), memory]);
+  }
+  if (sorted.length === 0) {
+    return (
+      <Card>
+        <p className="py-8 text-center text-sm text-ink-400" data-testid="timeline-empty">
+          Henüz anı yok — ajanlar görev tamamladıkça kronoloji burada akar.
+        </p>
+      </Card>
+    );
+  }
+  return (
+    <Card className="p-3" data-testid="memory-timeline">
+      <div className="space-y-4">
+        {[...byDay.entries()].map(([day, memories]) => (
+          <div key={day}>
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-400">{day}</p>
+            <div className="space-y-1 border-l-2 border-ink-100 pl-3">
+              {memories.map((memory) => (
+                <button
+                  key={memory.id}
+                  onClick={() => onSelect(memory.id)}
+                  data-testid="timeline-row"
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-acos-bg2",
+                    selectedId === memory.id && "bg-acos-bg2",
+                  )}
+                >
+                  <span className="font-mono text-[10px] tabular-nums text-ink-400">
+                    {new Date(memory.createdAt).toLocaleTimeString()}
+                  </span>
+                  <span
+                    className="inline-block h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: memoryTypeColor(memory.type) }}
+                    title={memory.type}
+                  />
+                  <span className="truncate text-ink-800">{memory.title}</span>
+                  <span className="ml-auto shrink-0 text-[10px] text-ink-400">
+                    {memory.scope} · önem {memory.importance.toFixed(2)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
 const STATUS_LABELS: Record<string, string> = {
   all: "tümü",
   active: "aktif",
@@ -276,7 +349,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export function MemoryView() {
   const { companyId } = useParams({ from: "/c/$companyId" });
-  const [tab, setTab] = useState<"list" | "graph" | "queues">("list");
+  const [tab, setTab] = useState<"list" | "graph" | "timeline" | "queues">("list");
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [query, setQuery] = useState("");
@@ -303,7 +376,7 @@ export function MemoryView() {
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-semibold">Hafıza Gözlemevi</h2>
         <div className="flex gap-1">
-          {(["list", "graph", "queues"] as const).map((key) => (
+          {(["list", "graph", "timeline", "queues"] as const).map((key) => (
             <Button
               key={key}
               variant={tab === key ? "primary" : "ghost"}
@@ -409,6 +482,13 @@ export function MemoryView() {
             </Card>
           )}
           {tab === "graph" && <MemoryGraph companyId={companyId} onSelect={setSelectedId} />}
+          {tab === "timeline" && (
+            <MemoryTimeline
+              items={list.data?.items ?? []}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+          )}
           {tab === "queues" && <ContradictionQueue companyId={companyId} isFounder={isFounder} />}
         </div>
         {selectedId && (

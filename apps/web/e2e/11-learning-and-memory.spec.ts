@@ -69,6 +69,16 @@ test("failure → consolidation → Observatory with provenance; contradiction q
     .first();
   await expect(row).toBeVisible({ timeout: 120_000 });
   await expect(row).toContainText("failure");
+
+  // ---- Zaman sekmesi (PROMPT1): kronolojik akışta aynı anı görünür ----
+  await page.getByTestId("memory-tab-timeline").click();
+  await expect(
+    page
+      .getByTestId("timeline-row")
+      .filter({ hasText: "Signup e2e test is order-dependent" })
+      .first(),
+  ).toBeVisible();
+  await page.getByTestId("memory-tab-list").click();
   await expect(row).toContainText("active"); // importance 0.45 ⇒ active (12 §5.9)
 
   // type filter narrows to the failure lesson

@@ -122,6 +122,38 @@ async function ensureLiveModelRouting(db: GuardedDb, companyId: string): Promise
       .values({ companyId, purpose, providerId, model, priority: 0 })
       .onConflictDoNothing();
   }
+
+  // Canlı semantik hafıza (12 §5.4/§7.5): Anthropic embedding sunmadığından
+  // OPENAI_API_KEY varsa openai sağlayıcısı + 1536-boyutlu embedding profili
+  // kurulur (HNSW 1536 partial index'iyle eşleşir) — yoksa boru hattı belgeli
+  // şekilde degrade kalır (NULL embedding + semantik şerit atlanır).
+  if (process.env.OPENAI_API_KEY) {
+    const [existingOpenAi] = await db
+      .select({ id: modelProviders.id })
+      .from(modelProviders)
+      .where(eq(modelProviders.name, "openai"));
+    const openAiId =
+      existingOpenAi?.id ??
+      (
+        await db
+          .insert(modelProviders)
+          .values({ kind: "openai", name: "openai" })
+          .onConflictDoNothing()
+          .returning({ id: modelProviders.id })
+      )[0]?.id;
+    if (openAiId) {
+      await db
+        .insert(modelProfiles)
+        .values({
+          companyId,
+          purpose: "embedding",
+          providerId: openAiId,
+          model: process.env.OPENAI_EMBEDDING_MODEL ?? "text-embedding-3-small",
+          priority: 0,
+        })
+        .onConflictDoNothing();
+    }
+  }
 }
 
 /**
