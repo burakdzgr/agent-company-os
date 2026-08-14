@@ -33,9 +33,12 @@ import {
   agentSessions,
   agentSteps,
   agents,
+  artifacts as artifactsTable,
   llmCalls,
   modelProfiles,
   positions,
+  projects,
+  repositories,
   tasks,
   workspaces as workspacesTable,
 } from "@acos/db/schema";
@@ -357,6 +360,62 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         | null
         | undefined;
 
+      // Proje bağlamı (2026-08-14 Founder saha raporu: "repo'yu bağladım,
+      // CEO görmüyor mu?"): görev bir projeye bağlıysa proje + repo + intake
+      // raporu working set'e girer — 14 §3 raporu goal'ün context.artifactIds
+      // alanına bağlar ama prompt bunu hiç yüzeye çıkarmıyordu; ajan kendi
+      // şirketinin elindeki analizden habersiz "hangi proje?" diye soruyordu.
+      let projectSection = "(no linked project)";
+      if (task.projectId) {
+        const [projectRow] = await guardedDb
+          .select({
+            name: projects.name,
+            objectiveMd: projects.objectiveMd,
+            constraintsMd: projects.constraintsMd,
+            status: projects.status,
+            intakeReportArtifactId: projects.intakeReportArtifactId,
+          })
+          .from(projects)
+          .where(and(eq(projects.companyId, ctx.companyId), eq(projects.id, task.projectId)));
+        if (projectRow) {
+          const [repo] = await guardedDb
+            .select({ originUrl: repositories.originUrl, defaultBranch: repositories.defaultBranch })
+            .from(repositories)
+            .where(
+              and(
+                eq(repositories.companyId, ctx.companyId),
+                eq(repositories.projectId, task.projectId),
+              ),
+            );
+          let report = "";
+          if (projectRow.intakeReportArtifactId) {
+            const [artifact] = await guardedDb
+              .select({ title: artifactsTable.title, contentMd: artifactsTable.contentMd })
+              .from(artifactsTable)
+              .where(
+                and(
+                  eq(artifactsTable.companyId, ctx.companyId),
+                  eq(artifactsTable.id, projectRow.intakeReportArtifactId),
+                ),
+              );
+            if (artifact?.contentMd) {
+              report = `\nIntake analysis report "${artifact.title}" (truncated):\n${artifact.contentMd.slice(0, 6000)}`;
+            }
+          }
+          projectSection = [
+            `Project: ${projectRow.name} (status: ${projectRow.status})`,
+            `Objective: ${projectRow.objectiveMd}`,
+            projectRow.constraintsMd ? `Constraints: ${projectRow.constraintsMd}` : "",
+            repo?.originUrl
+              ? `Repository: ${repo.originUrl} (default branch: ${repo.defaultBranch}) — engineers work in workspaces cloned from this repo`
+              : "",
+            report,
+          ]
+            .filter(Boolean)
+            .join("\n");
+        }
+      }
+
       // sections 4–6 (08 §8): memory retrieval (12 §7, T45). Query text =
       // title + objective + current step intent + last tool error; the
       // failure lane's exact file-path match uses paths the session touched.
@@ -474,6 +533,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       const user = [
         `# Org context\nEscalation chain: ${managers.join(" -> ") || "(top level)"} -> Founder`,
         `# Task TASK-${task.number}: ${task.title}\nObjective: ${task.objective}\nStatus: ${task.status} | Priority: ${task.priority} | Risk: ${task.risk}\nSuccess criteria: ${task.successCriteria.join("; ") || "(none)"}\nBudget remaining cents: ${task.budgetCents === null ? "inherit" : task.budgetCents - task.spentCents}`,
+        `# Project context\n${projectSection}`,
         `# Company memory\n${memorySections.company || "(none)"}`,
         `# Project memory\n${memorySections.project || "(none)"}`,
         `# Agent memory\n${memorySections.agent || "(none)"}`,

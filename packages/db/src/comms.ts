@@ -445,7 +445,10 @@ export async function deliverMessage(
       channelId: plan.channel.id,
       senderAgentId: plan.message.senderAgentId,
       kind: plan.message.kind,
-      preview: plan.message.body.slice(0, 300),
+      // 2026-08-14: 300 → 2000 — Founder direktifleri ajanın working set'ine
+      // preview marker'ıyla girer (thread bölümü T45'e dek placeholder);
+      // 300 karakter talimatların çoğunu kırpıyordu.
+      preview: plan.message.body.slice(0, 2000),
       mentioned: recipient.mentioned,
       sentAt: plan.message.createdAt.toISOString(),
     };

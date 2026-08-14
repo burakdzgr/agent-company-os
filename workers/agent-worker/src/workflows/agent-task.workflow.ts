@@ -246,12 +246,16 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
       const signalMarkers: string[] = drained.map(
         (m) => `[signal:message=${m.kind}] from ${m.senderAgentId ?? "founder"}: ${m.preview}`,
       );
+      // 2026-08-14: karar notları marker'a eklenir — Founder'ın onay notu
+      // yalnız "approved" kelimesine indirgeniyordu, ajan talimatı göremiyordu
       if (signals.reviewVerdict !== null) {
-        signalMarkers.push(`[signal:reviewVerdict=${signals.reviewVerdict.verdict}]`);
+        const notes = signals.reviewVerdict.notes ? ` notes: ${signals.reviewVerdict.notes}` : "";
+        signalMarkers.push(`[signal:reviewVerdict=${signals.reviewVerdict.verdict}]${notes}`);
         signals.reviewVerdict = null;
       }
       if (signals.approvalVerdict !== null) {
-        signalMarkers.push(`[signal:approvalVerdict=${signals.approvalVerdict.verdict}]`);
+        const note = signals.approvalVerdict.note ? ` note: ${signals.approvalVerdict.note}` : "";
+        signalMarkers.push(`[signal:approvalVerdict=${signals.approvalVerdict.verdict}]${note}`);
         signals.approvalVerdict = null;
       }
 
