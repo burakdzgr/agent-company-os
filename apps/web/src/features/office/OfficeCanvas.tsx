@@ -409,7 +409,6 @@ export function OfficeCanvas({
             if (sheet) {
               sprite = new AnimatedSprite([Texture.EMPTY]);
               sprite.anchor.set(0.5, 0.85);
-              sprite.scale.set(2); // 16×20 frame → 32×40 on a 32px cell
               sprite.animationSpeed = 0.16;
               root.addChild(sprite);
             } else {
@@ -474,6 +473,13 @@ export function OfficeCanvas({
                 } else {
                   node.sprite.textures = [sheet.textures[entry.idle[node.dir]] ?? Texture.EMPTY];
                   node.sprite.gotoAndStop(0);
+                }
+                // frame boyutundan bağımsız yerleşim: hedef ayak izi ~32×40
+                // (16×20 prosedürel → 2×; 64×64 PixelLab → 0.55× gibi)
+                const frame = node.sprite.textures[0];
+                if (frame && frame !== Texture.EMPTY && frame.height > 0) {
+                  const s = Math.min(32 / frame.width, 40 / frame.height);
+                  node.sprite.scale.set(s);
                 }
               }
             }

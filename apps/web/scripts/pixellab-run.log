@@ -1,0 +1,25 @@
+PixelLab bakiyesi: $0 — abonelik "generations" kotası ayrıca kullanılabilir; kota biterse koşum hata verir, önbellek sayesinde yeniden koşum kaldığı yerden sürer.
+[av01] young woman, short black bob haircut, blue office shirt, dar…
+[av02] man with brown short hair and beard, grey hoodie, jeans…
+[av03] woman with long blonde ponytail, purple blouse, black skirt…
+  429 — 15s bekleniyor…
+  ✓ av01 (toplam $0.000 + 25 gen, 25 çağrı)
+[av04] man in navy business suit with white shirt and red tie, blac…
+  ✓ av02 (toplam $0.000 + 26 gen, 26 çağrı)
+[av05] woman with curly red hair, green sweater, dark jeans…
+  ✓ av03 (toplam $0.000 + 28 gen, 28 çağrı)
+[av06] bald man with glasses, white shirt, grey vest, dark trousers…
+file:///C:/Users/BURAK/Desktop/agent-company/apps/web/scripts/pixellab-generate.mjs:94
+    throw new Error(`${endpoint} ${res.status}: ${text.slice(0, 300)}`);
+          ^
+
+Error: /animate-with-text 402: {"detail":"Insufficient generations and credits. Generations: 40.0/40.0, Credits: 0.0"}
+    at pixellab (file:///C:/Users/BURAK/Desktop/agent-company/apps/web/scripts/pixellab-generate.mjs:94:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async generateCharacter (file:///C:/Users/BURAK/Desktop/agent-company/apps/web/scripts/pixellab-generate.mjs:161:17)
+    at async file:///C:/Users/BURAK/Desktop/agent-company/apps/web/scripts/pixellab-generate.mjs:225:22
+    at async Promise.all (index 0)
+    at async main (file:///C:/Users/BURAK/Desktop/agent-company/apps/web/scripts/pixellab-generate.mjs:221:3)
+    at async file:///C:/Users/BURAK/Desktop/agent-company/apps/web/scripts/pixellab-generate.mjs:324:1
+
+Node.js v22.19.0

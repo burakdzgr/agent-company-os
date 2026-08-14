@@ -12,3 +12,4 @@ infrastructure/docker/data-e2e/
 dist-types/
 apps/web/test-results/
 apps/web/playwright-report/
+apps/web/scripts/.pixellab-cache/
