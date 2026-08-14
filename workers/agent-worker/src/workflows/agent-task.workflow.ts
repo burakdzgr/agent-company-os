@@ -69,6 +69,35 @@ const HISTORY_EVENT_LIMIT = 5_000;
 const LOOP_WINDOW = 6; // guard (d)
 const LOOP_TRIP = 3;
 
+/**
+ * Canlı model toleransı (2026-08-14): markdown çiti / önsöz-sonsöz metni
+ * içinden ilk dengeli JSON nesnesini çıkarır. Şema doğrulaması KATI kalır
+ * (08 §4) — yalnız çıkarım toleranslıdır. Deterministik saf string işlemi
+ * (workflow-güvenli).
+ */
+function extractJsonCandidate(text: string): string {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
+  const source = (fenced?.[1] ?? text).trim();
+  if (source.startsWith("{") && source.endsWith("}")) return source;
+  const start = source.indexOf("{");
+  if (start === -1) return source;
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < source.length; i++) {
+    const ch = source[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return source.slice(start, i + 1);
+    }
+  }
+  return source.slice(start);
+}
+
 /** guard (d) normalization: lowercase, strip volatile fields (08 §9). */
 function normalizedActionHash(action: AgentAction): string {
   const raw = JSON.stringify(action)
@@ -268,6 +297,7 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
       let usage = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 };
       let costCents = 0;
       const messages: LlmMessage[] = [...workingSet.messages];
+      let lastModelText = "";
       for (let repair = 0; repair <= MAX_REPAIRS; repair++) {
         const result = await activities.callModelActivity({
           ...ref,
@@ -281,9 +311,10 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
           cachedInputTokens: usage.cachedInputTokens + result.usage.cachedInputTokens,
         };
         costCents += result.costCents;
+        lastModelText = result.text;
         let parsed: unknown;
         try {
-          parsed = JSON.parse(result.text);
+          parsed = JSON.parse(extractJsonCandidate(result.text));
         } catch (err) {
           messages.push(
             { role: "assistant", content: result.text },
@@ -315,7 +346,8 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
           stepId,
           stepNo,
           action: { type: "abandon", reason: "model output failed AgentAction parse after 2 repairs" },
-          observation: { ok: false, parseFailed: true },
+          // teşhis: son ham model çıktısının ilk 400 karakteri kayda geçer
+          observation: { ok: false, parseFailed: true, sample: lastModelText.slice(0, 400) },
           usage,
           costCents,
           durationMs: Date.now() - stepStart,

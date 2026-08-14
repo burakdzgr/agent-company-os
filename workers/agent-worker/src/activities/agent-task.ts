@@ -450,6 +450,27 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         ...(hasFences ? [FENCE_PREAMBLE] : []),
         markers,
       ].join("\n");
+      // Canlı model düzeltmesi (2026-08-14): scripted router şemayı "bilir",
+      // gerçek model bilemez — katalog gösterilmeden AgentAction üretmesi
+      // imkânsızdı (parse-fail → abandon). 08 §8'in aksiyon sözlüğü bölümü.
+      const actionCatalog = [
+        "# AgentAction catalog — respond with EXACTLY ONE of these shapes",
+        `- {"type":"think","thought":"<reasoning, <=4000 chars>","plan":["step",...]?}`,
+        `- {"type":"use_tool","tool":"<registry tool name>","input":{...},"reason":"<=500 chars"}`,
+        `- {"type":"send_message","channelId":"<uuid>","kind":"text|help_request|review_request|escalation|status","body":"...","mentions":[],"refs":[]}`,
+        `- {"type":"create_task","kind":"initiative|epic|task|subtask","parentTaskId":"<uuid>","title":"<=200","objective":"...","successCriteria":["..."],"priority":"P0|P1|P2|P3","estimatedEffort":1-13,"risk":"low|medium|high|critical"}`,
+        `- {"type":"delegate_task","taskId":"<uuid>","toAgentId":"<uuid>","note":"<=1000"}`,
+        `- {"type":"request_review","taskId":"<uuid>","artifactId":"<uuid>","summary":"<=2000"}`,
+        `- {"type":"request_help","topic":"<=200","body":"<=4000","audience":"peer|team|lead|manager|specialist"}`,
+        `- {"type":"escalate","reason":"<=2000","attempted":["..."],"options":[{"option":"...","risk":"...","cost":"..."}],"recommendation":"..."}`,
+        `- {"type":"update_task_status","taskId":"<uuid>","to":"IN_PROGRESS|WAITING|BLOCKED|REVIEW","note":"<=1000"}`,
+        `- {"type":"record_decision","title":"<=200","decision":"...","alternatives":["..."],"consequences":"..."}`,
+        `- {"type":"complete_task","result":{"summary":"...","criteria":[{"criterion":"...","met":true,"evidence":"..."}],"artifactIds":[],"cost":{"tokensIn":0,"tokensOut":0,"cents":0}}}`,
+        `- {"type":"wait_for","what":"dependency|reply|review|approval|timer","refId":"<uuid>"?,"timeoutMinutes":1-1440}`,
+        `- {"type":"abandon","reason":"<=2000"}`,
+        `Special uuid ${CONTEXT_SENTINEL_UUID} = "current context": own task (create_task.parentTaskId), next unassigned child (delegate_task.taskId), an eligible report (delegate_task.toAgentId), own task thread (send_message.channelId).`,
+        "Output RAW JSON only — no markdown fences, no commentary before or after.",
+      ].join("\n");
       const user = [
         `# Org context\nEscalation chain: ${managers.join(" -> ") || "(top level)"} -> Founder`,
         `# Task TASK-${task.number}: ${task.title}\nObjective: ${task.objective}\nStatus: ${task.status} | Priority: ${task.priority} | Risk: ${task.risk}\nSuccess criteria: ${task.successCriteria.join("; ") || "(none)"}\nBudget remaining cents: ${task.budgetCents === null ? "inherit" : task.budgetCents - task.spentCents}`,
@@ -458,6 +479,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         `# Agent memory\n${memorySections.agent || "(none)"}`,
         `# Thread + signals\n${(input.signalMarkers ?? []).join("\n") || "(no new messages)"}`,
         `# Recent steps\n${recentSteps.slice().reverse().map(renderStep).join("\n") || "(none yet)"}`,
+        actionCatalog,
         `# Output\nRespond with EXACTLY one AgentAction JSON object, no prose. Step ${input.stepNo}.`,
       ].join("\n\n");
 
