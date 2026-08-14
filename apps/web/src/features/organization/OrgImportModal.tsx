@@ -7,7 +7,6 @@
 // — import atomik değildir (bilinçli: mevcut API sözleşmesi).
 // Ayrıştırıcılar saf modülde: ./orgImport.ts (unit-testli).
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import type { Agent, OrgUnit, Position } from "@acos/contracts";
 import { Button, Dialog, Textarea } from "@acos/ui";
 import { AcosApiError } from "@acos/contracts/client";
@@ -40,13 +39,6 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
 
-  const units = useQuery({ queryKey: keys.orgUnits(companyId), queryFn: () => api.org.listUnits(companyId) });
-  const positions = useQuery({
-    queryKey: keys.orgPositions(companyId),
-    queryFn: () => api.org.listPositions(companyId),
-  });
-  const agents = useQuery({ queryKey: keys.agents(companyId), queryFn: () => api.agents.list(companyId) });
-
   const { plan, problems } = useMemo(() => parseImport(text), [text]);
   const parsed = plan.units.length + plan.positions.length + plan.agents.length > 0;
 
@@ -59,16 +51,23 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
     };
     const fail = (label: string, err: unknown) => push({ label, state: "error", detail: problemDetail(err) });
 
-    // mevcut kayıtlar — eşleştirme referansları (slug/title/name, küçük harf)
+    // Mevcut kayıtlar ÇALIŞTIRMA ANINDA taze çekilir — modal sorgusu henüz
+    // yüklenmemişken koşulan importlar var-olanları "duplicate" diye sunucuya
+    // çarpıyordu (Founder raporu 2026-08-14).
+    const [freshUnits, freshPositions, freshAgents] = await Promise.all([
+      api.org.listUnits(companyId),
+      api.org.listPositions(companyId),
+      api.agents.list(companyId),
+    ]);
     const unitBySlug = new Map<string, OrgUnit>(
-      (units.data ?? []).map((u) => [u.slug.toLowerCase(), u]),
+      freshUnits.map((u) => [u.slug.toLowerCase(), u]),
     );
-    for (const u of units.data ?? []) unitBySlug.set(u.name.toLowerCase(), u);
+    for (const u of freshUnits) unitBySlug.set(u.name.toLowerCase(), u);
     const positionByTitle = new Map<string, Position>(
-      (positions.data ?? []).map((p) => [p.title.toLowerCase(), p]),
+      freshPositions.map((p) => [p.title.toLowerCase(), p]),
     );
     const agentByName = new Map<string, Agent>(
-      (agents.data ?? [])
+      freshAgents
         .filter((a) => a.status !== "offboarded")
         .map((a) => [a.name.toLowerCase(), a]),
     );
@@ -98,7 +97,21 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
           unitBySlug.set(created.name.toLowerCase(), created);
           push({ label: `birim ${spec.name}`, state: "ok" });
         } catch (err) {
-          fail(`birim ${spec.name}`, err);
+          // slug çakışması (farklı ad, aynı slug) → var olanı çöz ve atla;
+          // alt birimler ebeveyn olarak onu kullanabilsin
+          const conflict = err instanceof AcosApiError && err.problem.status === 409;
+          const existing = conflict
+            ? (await api.org.listUnits(companyId)).find(
+                (u) => u.slug.toLowerCase() === spec.slug.toLowerCase(),
+              )
+            : undefined;
+          if (existing) {
+            unitBySlug.set(existing.slug.toLowerCase(), existing);
+            unitBySlug.set(spec.name.toLowerCase(), existing);
+            push({ label: `birim ${spec.name}`, state: "ok", detail: "zaten var (slug) — atlandı" });
+          } else {
+            fail(`birim ${spec.name}`, err);
+          }
         }
         pendingUnits.splice(i, 1);
         i--;
@@ -289,7 +302,6 @@ export function UnitImportModal({ companyId, onClose }: { companyId: string; onC
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
 
-  const units = useQuery({ queryKey: keys.orgUnits(companyId), queryFn: () => api.org.listUnits(companyId) });
   const { units: specs, problems } = useMemo(() => parseUnits(text), [text]);
 
   async function run(): Promise<void> {
@@ -299,8 +311,9 @@ export function UnitImportModal({ companyId, onClose }: { companyId: string; onC
       log.push(s);
       setSteps([...log]);
     };
+    // mevcut birimler çalıştırma anında taze çekilir (bkz. OrgImportModal notu)
     const byRef = new Map<string, string>();
-    for (const u of units.data ?? []) {
+    for (const u of await api.org.listUnits(companyId)) {
       byRef.set(u.slug.toLowerCase(), u.id);
       byRef.set(u.name.toLowerCase(), u.id);
     }
@@ -328,7 +341,19 @@ export function UnitImportModal({ companyId, onClose }: { companyId: string; onC
           byRef.set(created.name.toLowerCase(), created.id);
           push({ label: `${spec.name} (${spec.kind})`, state: "ok" });
         } catch (err) {
-          push({ label: spec.name, state: "error", detail: problemDetail(err) });
+          const conflict = err instanceof AcosApiError && err.problem.status === 409;
+          const existing = conflict
+            ? (await api.org.listUnits(companyId)).find(
+                (u) => u.slug.toLowerCase() === spec.slug.toLowerCase(),
+              )
+            : undefined;
+          if (existing) {
+            byRef.set(existing.slug.toLowerCase(), existing.id);
+            byRef.set(spec.name.toLowerCase(), existing.id);
+            push({ label: spec.name, state: "ok", detail: "zaten var (slug) — atlandı" });
+          } else {
+            push({ label: spec.name, state: "error", detail: problemDetail(err) });
+          }
         }
         pending.splice(i, 1);
         i--;
@@ -411,11 +436,6 @@ export function PositionImportModal({
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
 
-  const positions = useQuery({
-    queryKey: keys.orgPositions(companyId),
-    queryFn: () => api.org.listPositions(companyId),
-  });
-
   const { positions: specs, problems } = useMemo(() => parsePositions(text), [text]);
 
   async function run(): Promise<void> {
@@ -425,7 +445,10 @@ export function PositionImportModal({
       log.push(s);
       setSteps([...log]);
     };
-    const existing = new Set((positions.data ?? []).map((p) => p.title.toLowerCase()));
+    // mevcut pozisyonlar çalıştırma anında taze çekilir
+    const existing = new Set(
+      (await api.org.listPositions(companyId)).map((p) => p.title.toLowerCase()),
+    );
     for (const spec of specs) {
       if (existing.has(spec.title.toLowerCase())) {
         push({ label: spec.title, state: "ok", detail: "zaten var — atlandı" });

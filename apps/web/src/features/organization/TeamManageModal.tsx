@@ -63,8 +63,10 @@ export function TeamManageModal({ companyId, onClose }: { companyId: string; onC
     setBusy(true);
     setError(null);
     const log: Array<{ label: string; ok: boolean; detail?: string }> = [];
+    // mevcut birimler çalıştırma anında taze çekilir (modal sorgusu geç
+    // yüklenmişse var-olan kontrolü boşa düşüyordu)
     const bySlugOrName = new Map<string, string>();
-    for (const u of units.data ?? []) {
+    for (const u of await api.org.listUnits(companyId)) {
       bySlugOrName.set(u.slug.toLowerCase(), u.id);
       bySlugOrName.set(u.name.toLowerCase(), u.id);
     }
@@ -89,7 +91,9 @@ export function TeamManageModal({ companyId, onClose }: { companyId: string; onC
         bySlugOrName.set(created.name.toLowerCase(), created.id);
         log.push({ label: spec.name, ok: true });
       } catch (err) {
-        log.push({ label: spec.name, ok: false, detail: problemDetail(err) });
+        const conflict = err instanceof AcosApiError && err.problem.status === 409;
+        if (conflict) log.push({ label: spec.name, ok: true, detail: "zaten var — atlandı" });
+        else log.push({ label: spec.name, ok: false, detail: problemDetail(err) });
       }
       setRowStates([...log]);
     }
