@@ -39,7 +39,8 @@ export class TaskEngineError extends Error {
       | "TASK_TRANSITION_INVALID"
       | "TASK_DEPENDENCY_CYCLE"
       | "TASK_HIERARCHY_INVALID"
-      | "TASK_REASSIGNMENT_LIMIT",
+      | "TASK_REASSIGNMENT_LIMIT"
+      | "AGENT_NOT_ACTIVE",
     message: string,
   ) {
     super(message);
@@ -517,6 +518,22 @@ export class TaskStateService {
         .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)))
         .for("update");
       if (!task) throw new TaskEngineError("TASK_NOT_FOUND", "task not found");
+
+      // 2026-08-14 saha bulgusu: işten çıkarılmış bir ajana atama kabul
+      // ediliyordu — hayalet oturum açılıp jeton yakıyor, Tool Gateway
+      // (haklı olarak) IDENTITY_INVALID basıyordu. Atanan HER rol için
+      // ajan bu şirkette ve AKTİF olmak zorunda.
+      const [assignee] = await tx
+        .select({ status: agents.status })
+        .from(agents)
+        .where(and(eq(agents.companyId, ctx.companyId), eq(agents.id, input.agentId)))
+        .limit(1);
+      if (!assignee || assignee.status !== "active") {
+        throw new TaskEngineError(
+          "AGENT_NOT_ACTIVE",
+          `assignee ${input.agentId} is ${assignee?.status ?? "missing"} — only active agents can take assignments`,
+        );
+      }
 
       const byAgentId = actor.kind === "agent" ? actor.agentId : null;
       if (role !== "owner") {

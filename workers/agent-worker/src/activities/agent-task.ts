@@ -2,7 +2,7 @@
 // the workflow only orchestrates. Effects are exactly-once at the DB via
 // stepId-derived idempotency keys (08 §11). Task transitions go through the
 // ONE status writer (TaskStateService — @acos/db/task-engine).
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import { uuidv5 } from "@acos/domain";
 import { parseEventPayload } from "@acos/events";
 import {
@@ -354,6 +354,45 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         .orderBy(sql`${agentSteps.stepNo} DESC`)
         .limit(5);
 
+      // Mevcut görev ağacı bağlamı (2026-08-14): ajanlar birbirinin kurduğu
+      // ağacı görmeden mükerrer initiative/epic açıyordu. Kendi görevinin
+      // çocukları + kardeşleri prompt'a girer; "kopya açma" talimatıyla.
+      const kin = await guardedDb
+        .select({
+          number: tasks.number,
+          kind: tasks.kind,
+          status: tasks.status,
+          title: tasks.title,
+          ownerAgentId: tasks.ownerAgentId,
+          parentId: tasks.parentId,
+        })
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.companyId, ctx.companyId),
+            or(
+              eq(tasks.parentId, input.taskId),
+              ...(task.parentId ? [eq(tasks.parentId, task.parentId)] : []),
+            ),
+          ),
+        )
+        .orderBy(asc(tasks.number))
+        .limit(25);
+      const ownerNames = new Map(
+        (
+          await guardedDb
+            .select({ id: agents.id, name: agents.name })
+            .from(agents)
+            .where(eq(agents.companyId, ctx.companyId))
+        ).map((a) => [a.id, a.name]),
+      );
+      const kinLine = (t: (typeof kin)[number]) =>
+        `- TASK-${t.number} [${t.kind}/${t.status}] ${t.title}${t.ownerAgentId ? ` (owner: ${ownerNames.get(t.ownerAgentId) ?? "?"})` : " (unassigned)"}${t.parentId === input.taskId ? " [child of your task]" : " [sibling]"}`;
+      const taskTreeSection =
+        kin.length > 0
+          ? `${kin.map(kinLine).join("\n")}\nDo NOT create tasks duplicating any of the above — delegate or refine the existing ones instead.`
+          : "(no children or siblings yet)";
+
       const taskContext = task.context as Record<string, unknown>;
       const lastObservation = recentSteps[0]?.observation as
         | { exitCode?: number; signal?: Record<string, string>; error?: string }
@@ -515,7 +554,8 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       const actionCatalog = [
         "# AgentAction catalog — respond with EXACTLY ONE of these shapes",
         `- {"type":"think","thought":"<reasoning, <=4000 chars>","plan":["step",...]?}`,
-        `- {"type":"use_tool","tool":"<registry tool name>","input":{...},"reason":"<=500 chars"}`,
+        // araç adları packages/tools MVP kaydıyla eşleşir (registry testi kilitler)
+        `- {"type":"use_tool","tool":"<one of: fs.read | fs.search | fs.write | terminal.run | git.diff | git.commit | git.branch | git.merge | db.inspect | web.fetch | web.search | task.query | memory.search>","input":{...},"reason":"<=500 chars"} — terminal.run executes shell commands in YOUR task workspace (a clone of the project repo) and streams to the Founder-visible terminal`,
         `- {"type":"send_message","channelId":"<uuid>","kind":"text|help_request|review_request|escalation|status","body":"...","mentions":[],"refs":[]}`,
         `- {"type":"create_task","kind":"initiative|epic|task|subtask","parentTaskId":"<uuid>","title":"<=200","objective":"...","successCriteria":["..."],"priority":"P0|P1|P2|P3","estimatedEffort":1-13,"risk":"low|medium|high|critical"}`,
         `- {"type":"delegate_task","taskId":"<uuid>","toAgentId":"<uuid>","note":"<=1000"}`,
@@ -534,6 +574,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         `# Org context\nEscalation chain: ${managers.join(" -> ") || "(top level)"} -> Founder`,
         `# Task TASK-${task.number}: ${task.title}\nObjective: ${task.objective}\nStatus: ${task.status} | Priority: ${task.priority} | Risk: ${task.risk}\nSuccess criteria: ${task.successCriteria.join("; ") || "(none)"}\nBudget remaining cents: ${task.budgetCents === null ? "inherit" : task.budgetCents - task.spentCents}`,
         `# Project context\n${projectSection}`,
+        `# Existing task tree around you\n${taskTreeSection}`,
         `# Company memory\n${memorySections.company || "(none)"}`,
         `# Project memory\n${memorySections.project || "(none)"}`,
         `# Agent memory\n${memorySections.agent || "(none)"}`,
