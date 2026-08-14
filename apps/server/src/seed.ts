@@ -312,7 +312,10 @@ async function seedOrgAndAgents(db: GuardedDb, companyId: string): Promise<void>
   await seedToolGrants(db, ctx);
 }
 
-const SEED_GRANT_UNIT_SLUGS = ["engineering", "backend", "frontend"];
+// 2026-08-14 saha bulgusu: Founder org'u yeniden kurunca yeni birimler
+// grant'siz kalıyordu (NO_PERMISSION_GRANT). Boot'ta her koşulan bu liste
+// mühendislik birim slug'larının güncel kayıtlarına grant basar (idempotent).
+const SEED_GRANT_UNIT_SLUGS = ["engineering", "backend", "frontend", "devops", "qa", "security"];
 const SEED_GRANT_TOOLS = ["fs.*", "git.*", "terminal.run", "task.query", "memory.search"];
 
 /**
