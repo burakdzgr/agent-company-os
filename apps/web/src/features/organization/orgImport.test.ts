@@ -1,11 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { parseImport, parsePositions, parseTeams, slugify } from "./orgImport.js";
+import { parseImport, parsePositions, parseTeams, parseUnits, slugify } from "./orgImport.js";
 
 describe("slugify", () => {
   it("Türkçe karakterleri çevirir ve API desenine uydurur", () => {
     expect(slugify("İçerik Ekibi")).toBe("icerik-ekibi");
     expect(slugify("Görsel & Tasarım")).toBe("gorsel-tasarim");
     expect(slugify("Backend")).toBe("backend");
+  });
+});
+
+describe("parseUnits", () => {
+  it("satır formatını ayrıştırır: Türkçe tür adları + ebeveyn referansı", () => {
+    const { units, problems } = parseUnits(
+      "ad,tür,üst\nEngineering, departman\nBackend, takım, Engineering\nİstanbul Ofisi, ofis\n",
+    );
+    expect(problems).toEqual([]);
+    expect(units).toEqual([
+      { name: "Engineering", slug: "engineering", kind: "department", parent: null },
+      { name: "Backend", slug: "backend", kind: "team", parent: "Engineering" },
+      { name: "İstanbul Ofisi", slug: "istanbul-ofisi", kind: "office", parent: null },
+    ]);
+  });
+
+  it("geçersiz türü işaretler, JSON dizisini kabul eder", () => {
+    expect(parseUnits("X, süper-birim").problems[0]).toContain("süper-birim");
+    const { units, problems } = parseUnits('[{"name":"Growth","kind":"team","parent":"Marketing"}]');
+    expect(problems).toEqual([]);
+    expect(units[0]).toMatchObject({ slug: "growth", kind: "team", parent: "Marketing" });
   });
 });
 

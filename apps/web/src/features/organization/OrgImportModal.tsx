@@ -12,7 +12,7 @@ import type { Agent, OrgUnit, Position } from "@acos/contracts";
 import { Button, Dialog, Textarea } from "@acos/ui";
 import { AcosApiError } from "@acos/contracts/client";
 import { api, keys, queryClient } from "../../lib/api.js";
-import { IMPORT_TEMPLATE, POSITION_TEMPLATE, parseImport, parsePositions } from "./orgImport.js";
+import { IMPORT_TEMPLATE, POSITION_TEMPLATE, parseImport, parsePositions, parseUnits } from "./orgImport.js";
 
 type StepState = { label: string; state: "ok" | "error" | "pending"; detail?: string };
 
@@ -271,6 +271,123 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
               disabled={!parsed || problems.length > 0 || running}
               onClick={() => void runImport()}
               data-testid="org-import-run"
+            >
+              {running ? "Kuruluyor…" : "İçe aktar"}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Yalnız birim toplu içe aktarma — Birimler kartındaki hızlı yol. Ebeveynler
+ *  önce kurulur (dosya içi referans + mevcut birimler); var olanlar atlanır. */
+export function UnitImportModal({ companyId, onClose }: { companyId: string; onClose: () => void }) {
+  const [text, setText] = useState("");
+  const [steps, setSteps] = useState<StepState[]>([]);
+  const [running, setRunning] = useState(false);
+  const [finished, setFinished] = useState(false);
+
+  const units = useQuery({ queryKey: keys.orgUnits(companyId), queryFn: () => api.org.listUnits(companyId) });
+  const { units: specs, problems } = useMemo(() => parseUnits(text), [text]);
+
+  async function run(): Promise<void> {
+    setRunning(true);
+    const log: StepState[] = [];
+    const push = (s: StepState) => {
+      log.push(s);
+      setSteps([...log]);
+    };
+    const byRef = new Map<string, string>();
+    for (const u of units.data ?? []) {
+      byRef.set(u.slug.toLowerCase(), u.id);
+      byRef.set(u.name.toLowerCase(), u.id);
+    }
+    const pending = [...specs];
+    let guard = pending.length + 1;
+    while (pending.length > 0 && guard-- > 0) {
+      for (let i = 0; i < pending.length; i++) {
+        const spec = pending[i]!;
+        if (byRef.has(spec.slug.toLowerCase()) || byRef.has(spec.name.toLowerCase())) {
+          push({ label: spec.name, state: "ok", detail: "zaten var — atlandı" });
+          pending.splice(i, 1);
+          i--;
+          continue;
+        }
+        const parent = spec.parent ? byRef.get(spec.parent.toLowerCase()) : null;
+        if (spec.parent && !parent) continue; // ebeveyn sonraki turda
+        try {
+          const created = await api.org.createUnit(companyId, {
+            name: spec.name,
+            slug: spec.slug,
+            kind: spec.kind,
+            parentId: parent ?? null,
+          });
+          byRef.set(created.slug.toLowerCase(), created.id);
+          byRef.set(created.name.toLowerCase(), created.id);
+          push({ label: `${spec.name} (${spec.kind})`, state: "ok" });
+        } catch (err) {
+          push({ label: spec.name, state: "error", detail: problemDetail(err) });
+        }
+        pending.splice(i, 1);
+        i--;
+      }
+    }
+    for (const spec of pending) {
+      push({ label: spec.name, state: "error", detail: `üst birim '${spec.parent}' bulunamadı` });
+    }
+    await queryClient.invalidateQueries({ queryKey: keys.orgUnits(companyId) });
+    setRunning(false);
+    setFinished(true);
+  }
+
+  const okCount = steps.filter((s) => s.state === "ok").length;
+  const errCount = steps.filter((s) => s.state === "error").length;
+
+  return (
+    <Dialog open title="Birimleri toplu içe aktar" onClose={onClose}>
+      <div className="space-y-3" data-testid="unit-import-modal">
+        {!finished && (
+          <>
+            <p className="text-xs text-ink-500">
+              Satır başına <code>Ad, tür, ÜstBirim</code> — tür{" "}
+              <code>departman · takım · ofis · bölüm</code> (boşsa departman), üst birim ad/slug
+              (boşsa en üst seviye). JSON dizisi de kabul edilir. Var olan birimler atlanır.
+            </p>
+            <Textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={6}
+              placeholder={"Engineering, departman\nBackend, takım, Engineering\nİstanbul Ofisi, ofis"}
+              className="font-mono text-xs"
+              data-testid="unit-import-text"
+            />
+            {text.trim() !== "" && (
+              <p className="text-xs text-ink-600" data-testid="unit-import-preview">
+                Önizleme: <strong>{specs.length}</strong> birim
+                {problems.length > 0 && <span className="text-danger"> · {problems[0]}</span>}
+              </p>
+            )}
+          </>
+        )}
+
+        <ImportLog steps={steps} />
+
+        <div className="flex items-center justify-end gap-2">
+          {finished && (
+            <span className="mr-auto text-xs text-ink-600" data-testid="unit-import-summary">
+              Bitti: {okCount} başarılı, {errCount} hatalı
+            </span>
+          )}
+          <Button variant="ghost" onClick={onClose}>
+            {finished ? "Kapat" : "Vazgeç"}
+          </Button>
+          {!finished && (
+            <Button
+              disabled={specs.length === 0 || problems.length > 0 || running}
+              onClick={() => void run()}
+              data-testid="unit-import-run"
             >
               {running ? "Kuruluyor…" : "İçe aktar"}
             </Button>

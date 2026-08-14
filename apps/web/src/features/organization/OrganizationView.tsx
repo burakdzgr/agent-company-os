@@ -12,7 +12,7 @@ import { Button, Card, DataTable, Dialog, Field, Input, Select } from "@acos/ui"
 import { AcosApiError } from "@acos/contracts/client";
 import { api, keys, queryClient } from "../../lib/api.js";
 import { OrgChart } from "./OrgChart.js";
-import { OrgImportModal, PositionImportModal } from "./OrgImportModal.js";
+import { OrgImportModal, PositionImportModal, UnitImportModal } from "./OrgImportModal.js";
 import { HireWizard } from "../agents/HireWizard.js";
 
 const STATUS_TR: Record<string, string> = {
@@ -156,6 +156,7 @@ export function OrganizationView() {
   const [hireOpen, setHireOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [positionImportOpen, setPositionImportOpen] = useState(false);
+  const [unitImportOpen, setUnitImportOpen] = useState(false);
   const [placementFor, setPlacementFor] = useState<Agent | null>(null);
   const [resetOpen, setResetOpen] = useState(false);
   const [resetConfirm, setResetConfirm] = useState("");
@@ -399,7 +400,20 @@ export function OrganizationView() {
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Birimler">
+        <Card
+          title="Birimler"
+          actions={
+            <Button
+              variant="ghost"
+              className="px-2 py-0.5 text-xs"
+              onClick={() => setUnitImportOpen(true)}
+              data-testid="unit-import-button"
+              title="Satır başına 'Ad, tür, ÜstBirim' ya da JSON ile toplu birim ekle"
+            >
+              Toplu içe aktar
+            </Button>
+          }
+        >
           <form
             className="mb-3 grid grid-cols-2 gap-2"
             onSubmit={(e) => {
@@ -543,6 +557,9 @@ export function OrganizationView() {
       {importOpen && <OrgImportModal companyId={companyId} onClose={() => setImportOpen(false)} />}
       {positionImportOpen && (
         <PositionImportModal companyId={companyId} onClose={() => setPositionImportOpen(false)} />
+      )}
+      {unitImportOpen && (
+        <UnitImportModal companyId={companyId} onClose={() => setUnitImportOpen(false)} />
       )}
       {placementFor && (
         <PlacementModal

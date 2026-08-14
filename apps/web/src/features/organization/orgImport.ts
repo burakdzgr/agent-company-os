@@ -152,6 +152,67 @@ function parsePositionEntry(raw: unknown, problems: string[]): PositionSpec | nu
   return { title, defaultRole: role };
 }
 
+const KIND_TR: Record<string, UnitSpec["kind"]> = {
+  department: "department", departman: "department",
+  team: "team", "takım": "team", takim: "team",
+  office: "office", ofis: "office",
+  division: "division", "bölüm": "division", bolum: "division",
+};
+
+/**
+ * Toplu birim listesi: satır başına "Ad, tür, ÜstBirim" (tür Türkçe ya da
+ * İngilizce; boşsa department; üst birim boşsa en üst seviye) YA DA JSON
+ * dizisi [{name, slug?, kind, parent}] / {"units": […]}.
+ */
+export function parseUnits(text: string): { units: UnitSpec[]; problems: string[] } {
+  const problems: string[] = [];
+  const units: UnitSpec[] = [];
+  const trimmed = text.trim();
+  if (trimmed === "") return { units, problems: ["içerik boş"] };
+
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    let doc: unknown;
+    try {
+      doc = JSON.parse(trimmed);
+    } catch (err) {
+      return { units, problems: [`JSON ayrıştırılamadı: ${String(err)}`] };
+    }
+    const list = Array.isArray(doc)
+      ? doc
+      : Array.isArray((doc as Record<string, unknown>).units)
+        ? ((doc as Record<string, unknown>).units as unknown[])
+        : null;
+    if (!list) return { units, problems: ["JSON bir dizi ya da {\"units\": […]} olmalı"] };
+    for (const raw of list) {
+      const u = raw as Record<string, unknown>;
+      const name = asString(u.name);
+      const kind = KIND_TR[asString(u.kind, "department").toLowerCase()];
+      if (!name) problems.push("birim: 'name' zorunlu");
+      else if (!kind) problems.push(`birim ${name}: kind '${asString(u.kind)}' geçersiz`);
+      else units.push({ name, slug: asString(u.slug) || slugify(name), kind, parent: asString(u.parent) || null });
+    }
+    return { units, problems };
+  }
+
+  for (const row of parseCsvRows(trimmed)) {
+    const name = (row[0] ?? "").trim();
+    if (name === "" || ["ad", "name"].includes(name.toLowerCase())) continue;
+    const kindRaw = (row[1] ?? "").trim().toLowerCase() || "department";
+    const kind = KIND_TR[kindRaw];
+    if (!kind) {
+      problems.push(`birim ${name}: tür '${kindRaw}' geçersiz (departman|takım|ofis|bölüm)`);
+      continue;
+    }
+    if (slugify(name) === "") {
+      problems.push(`birim '${name}': geçerli bir slug türetilemedi`);
+      continue;
+    }
+    units.push({ name, slug: slugify(name), kind, parent: (row[2] ?? "").trim() || null });
+  }
+  if (units.length === 0 && problems.length === 0) problems.push("hiç birim satırı bulunamadı");
+  return { units, problems };
+}
+
 /**
  * Yalnız pozisyon/rol listesi: JSON dizisi [{title, defaultRole}] YA DA
  * satır-başına "Unvan, rol" (rol boşsa member; "title" başlık satırı atlanır).
