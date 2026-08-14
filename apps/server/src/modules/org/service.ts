@@ -259,6 +259,59 @@ export class OrgService {
       .where(and(eq(positions.companyId, ctx.companyId), isNull(positions.archivedAt)));
   }
 
+  /**
+   * Pozisyon soft-arşivi (04 §1): işten çıkarılmamış bir ajan bu pozisyondaysa
+   * 409-benzeri OrgConflictError; değilse archived_at set edilir ve katalogdaki
+   * position.updated {positionId, diff} yayılır.
+   */
+  async archivePosition(ctx: CompanyContext, positionId: string) {
+    return this.db.transaction(async (tx) => {
+      await orgLockInTx(tx, ctx);
+      const [position] = await tx
+        .select()
+        .from(positions)
+        .where(
+          and(
+            eq(positions.companyId, ctx.companyId),
+            eq(positions.id, positionId),
+            isNull(positions.archivedAt),
+          ),
+        )
+        .for("update");
+      if (!position) return undefined;
+      const [holder] = await tx
+        .select({ id: agents.id })
+        .from(agents)
+        .where(
+          and(
+            eq(agents.companyId, ctx.companyId),
+            eq(agents.positionId, positionId),
+            inArray(agents.status, ["active", "paused", "draft"]),
+          ),
+        )
+        .limit(1);
+      if (holder) {
+        throw new OrgConflictError(
+          "POSITION_IN_USE: bu pozisyonda çalışan ajan var — önce rolünü değiştirin veya işten çıkarın",
+        );
+      }
+      const [archived] = await tx
+        .update(positions)
+        .set({ archivedAt: sql`now()` })
+        .where(and(eq(positions.companyId, ctx.companyId), eq(positions.id, positionId)))
+        .returning();
+      await emitDomainEvent(tx, ctx, {
+        type: "position.updated",
+        actor: { kind: "founder", id: null },
+        payload: {
+          positionId,
+          diff: { archivedAt: archived!.archivedAt!.toISOString() },
+        },
+      });
+      return archived!;
+    });
+  }
+
   // ---------- edges (04 §2, §6) ----------
 
   /**

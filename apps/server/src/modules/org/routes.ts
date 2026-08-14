@@ -175,6 +175,26 @@ export async function registerOrgRoutes(
     },
   );
 
+  app.post(
+    "/api/v1/companies/:id/org/positions/:positionId/archive",
+    {
+      schema: {
+        operationId: "archivePosition",
+        tags: ["org"],
+        params: idParam.extend({ positionId: z.uuid() }),
+        response: { 200: ArchiveOrgUnitResponseSchema },
+      },
+    },
+    async (request) => {
+      const ctx = await requireCompany(request, request.params.id);
+      const position = await orgSvc()
+        .archivePosition(ctx, request.params.positionId)
+        .catch(mapOrgError);
+      if (!position) throw new ApiError("not_found", "position not found");
+      return { id: position.id, archivedAt: position.archivedAt!.toISOString() };
+    },
+  );
+
   app.get(
     "/api/v1/companies/:id/org/positions",
     {

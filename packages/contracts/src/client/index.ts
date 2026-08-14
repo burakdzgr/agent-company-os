@@ -225,6 +225,10 @@ export function createAcosClient(options: AcosClientOptions) {
         ),
       listPositions: async (companyId: string): Promise<Position[]> =>
         z.array(PositionSchema).parse(await get(`/api/v1/companies/${companyId}/org/positions`)),
+      archivePosition: async (companyId: string, positionId: string): Promise<{ id: string; archivedAt: string }> =>
+        ArchiveOrgUnitResponseSchema.parse(
+          await post(`/api/v1/companies/${companyId}/org/positions/${positionId}/archive`, {}),
+        ),
       createPosition: async (
         companyId: string,
         body: { title: string; seniorityTrack: string[]; defaultRole: string; description?: string },

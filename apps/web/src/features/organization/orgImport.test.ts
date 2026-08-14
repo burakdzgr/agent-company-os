@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { parseImport, parsePositions } from "./orgImport.js";
+import { parseImport, parsePositions, parseTeams, slugify } from "./orgImport.js";
+
+describe("slugify", () => {
+  it("Türkçe karakterleri çevirir ve API desenine uydurur", () => {
+    expect(slugify("İçerik Ekibi")).toBe("icerik-ekibi");
+    expect(slugify("Görsel & Tasarım")).toBe("gorsel-tasarim");
+    expect(slugify("Backend")).toBe("backend");
+  });
+});
+
+describe("parseTeams", () => {
+  it("satır başına ad + opsiyonel üst birim ayrıştırır, başlık satırını atlar", () => {
+    const { teams, problems } = parseTeams("ad,üst\nBackend, Engineering\nİçerik Ekibi\n");
+    expect(problems).toEqual([]);
+    expect(teams).toEqual([
+      { name: "Backend", parent: "Engineering" },
+      { name: "İçerik Ekibi", parent: null },
+    ]);
+  });
+
+  it("boş içerik problem döner", () => {
+    expect(parseTeams("").problems).toHaveLength(1);
+  });
+});
 
 describe("parsePositions", () => {
   it("JSON dizisini ayrıştırır ve geçersiz rolü işaretler", () => {

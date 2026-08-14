@@ -63,6 +63,49 @@ function asString(v: unknown, fallback = ""): string {
   return typeof v === "string" ? v.trim() : fallback;
 }
 
+const TR_MAP: Record<string, string> = {
+  ç: "c", Ç: "c", ğ: "g", Ğ: "g", ı: "i", İ: "i", ö: "o", Ö: "o",
+  ş: "s", Ş: "s", ü: "u", Ü: "u",
+};
+
+/** Türkçe karakterleri çevirip API'nin slug desenine uydurur. */
+export function slugify(name: string): string {
+  return name
+    .split("")
+    .map((ch) => TR_MAP[ch] ?? ch)
+    .join("")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+export interface TeamSpec {
+  name: string;
+  parent: string | null;
+}
+
+/**
+ * Toplu takım listesi: satır başına "Ad" ya da "Ad, ÜstBirim" (üst birim
+ * ad ya da slug olabilir; boşsa en üst seviye takım).
+ */
+export function parseTeams(text: string): { teams: TeamSpec[]; problems: string[] } {
+  const problems: string[] = [];
+  const teams: TeamSpec[] = [];
+  const trimmed = text.trim();
+  if (trimmed === "") return { teams, problems: ["içerik boş"] };
+  for (const row of parseCsvRows(trimmed)) {
+    const name = (row[0] ?? "").trim();
+    if (name === "" || name.toLowerCase() === "ad" || name.toLowerCase() === "name") continue;
+    if (slugify(name) === "") {
+      problems.push(`takım '${name}': geçerli bir slug türetilemedi`);
+      continue;
+    }
+    teams.push({ name, parent: (row[1] ?? "").trim() || null });
+  }
+  if (teams.length === 0 && problems.length === 0) problems.push("hiç takım satırı bulunamadı");
+  return { teams, problems };
+}
+
 /** Basit CSV ayrıştırıcı — çift tırnaklı alanları destekler. */
 export function parseCsvRows(text: string): string[][] {
   const rows: string[][] = [];
@@ -170,7 +213,7 @@ export function parseImport(text: string): { plan: ImportPlan; problems: string[
     for (const raw of Array.isArray(doc.units) ? doc.units : []) {
       const u = raw as Record<string, unknown>;
       const name = asString(u.name);
-      const slug = asString(u.slug) || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const slug = asString(u.slug) || slugify(name);
       const kind = asString(u.kind, "department");
       if (!name) problems.push("birim: 'name' zorunlu");
       else if (!UNIT_KINDS.has(kind)) problems.push(`birim ${name}: kind '${kind}' geçersiz (department|team|office|division)`);

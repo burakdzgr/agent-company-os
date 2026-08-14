@@ -234,6 +234,15 @@ export function OrganizationView() {
     onError: (err) => setError(problemText(err)),
   });
 
+  const archivePosition = useMutation({
+    mutationFn: (positionId: string) => api.org.archivePosition(companyId, positionId),
+    onSuccess: async () => {
+      setError(null);
+      await queryClient.invalidateQueries({ queryKey: keys.orgPositions(companyId) });
+    },
+    onError: (err) => setError(problemText(err)),
+  });
+
   const lifecycle = useMutation({
     mutationFn: ({ agentId, action }: { agentId: string; action: "pause" | "resume" | "offboard" }) =>
       api.agents.lifecycle(companyId, agentId, action, { reason: "Founder org yönetimi" }),
@@ -508,6 +517,23 @@ export function OrganizationView() {
             columns={[
               { header: "Unvan", cell: (position) => position.title },
               { header: "Varsayılan rol", cell: (position) => position.defaultRole },
+              {
+                header: "İşlemler",
+                cell: (position) => (
+                  <Button
+                    variant="ghost"
+                    className="px-2 py-0.5 text-xs text-danger"
+                    onClick={() => {
+                      if (window.confirm(`"${position.title}" pozisyonu arşivlensin mi?`)) {
+                        archivePosition.mutate(position.id);
+                      }
+                    }}
+                    data-testid={`position-archive-${position.id}`}
+                  >
+                    Arşivle
+                  </Button>
+                ),
+              },
             ]}
           />
         </Card>

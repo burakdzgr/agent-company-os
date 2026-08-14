@@ -15,6 +15,7 @@ import { useUiPrefs, type CommandPreset } from "../stores/uiPrefs.js";
 import { useFocus } from "../stores/focus.js";
 import { RealtimeDispatcher, useRealtimeStatus } from "../realtime/RealtimeDispatcher.js";
 import { HireModal } from "../features/agents/HireModal.js";
+import { TeamManageModal } from "../features/organization/TeamManageModal.js";
 import { useNotifications } from "../stores/notifications.js";
 import { Toasts } from "./Toasts.js";
 
@@ -100,6 +101,7 @@ function GlobalSearch({ companyId }: { companyId: string }) {
 
 function TeamChips({ companyId }: { companyId: string }) {
   const navigate = useNavigate();
+  const [manageOpen, setManageOpen] = useState(false);
   const units = useQuery({
     queryKey: keys.orgUnits(companyId),
     queryFn: () => api.org.listUnits(companyId),
@@ -167,11 +169,14 @@ function TeamChips({ companyId }: { companyId: string }) {
         </button>
       )}
       <button
-        onClick={() => void navigate({ to: "/c/$companyId/organization", params: { companyId } })}
+        onClick={() => setManageOpen(true)}
         className="shrink-0 text-[11px] text-acos-fg2 hover:text-acos-fg1"
+        title="Takımları yönet — oluştur (tekli/toplu) ve arşivle"
+        data-testid="team-manage-open"
       >
         + Takım
       </button>
+      {manageOpen && <TeamManageModal companyId={companyId} onClose={() => setManageOpen(false)} />}
     </div>
   );
 }
