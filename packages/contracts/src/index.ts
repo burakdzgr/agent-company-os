@@ -307,6 +307,8 @@ export {
   ModelBindingSchema,
   SetModelBindingRequestSchema,
   AgentSessionSchema,
+  AgentStepSchema,
   type Agent,
+  type AgentStep,
   type ModelBinding,
 } from "./agents.js";

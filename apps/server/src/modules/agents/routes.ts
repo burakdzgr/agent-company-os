@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   AgentSchema,
   AgentSessionSchema,
+  AgentStepSchema,
   ChangeAgentPlacementRequestSchema,
   HireAgentRequestSchema,
   LifecycleActionRequestSchema,
@@ -253,6 +254,30 @@ export async function registerAgentRoutes(
         stepsCount: s.stepsCount,
         costCents: s.costCents,
       }));
+    },
+  );
+
+  // Founder gözlemi (2026-08-14): canlı süreç akışı — salt-okunur adım listesi
+  app.get(
+    "/api/v1/companies/:id/agents/:agentId/steps",
+    {
+      schema: {
+        operationId: "listAgentSteps",
+        tags: ["agents"],
+        params: agentParam,
+        querystring: z.object({
+          sessionId: z.uuid().optional(),
+          limit: z.coerce.number().int().min(1).max(200).default(40),
+        }),
+        response: { 200: z.array(AgentStepSchema) },
+      },
+    },
+    async (request) => {
+      const ctx = await requireCompany(request, request.params.id);
+      return agentsSvc().listSteps(ctx, request.params.agentId, {
+        sessionId: request.query.sessionId,
+        limit: request.query.limit,
+      });
     },
   );
 }

@@ -12,6 +12,7 @@ import {
 import {
   agentModelBindings,
   agentSessions,
+  agentSteps,
   agents,
   modelProfiles,
   modelProviders,
@@ -702,6 +703,37 @@ export class AgentsService {
       .where(and(eq(agentSessions.companyId, ctx.companyId), eq(agentSessions.agentId, agentId)))
       .orderBy(desc(agentSessions.startedAt))
       .limit(50);
+  }
+
+  /** Founder gözlemi: ajanın adım akışı (agent_steps read-model, en yeni önce). */
+  async listSteps(
+    ctx: CompanyContext,
+    agentId: string,
+    opts: { sessionId?: string | undefined; limit: number },
+  ) {
+    const rows = await this.db
+      .select()
+      .from(agentSteps)
+      .where(
+        and(
+          eq(agentSteps.companyId, ctx.companyId),
+          eq(agentSteps.agentId, agentId),
+          ...(opts.sessionId ? [eq(agentSteps.agentSessionId, opts.sessionId)] : []),
+        ),
+      )
+      .orderBy(desc(agentSteps.createdAt))
+      .limit(opts.limit);
+    return rows.map((s) => ({
+      agentSessionId: s.agentSessionId,
+      stepNo: s.stepNo,
+      actionKind: s.actionKind,
+      action: s.action,
+      observation: s.observation ?? null,
+      tokensIn: s.tokensIn,
+      tokensOut: s.tokensOut,
+      costCents: s.costCents,
+      createdAt: s.createdAt.toISOString(),
+    }));
   }
 }
 

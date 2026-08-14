@@ -29,6 +29,7 @@ import {
 import {
   AgentSchema,
   AgentSessionSchema,
+  AgentStepSchema,
   ModelBindingSchema,
   type Agent,
   type ModelBinding,
@@ -304,6 +305,21 @@ export function createAcosClient(options: AcosClientOptions) {
         z
           .array(AgentSessionSchema)
           .parse(await get(`/api/v1/companies/${companyId}/agents/${agentId}/sessions`)),
+      steps: async (
+        companyId: string,
+        agentId: string,
+        opts: { sessionId?: string; limit?: number } = {},
+      ) => {
+        const search = new URLSearchParams();
+        if (opts.sessionId) search.set("sessionId", opts.sessionId);
+        if (opts.limit) search.set("limit", String(opts.limit));
+        const qs = search.toString();
+        return z
+          .array(AgentStepSchema)
+          .parse(
+            await get(`/api/v1/companies/${companyId}/agents/${agentId}/steps${qs ? `?${qs}` : ""}`),
+          );
+      },
     },
     tasks: {
       list: async (

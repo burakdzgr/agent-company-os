@@ -53,6 +53,23 @@ export const UpdateAgentRequestSchema = z.object({
 });
 
 /**
+ * Founder gözlemi (2026-08-14): bir çalışanın canlı süreç akışı — agent_steps
+ * satırlarının read-only projeksiyonu (aksiyon + gözlem + jeton + maliyet).
+ */
+export const AgentStepSchema = z.object({
+  agentSessionId: z.uuid(),
+  stepNo: z.number().int(),
+  actionKind: z.string(),
+  action: z.unknown(),
+  observation: z.unknown().nullable(),
+  tokensIn: z.number().int(),
+  tokensOut: z.number().int(),
+  costCents: z.number().int(),
+  createdAt: z.iso.datetime(),
+});
+export type AgentStep = z.infer<typeof AgentStepSchema>;
+
+/**
  * Org yerleşim değişikliği (04 §6 uyumlu): birim/pozisyon/kıdem/yönetici.
  * managerAgentId: null = üst seviye (yönetici yok); undefined = dokunma.
  * Edge rewiring is server-side in one tx (member_of/reports_to + inverse

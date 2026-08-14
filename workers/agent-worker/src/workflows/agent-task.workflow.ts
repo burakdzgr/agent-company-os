@@ -202,6 +202,11 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
   }
 
   let stepNo = carried?.stepNo ?? 0; // cumulative across continues (guard c)
+  // 2026-08-14: canlı modeller plan-döngüsüne saplanabiliyor (record_decision
+  // ×N, 50-adım bütçesi erir) — normalize-hash guard'ı farklı planları
+  // yakalayamaz. Ardışık düşünme adımları sayılır; 3+ olunca working set'e
+  // sert bir yönlendirme marker'ı girer.
+  let contemplationStreak = 0;
   let localSteps = 0;
   let continuing = false;
   let outcome: AgentTaskOutcome["outcome"] = "guard_stopped";
@@ -288,6 +293,11 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
       // guard (c) soft: constraint injected into section 10 (08 §9c)
       if (stepNo >= STEP_SOFT_WARN) {
         signalMarkers.push(`[guard:step_cap_warning] step ${stepNo} of ${STEP_HARD_CAP}`);
+      }
+      if (contemplationStreak >= 3) {
+        signalMarkers.push(
+          `[guard:plan_loop] ${contemplationStreak} consecutive planning steps with NO effect. You MUST now emit a MUTATING action (create_task / delegate_task / use_tool / update_task_status / complete_task). Do NOT reply with think or record_decision.`,
+        );
       }
 
       const workingSet = await activities.buildWorkingSetActivity({
@@ -411,6 +421,10 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
         continue;
       }
 
+      contemplationStreak =
+        action.type === "think" || action.type === "record_decision"
+          ? contemplationStreak + 1
+          : 0;
       const observation = await activities.executeActionActivity({ ...ref, stepId, action });
       await activities.persistStepActivity({
         ...ref,
