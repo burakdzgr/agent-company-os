@@ -1,0 +1,71 @@
+import { describe, expect, it } from "vitest";
+import { parseImport, parsePositions } from "./orgImport.js";
+
+describe("parsePositions", () => {
+  it("JSON dizisini ayrıştırır ve geçersiz rolü işaretler", () => {
+    const { positions, problems } = parsePositions(
+      '[{"title":"Backend Engineer","defaultRole":"member"},{"title":"X","defaultRole":"boss"}]',
+    );
+    expect(positions).toEqual([{ title: "Backend Engineer", defaultRole: "member" }]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("boss");
+  });
+
+  it('{"positions": …} sarmalını da kabul eder', () => {
+    const { positions, problems } = parsePositions('{"positions":[{"title":"QA/Reviewer","defaultRole":"reviewer"}]}');
+    expect(problems).toEqual([]);
+    expect(positions[0]).toEqual({ title: "QA/Reviewer", defaultRole: "reviewer" });
+  });
+
+  it("satır formatını ayrıştırır: rol boşsa member, başlık satırı atlanır", () => {
+    const { positions, problems } = parsePositions("title,defaultRole\nDevOps Lead, lead\nData Engineer\n");
+    expect(problems).toEqual([]);
+    expect(positions).toEqual([
+      { title: "DevOps Lead", defaultRole: "lead" },
+      { title: "Data Engineer", defaultRole: "member" },
+    ]);
+  });
+
+  it("boş içerik ve bozuk JSON'a problem döner", () => {
+    expect(parsePositions("").problems).toHaveLength(1);
+    expect(parsePositions("[oops").problems[0]).toContain("JSON");
+  });
+});
+
+describe("parseImport", () => {
+  it("tam şemayı ayrıştırır (birim slug'ı addan türetilir)", () => {
+    const { plan, problems } = parseImport(
+      JSON.stringify({
+        units: [{ name: "Yeni Birim", kind: "team", parent: "engineering" }],
+        positions: [{ title: "CEO", defaultRole: "executive" }],
+        agents: [{ name: "A", position: "CEO", unit: "yeni-birim", seniority: "expert" }],
+      }),
+    );
+    expect(problems).toEqual([]);
+    expect(plan.units[0]).toMatchObject({ slug: "yeni-birim", kind: "team", parent: "engineering" });
+    expect(plan.agents[0]).toMatchObject({ manager: null, activate: true, autonomyLevel: 2 });
+  });
+
+  it("CSV ajan satırlarını ayrıştırır (tırnaklı persona + noktalı virgüllü expertise)", () => {
+    const csv =
+      'name,position,unit,manager,seniority,autonomyLevel,persona,expertise\n' +
+      '"Kerem Yıldız",Backend Engineer,backend,"Aylin Vural",senior,3,"Sakin, titiz",ts;pg\n';
+    const { plan, problems } = parseImport(csv);
+    expect(problems).toEqual([]);
+    expect(plan.agents[0]).toMatchObject({
+      name: "Kerem Yıldız",
+      manager: "Aylin Vural",
+      autonomyLevel: 3,
+      persona: "Sakin, titiz",
+      expertise: ["ts", "pg"],
+    });
+  });
+
+  it("geçersiz seniority ajanı düşürür ve problem raporlar", () => {
+    const { plan, problems } = parseImport(
+      JSON.stringify({ agents: [{ name: "B", position: "CEO", unit: "x", seniority: "guru" }] }),
+    );
+    expect(plan.agents).toHaveLength(0);
+    expect(problems[0]).toContain("guru");
+  });
+});

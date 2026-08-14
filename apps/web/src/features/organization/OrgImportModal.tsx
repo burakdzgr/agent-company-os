@@ -1,198 +1,38 @@
 // Organizasyon içe aktarma (Founder direktifi 2026-08-14): JSON (tam şema —
-// birimler + pozisyonlar + ajanlar) veya CSV (yalnız ajan satırları) yapıştır/
-// yükle → önizleme → sıralı kurulum. HİÇBİR yeni backend yüzeyi yok: her satır
-// MEVCUT denetimli endpoint'lerden geçer (createUnit / createPosition / hire),
-// yani tüm org kuralları (tek yönetici, döngüsüzlük, model bağı seed'i) sunucu
-// tarafında aynen işler ve her adım event-audit'lidir. Kısmi hata satır satır
-// raporlanır — import atomik değildir (bilinçli: mevcut API sözleşmesi).
+// birimler + pozisyonlar + ajanlar) veya CSV yapıştır/yükle → önizleme →
+// sıralı kurulum. HİÇBİR yeni backend yüzeyi yok: her satır MEVCUT denetimli
+// endpoint'lerden geçer (createUnit / createPosition / hire), yani tüm org
+// kuralları (tek yönetici, döngüsüzlük, model bağı seed'i) sunucu tarafında
+// aynen işler ve her adım event-audit'lidir. Kısmi hata satır satır raporlanır
+// — import atomik değildir (bilinçli: mevcut API sözleşmesi).
+// Ayrıştırıcılar saf modülde: ./orgImport.ts (unit-testli).
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Agent, OrgUnit, Position } from "@acos/contracts";
 import { Button, Dialog, Textarea } from "@acos/ui";
 import { AcosApiError } from "@acos/contracts/client";
 import { api, keys, queryClient } from "../../lib/api.js";
-
-const SENIORITIES = new Set(["junior", "mid", "senior", "staff", "lead", "expert"]);
-const UNIT_KINDS = new Set(["department", "team", "office", "division"]);
-
-export const IMPORT_TEMPLATE = `{
-  "units": [
-    { "name": "Engineering", "slug": "engineering", "kind": "department", "parent": null },
-    { "name": "Backend", "slug": "backend", "kind": "team", "parent": "engineering" }
-  ],
-  "positions": [
-    { "title": "CEO", "defaultRole": "executive" },
-    { "title": "Engineering Manager", "defaultRole": "manager" },
-    { "title": "Backend Engineer", "defaultRole": "member" }
-  ],
-  "agents": [
-    { "name": "Aylin Vural", "position": "CEO", "unit": "engineering", "manager": null,
-      "seniority": "expert", "autonomyLevel": 3, "persona": "Vizyoner CEO — hedefleri görevlere böler." },
-    { "name": "Kerem Yıldız", "position": "Engineering Manager", "unit": "engineering",
-      "manager": "Aylin Vural", "seniority": "lead", "autonomyLevel": 2, "leadsUnit": true,
-      "persona": "Pragmatik mühendislik yöneticisi.", "expertise": ["typescript", "postgres"] }
-  ]
-}`;
-
-interface UnitSpec {
-  name: string;
-  slug: string;
-  kind: "department" | "team" | "office" | "division";
-  parent: string | null;
-}
-interface PositionSpec {
-  title: string;
-  defaultRole: string;
-}
-interface AgentSpec {
-  name: string;
-  position: string;
-  unit: string;
-  manager: string | null;
-  seniority: string;
-  autonomyLevel: number;
-  persona: string;
-  expertise: string[];
-  leadsUnit: boolean;
-  activate: boolean;
-}
-interface ImportPlan {
-  units: UnitSpec[];
-  positions: PositionSpec[];
-  agents: AgentSpec[];
-}
-
-function asString(v: unknown, fallback = ""): string {
-  return typeof v === "string" ? v.trim() : fallback;
-}
-
-/** Basit CSV ayrıştırıcı — çift tırnaklı alanları destekler. */
-function parseCsvRows(text: string): string[][] {
-  const rows: string[][] = [];
-  let field = "";
-  let row: string[] = [];
-  let inQuotes = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-    if (inQuotes) {
-      if (ch === '"' && text[i + 1] === '"') {
-        field += '"';
-        i++;
-      } else if (ch === '"') inQuotes = false;
-      else field += ch;
-    } else if (ch === '"') inQuotes = true;
-    else if (ch === ",") {
-      row.push(field);
-      field = "";
-    } else if (ch === "\n" || ch === "\r") {
-      if (ch === "\r" && text[i + 1] === "\n") i++;
-      row.push(field);
-      field = "";
-      if (row.some((c) => c.trim() !== "")) rows.push(row);
-      row = [];
-    } else field += ch;
-  }
-  row.push(field);
-  if (row.some((c) => c.trim() !== "")) rows.push(row);
-  return rows;
-}
-
-/** JSON (tam şema) veya CSV (yalnız ajanlar; başlık satırı zorunlu) → plan. */
-export function parseImport(text: string): { plan: ImportPlan; problems: string[] } {
-  const problems: string[] = [];
-  const plan: ImportPlan = { units: [], positions: [], agents: [] };
-  const trimmed = text.trim();
-  if (trimmed === "") return { plan, problems: ["içerik boş"] };
-
-  if (trimmed.startsWith("{")) {
-    let doc: Record<string, unknown>;
-    try {
-      doc = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch (err) {
-      return { plan, problems: [`JSON ayrıştırılamadı: ${String(err)}`] };
-    }
-    for (const raw of Array.isArray(doc.units) ? doc.units : []) {
-      const u = raw as Record<string, unknown>;
-      const name = asString(u.name);
-      const slug = asString(u.slug) || name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const kind = asString(u.kind, "department");
-      if (!name) problems.push("birim: 'name' zorunlu");
-      else if (!UNIT_KINDS.has(kind)) problems.push(`birim ${name}: kind '${kind}' geçersiz (department|team|office|division)`);
-      else plan.units.push({ name, slug, kind: kind as UnitSpec["kind"], parent: asString(u.parent) || null });
-    }
-    for (const raw of Array.isArray(doc.positions) ? doc.positions : []) {
-      const p = raw as Record<string, unknown>;
-      const title = asString(p.title);
-      if (!title) problems.push("pozisyon: 'title' zorunlu");
-      else plan.positions.push({ title, defaultRole: asString(p.defaultRole, "member") || "member" });
-    }
-    for (const raw of Array.isArray(doc.agents) ? doc.agents : []) {
-      const a = raw as Record<string, unknown>;
-      const name = asString(a.name);
-      if (!name) {
-        problems.push("ajan: 'name' zorunlu");
-        continue;
-      }
-      const seniority = asString(a.seniority, "mid") || "mid";
-      if (!SENIORITIES.has(seniority)) {
-        problems.push(`ajan ${name}: seniority '${seniority}' geçersiz (junior|mid|senior|staff|lead|expert)`);
-        continue;
-      }
-      const autonomy = typeof a.autonomyLevel === "number" ? a.autonomyLevel : 2;
-      plan.agents.push({
-        name,
-        position: asString(a.position),
-        unit: asString(a.unit),
-        manager: asString(a.manager) || null,
-        seniority,
-        autonomyLevel: Math.max(0, Math.min(5, Math.round(autonomy))),
-        persona: asString(a.persona) || `${asString(a.position) || "Uzman"} — otonom ajan.`,
-        expertise: Array.isArray(a.expertise) ? a.expertise.map((e) => asString(e)).filter(Boolean) : [],
-        leadsUnit: a.leadsUnit === true,
-        activate: a.activate !== false,
-      });
-    }
-    if (plan.units.length + plan.positions.length + plan.agents.length === 0) {
-      problems.push("JSON'da units/positions/agents bulunamadı");
-    }
-    return { plan, problems };
-  }
-
-  // CSV — yalnız ajan satırları; başlıklar: name,position,unit,manager,seniority,autonomyLevel,persona,expertise
-  const rows = parseCsvRows(trimmed);
-  if (rows.length < 2) return { plan, problems: ["CSV: başlık satırı + en az bir veri satırı gerekli"] };
-  const headers = rows[0]!.map((h) => h.trim().toLowerCase());
-  const idx = (k: string) => headers.indexOf(k);
-  if (idx("name") === -1) return { plan, problems: ["CSV: 'name' sütunu zorunlu"] };
-  for (const [n, row] of rows.slice(1).entries()) {
-    const get = (k: string) => (idx(k) === -1 ? "" : (row[idx(k)] ?? "").trim());
-    const name = get("name");
-    if (!name) {
-      problems.push(`CSV satır ${n + 2}: name boş`);
-      continue;
-    }
-    const seniority = get("seniority") || "mid";
-    if (!SENIORITIES.has(seniority)) {
-      problems.push(`CSV ${name}: seniority '${seniority}' geçersiz`);
-      continue;
-    }
-    plan.agents.push({
-      name,
-      position: get("position"),
-      unit: get("unit"),
-      manager: get("manager") || null,
-      seniority,
-      autonomyLevel: Math.max(0, Math.min(5, Number(get("autonomylevel") || "2") || 2)),
-      persona: get("persona") || `${get("position") || "Uzman"} — otonom ajan.`,
-      expertise: get("expertise") ? get("expertise").split(";").map((e) => e.trim()).filter(Boolean) : [],
-      leadsUnit: get("leadsunit").toLowerCase() === "true",
-      activate: get("activate").toLowerCase() !== "false",
-    });
-  }
-  return { plan, problems };
-}
+import { IMPORT_TEMPLATE, POSITION_TEMPLATE, parseImport, parsePositions } from "./orgImport.js";
 
 type StepState = { label: string; state: "ok" | "error" | "pending"; detail?: string };
+
+function problemDetail(err: unknown): string {
+  return err instanceof AcosApiError ? (err.problem.detail ?? err.problem.code) : String(err);
+}
+
+function ImportLog({ steps }: { steps: StepState[] }) {
+  if (steps.length === 0) return null;
+  return (
+    <div className="max-h-56 space-y-0.5 overflow-y-auto rounded border border-ink-200 p-2 text-xs" data-testid="org-import-log">
+      {steps.map((s, i) => (
+        <p key={i} className={s.state === "error" ? "text-danger" : "text-ink-700"}>
+          {s.state === "error" ? "✗" : "✓"} {s.label}
+          {s.detail ? ` — ${s.detail}` : ""}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 export function OrgImportModal({ companyId, onClose }: { companyId: string; onClose: () => void }) {
   const [text, setText] = useState("");
@@ -217,12 +57,7 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
       log.push(s);
       setSteps([...log]);
     };
-    const fail = (label: string, err: unknown) =>
-      push({
-        label,
-        state: "error",
-        detail: err instanceof AcosApiError ? (err.problem.detail ?? err.problem.code) : String(err),
-      });
+    const fail = (label: string, err: unknown) => push({ label, state: "error", detail: problemDetail(err) });
 
     // mevcut kayıtlar — eşleştirme referansları (slug/title/name, küçük harf)
     const unitBySlug = new Map<string, OrgUnit>(
@@ -420,16 +255,7 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
           </>
         )}
 
-        {steps.length > 0 && (
-          <div className="max-h-56 space-y-0.5 overflow-y-auto rounded border border-ink-200 p-2 text-xs" data-testid="org-import-log">
-            {steps.map((s, i) => (
-              <p key={i} className={s.state === "error" ? "text-danger" : "text-ink-700"}>
-                {s.state === "error" ? "✗" : "✓"} {s.label}
-                {s.detail ? ` — ${s.detail}` : ""}
-              </p>
-            ))}
-          </div>
-        )}
+        <ImportLog steps={steps} />
 
         <div className="flex items-center justify-end gap-2">
           {finished && (
@@ -447,6 +273,127 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
               data-testid="org-import-run"
             >
               {running ? "Kuruluyor…" : "İçe aktar"}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Yalnız rol/pozisyon toplu içe aktarma — Pozisyonlar kartındaki hızlı yol. */
+export function PositionImportModal({
+  companyId,
+  onClose,
+}: {
+  companyId: string;
+  onClose: () => void;
+}) {
+  const [text, setText] = useState("");
+  const [steps, setSteps] = useState<StepState[]>([]);
+  const [running, setRunning] = useState(false);
+  const [finished, setFinished] = useState(false);
+
+  const positions = useQuery({
+    queryKey: keys.orgPositions(companyId),
+    queryFn: () => api.org.listPositions(companyId),
+  });
+
+  const { positions: specs, problems } = useMemo(() => parsePositions(text), [text]);
+
+  async function run(): Promise<void> {
+    setRunning(true);
+    const log: StepState[] = [];
+    const push = (s: StepState) => {
+      log.push(s);
+      setSteps([...log]);
+    };
+    const existing = new Set((positions.data ?? []).map((p) => p.title.toLowerCase()));
+    for (const spec of specs) {
+      if (existing.has(spec.title.toLowerCase())) {
+        push({ label: spec.title, state: "ok", detail: "zaten var — atlandı" });
+        continue;
+      }
+      try {
+        await api.org.createPosition(companyId, {
+          title: spec.title,
+          seniorityTrack: ["junior", "mid", "senior", "staff", "lead", "expert"],
+          defaultRole: spec.defaultRole,
+        });
+        existing.add(spec.title.toLowerCase());
+        push({ label: spec.title, state: "ok", detail: spec.defaultRole });
+      } catch (err) {
+        push({ label: spec.title, state: "error", detail: problemDetail(err) });
+      }
+    }
+    await queryClient.invalidateQueries({ queryKey: keys.orgPositions(companyId) });
+    setRunning(false);
+    setFinished(true);
+  }
+
+  const okCount = steps.filter((s) => s.state === "ok").length;
+  const errCount = steps.filter((s) => s.state === "error").length;
+
+  return (
+    <Dialog open title="Rolleri toplu içe aktar" onClose={onClose}>
+      <div className="space-y-3" data-testid="position-import-modal">
+        {!finished && (
+          <>
+            <p className="text-xs text-ink-500">
+              JSON dizisi <code>[{"{"}&quot;title&quot;, &quot;defaultRole&quot;{"}"}…]</code> ya da satır
+              başına <code>Unvan, rol</code> (rol boşsa <code>member</code>). Roller:{" "}
+              <code>executive · manager · lead · member · reviewer</code>. Var olan unvanlar atlanır.
+            </p>
+            <Button
+              variant="secondary"
+              onClick={() => void navigator.clipboard.writeText(POSITION_TEMPLATE)}
+              data-testid="position-import-copy-template"
+            >
+              Şablonu kopyala
+            </Button>
+            <Textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              rows={8}
+              placeholder={'Backend Engineer, member\nQA/Reviewer, reviewer\nDevOps Lead, lead'}
+              className="font-mono text-xs"
+              data-testid="position-import-text"
+            />
+            {text.trim() !== "" && (
+              <div className="rounded border border-ink-200 bg-ink-50 px-3 py-2 text-xs" data-testid="position-import-preview">
+                <p className="text-ink-800">
+                  Önizleme: <strong>{specs.length}</strong> rol
+                </p>
+                {problems.length > 0 && (
+                  <ul className="mt-1 list-disc pl-4 text-danger">
+                    {problems.slice(0, 8).map((p, i) => (
+                      <li key={i}>{p}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        <ImportLog steps={steps} />
+
+        <div className="flex items-center justify-end gap-2">
+          {finished && (
+            <span className="mr-auto text-xs text-ink-600" data-testid="position-import-summary">
+              Bitti: {okCount} başarılı, {errCount} hatalı
+            </span>
+          )}
+          <Button variant="ghost" onClick={onClose}>
+            {finished ? "Kapat" : "Vazgeç"}
+          </Button>
+          {!finished && (
+            <Button
+              disabled={specs.length === 0 || problems.length > 0 || running}
+              onClick={() => void run()}
+              data-testid="position-import-run"
+            >
+              {running ? "Ekleniyor…" : "İçe aktar"}
             </Button>
           )}
         </div>
