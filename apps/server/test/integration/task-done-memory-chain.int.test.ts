@@ -619,8 +619,13 @@ describe("M2 — doğal DONE → hafıza zinciri (12 §5.0 satır 1)", () => {
 
       // deterministik workflow id (12 §5) — tetikleyici gerçekten bu run'ı açtı
       const handle = client.workflow.getHandle(`memory-consolidation-${companyId}-task-${taskId}`);
-      const description = await handle.describe();
-      expect(description.status.name).toBe("COMPLETED");
+      // Hafıza satırları workflow'un SON adımından önce görünür (persist →
+      // promotion değerlendirmesi → run raporu). Durumu beklemeden okumak
+      // CI'da RUNNING yakalıyordu; yerelde daha hızlı bittiği için sessizdi.
+      await pollUntil(
+        async () => ((await handle.describe()).status.name === "COMPLETED" ? true : null),
+        "konsolidasyon workflow'unun tamamlanması",
+      );
       expect(await handle.result()).toMatchObject({ extracted: 2, persisted: 2 });
 
       // INV-15 kapsam izolasyonu: her satır bu şirkete ait ve kapsam referansı
