@@ -140,6 +140,14 @@ describe("pseudo-embeddings + canned consolidation (32 §6)", () => {
     const canned = cannedConsolidation("csv-implementation");
     expect(canned.memories.length).toBeGreaterThan(0);
     expect(canned.memories[0]).toHaveProperty("importance");
-    expect(cannedConsolidation("anything-else").memories).toHaveLength(1);
+  });
+
+  // M3: an unknown fixture must produce NOTHING. The old fallback invented a
+  // "Consolidated: <key>" row with importance 0.5 — above the discard
+  // threshold — so every real task run in scripted mode stored a fabricated
+  // memory that looked exactly like a learned one in the panel.
+  it("invents no memory for an unknown fixture (scripted mode does not learn)", () => {
+    expect(cannedConsolidation("anything-else").memories).toHaveLength(0);
+    expect(cannedConsolidation("none").memories).toHaveLength(0);
   });
 });

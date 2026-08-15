@@ -39,9 +39,14 @@ export const fsRead: ToolDefinition = {
 export const fsSearch: ToolDefinition = {
   name: "fs.search",
   version: 1,
-  description: "Search file contents in the task workspace (ripgrep). Read-only.",
+  // O1: the description used to promise ripgrep while dispatch ran plain
+  // grep — a different regex dialect, so patterns like `\d+` silently matched
+  // nothing. It now says what actually runs.
+  description:
+    "Search file contents in the task workspace with a POSIX extended regex (grep -E). Read-only.",
   input: z.object({
     pattern: z.string().min(1).max(1024),
+    /** Path filter, e.g. `*.ts` or `src/**` (honoured since O1). */
     glob: z.string().max(256).optional(),
     maxResults: z.number().int().positive().max(500).default(100),
     caseSensitive: z.boolean().default(false),

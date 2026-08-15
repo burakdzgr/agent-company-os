@@ -911,11 +911,24 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
         case "fs.search": {
           const pattern = String(args.pattern);
           const maxResults = args.maxResults as number;
-          const flags = args.caseSensitive ? "-rn" : "-rni";
-          const result = await execScript(
-            ws.id,
-            `grep ${flags} --exclude-dir=.git -e ${shq(pattern)} . | head -n ${maxResults + 1}`,
-          );
+          // O1: `glob` is part of the input schema, and the old dispatch
+          // dropped it on the floor — the agent believed it had narrowed the
+          // search to `*.ts` and got every match in the repo back, with no
+          // hint that its filter had been ignored. `-E` matches the
+          // documented regex dialect (the description promises ripgrep, i.e.
+          // extended regex, while plain grep is BRE and quietly fails to
+          // match things like `\d+` or `(a|b)`).
+          const flags = args.caseSensitive ? "-rEn" : "-rEni";
+          const glob = typeof args.glob === "string" && args.glob.length > 0 ? args.glob : null;
+          const script = glob
+            ? // find does the path filtering, so a `src/**/*.ts` style glob
+              // works the same way an agent expects it to
+              `find . -path ./.git -prune -o -type f ${
+                glob.includes("/") ? "-path" : "-name"
+              } ${shq(glob.includes("/") ? `./${glob.replace(/^\.\//, "")}` : glob)} -print0 ` +
+              `| xargs -0 -r grep ${flags} -e ${shq(pattern)} | head -n ${maxResults + 1}`
+            : `grep ${flags} --exclude-dir=.git -e ${shq(pattern)} . | head -n ${maxResults + 1}`;
+          const result = await execScript(ws.id, script);
           // grep exit 1 = no matches — a result, not a failure
           if (result.exitCode > 1) {
             throw new DispatchError(`fs.search failed: ${result.stderr.trim()}`);

@@ -125,7 +125,17 @@ export class RealtimeGateway {
           // domain events feed the projector; its instructions come back on
           // co.<companyId>.office.* (23 §3 flow)
           if (this.presenceSource) {
-            void this.presenceSource.handleEvent(payload).catch(() => {});
+            // O3: a swallowed failure here stops the office view updating
+            // while everything else looks healthy — the Founder sees agents
+            // frozen at their desks and has nothing to go on. This gateway
+            // has no logger of its own, so it goes to stderr; the /ws fanout
+            // above must keep running either way.
+            void this.presenceSource.handleEvent(payload).catch((err: unknown) => {
+              console.warn("office presence projection failed", {
+                type: payload.type,
+                err: err instanceof Error ? err.message : String(err),
+              });
+            });
           }
         } catch {
           // non-envelope payloads on co.> are ignored

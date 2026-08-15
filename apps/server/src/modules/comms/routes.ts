@@ -170,7 +170,19 @@ export async function registerCommsRoutes(
         })
         .catch(mapCommsError);
       const port = deps.signalPort();
-      if (port) await deliverMessage(deps.guardedDb(), ctx, plan, port).catch(() => {});
+      // O3: the message row is committed either way, but a failed delivery
+      // signal means the recipient never WAKES — the Founder writes to an
+      // agent and nothing happens, with nothing anywhere saying why. The
+      // send still succeeds (the thread is durable, 11 §4.4), but the failure
+      // is logged instead of vanishing.
+      if (port) {
+        await deliverMessage(deps.guardedDb(), ctx, plan, port).catch((err: unknown) => {
+          request.log.warn(
+            { err, channelId: request.params.channelId, messageId: plan.message.id },
+            "message delivery signal failed — recipient will pick it up on its next poll",
+          );
+        });
+      }
       return reply.status(201).send(toApiMessage(plan.message));
     },
   );

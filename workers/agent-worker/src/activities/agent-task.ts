@@ -2,7 +2,7 @@
 // the workflow only orchestrates. Effects are exactly-once at the DB via
 // stepId-derived idempotency keys (08 §11). Task transitions go through the
 // ONE status writer (TaskStateService — @acos/db/task-engine).
-import { and, asc, eq, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { uuidv5 } from "@acos/domain";
 import { parseEventPayload } from "@acos/events";
 import {
@@ -178,7 +178,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
    *  is on the branch" — an automatic commit (allowEmpty) + push makes the
    *  diff reviewable and the branch mergeable; the squash collapses WIP
    *  commits anyway (15 §3.4). Best-effort: toolless flows have no gateway. */
-  async function checkpointBranch(input: SessionRef): Promise<void> {
+  async function checkpointBranch(input: SessionRef & { stepId: string }): Promise<void> {
     if (!deps.invokeTool) return;
     // only when the task ALREADY worked in a workspace — a toolless task must
     // not have a workspace provisioned as a review side effect
@@ -205,7 +205,13 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         agentSessionId: input.sessionId,
         toolName: "git.commit",
         input: { message: "chore: review checkpoint", allowEmpty: true },
-        idempotencyKey: `checkpoint-commit:${input.sessionId}:${Date.now() >> 13}`,
+        // O4: the key used to be `${sessionId}:${Date.now() >> 13}` — an
+        // ~8-second bucket. Under at-least-once activity execution a retry
+        // that landed in the next bucket got a NEW key and committed twice,
+        // and a replay could never match the original key at all. The step id
+        // is the canonical idempotency anchor everywhere else in this file
+        // (08 §11); the checkpoint now uses it too.
+        idempotencyKey: uuidv5("checkpoint-commit", input.stepId),
       });
       await deps.invokeTool({
         companyId: input.companyId,
@@ -214,7 +220,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         agentSessionId: input.sessionId,
         toolName: "git.branch",
         input: { force: true }, // task/* only — rebase-safe (15 §3.7)
-        idempotencyKey: `checkpoint-push:${input.sessionId}:${Date.now() >> 13}`,
+        idempotencyKey: uuidv5("checkpoint-push", input.stepId),
       });
     } catch {
       /* no workspace (toolless) or gateway down — review can still proceed */
@@ -382,13 +388,22 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         )
         .orderBy(asc(tasks.number))
         .limit(25);
+      // O5: this used to load EVERY agent in the company on every single step,
+      // to label at most 25 sibling tasks. In a 40-agent company that is 40
+      // rows fetched per step to use a handful. Ask only for the owners that
+      // actually appear in `kin`.
+      const kinOwnerIds = [
+        ...new Set(kin.map((t) => t.ownerAgentId).filter((id): id is string => id !== null)),
+      ];
       const ownerNames = new Map(
-        (
-          await guardedDb
-            .select({ id: agents.id, name: agents.name })
-            .from(agents)
-            .where(eq(agents.companyId, ctx.companyId))
-        ).map((a) => [a.id, a.name]),
+        kinOwnerIds.length === 0
+          ? []
+          : (
+              await guardedDb
+                .select({ id: agents.id, name: agents.name })
+                .from(agents)
+                .where(and(eq(agents.companyId, ctx.companyId), inArray(agents.id, kinOwnerIds)))
+            ).map((a) => [a.id, a.name]),
       );
       const kinLine = (t: (typeof kin)[number]) =>
         `- TASK-${t.number} [${t.kind}/${t.status}] ${t.title}${t.ownerAgentId ? ` (owner: ${ownerNames.get(t.ownerAgentId) ?? "?"})` : " (unassigned)"}${t.parentId === input.taskId ? " [child of your task]" : " [sibling]"}`;

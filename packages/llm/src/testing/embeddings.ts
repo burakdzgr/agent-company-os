@@ -105,18 +105,20 @@ const CANNED: Record<string, CannedConsolidation> = {
   },
 };
 
+/**
+ * M3 (2026-08-15): an UNKNOWN fixture now yields NO memories.
+ *
+ * The old fallback invented `{title: "Consolidated: <key>", importance: 0.5}`.
+ * Fixture keys only exist on demo tasks, so every real task in scripted mode
+ * landed here and stored a junk row — above the 0.3 discard threshold, so it
+ * survived, and indistinguishable in the panel from something the company had
+ * actually learned. A memory system whose contents may be fabricated is worse
+ * than an empty one: the Founder cannot tell which rows to trust.
+ *
+ * Scripted mode is for deterministic tests, not for learning. Meaningful
+ * memory needs a live model; with no fixture the honest answer is "nothing was
+ * extracted", which the consolidation run report shows as `candidates: 0`.
+ */
 export function cannedConsolidation(fixtureKey: string): CannedConsolidation {
-  return (
-    CANNED[fixtureKey] ?? {
-      memories: [
-        {
-          title: `Consolidated: ${fixtureKey}`,
-          content: `Deterministic canned extraction for fixture "${fixtureKey}".`,
-          kind: "fact",
-          importance: 0.5,
-          confidence: 0.8,
-        },
-      ],
-    }
-  );
+  return CANNED[fixtureKey] ?? { memories: [] };
 }

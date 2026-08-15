@@ -108,27 +108,42 @@ export class OutboxRelay {
       [this.options.batchSize ?? 500],
     );
     const js = this.options.nats.jetstream();
-    for (const row of rows) {
-      const envelope = {
-        id: row.id,
-        companyId: row.company_id,
-        seq: Number(row.seq),
-        type: row.type,
-        version: row.version,
-        occurredAt: row.occurred_at.toISOString(),
-        actor: row.actor,
-        subject: { taskId: row.task_id, projectId: row.project_id, agentId: row.agent_id },
-        correlationId: row.correlation_id ?? row.id, // root events correlate to themselves
-        causationId: row.causation_id,
-        payload: row.payload,
-      };
-      await js.publish(subjectFor(row.company_id, row.type), JSON.stringify(envelope), {
-        msgID: row.id, // broker-side dedupe (2m window) makes republish harmless
-      });
+    // O6: the mark used to be one UPDATE per row — 500 round-trips for a
+    // 500-event batch, on the hot path of every commit in the system. Publish
+    // first, then mark what actually went out in a single statement. A crash
+    // between the two republishes those events, which the broker's msgID
+    // dedupe already makes harmless (same reason the per-row version was
+    // safe); `finally` keeps the marks for events published before a failure.
+    const published: string[] = [];
+    try {
+      for (const row of rows) {
+        const envelope = {
+          id: row.id,
+          companyId: row.company_id,
+          seq: Number(row.seq),
+          type: row.type,
+          version: row.version,
+          occurredAt: row.occurred_at.toISOString(),
+          actor: row.actor,
+          subject: { taskId: row.task_id, projectId: row.project_id, agentId: row.agent_id },
+          correlationId: row.correlation_id ?? row.id, // root events correlate to themselves
+          causationId: row.causation_id,
+          payload: row.payload,
+        };
+        await js.publish(subjectFor(row.company_id, row.type), JSON.stringify(envelope), {
+          msgID: row.id, // broker-side dedupe (2m window) makes republish harmless
+        });
+        published.push(row.id);
+      }
+    } finally {
       // by id only: a JS Date round-trip truncates timestamptz microseconds,
       // so an occurred_at equality predicate would never match. UUIDv7 ids are
       // unique; the partition scan is cheap at outbox batch sizes.
-      await client.query("UPDATE events SET published_at = now() WHERE id = $1", [row.id]);
+      if (published.length > 0) {
+        await client.query("UPDATE events SET published_at = now() WHERE id = ANY($1::uuid[])", [
+          published,
+        ]);
+      }
     }
     return rows.length;
   }
