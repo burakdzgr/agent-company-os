@@ -31,6 +31,11 @@ export const DURABLE_CONSUMERS: Array<{ name: string; filters: string[] }> = [
     ],
   },
   { name: "cost-aggregator", filters: ["co.*.task.>", "co.*.budget.>"] },
+  // A4 (07 §3): the dependency bridge needs its OWN cursor. Durables may
+  // overlap with each other (only filters within one consumer may not), and
+  // sharing `cost-aggregator` would make the two handlers compete for the
+  // same messages — each event is delivered to a durable once.
+  { name: "workflow-signals", filters: ["co.*.task.dependency.resolved"] },
   {
     name: "notification",
     filters: [

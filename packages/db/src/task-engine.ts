@@ -410,7 +410,17 @@ export class TaskStateService {
     taskId: string,
     to: TaskStatus,
     actor: TaskActorInput,
-    opts: { note?: string | undefined } = {},
+    opts: {
+      note?: string | undefined;
+      /**
+       * A5 (07 §2): the container roll-up. A `goal`/`initiative` holds no work
+       * of its own — nobody reviews a goal — so its terminal state is DERIVED
+       * from its children rather than walked through the work-task machine
+       * (whose REVIEW/QA hops exist for a diff). Only `rollUpContainer` passes
+       * this; INV-13 still holds, because this is still the one status writer.
+       */
+      derived?: boolean | undefined;
+    } = {},
   ): Promise<TaskRow> {
     {
       const [task] = await tx
@@ -421,16 +431,42 @@ export class TaskStateService {
       if (!task) throw new TaskEngineError("TASK_NOT_FOUND", "task not found");
       const from = task.status as TaskStatus;
 
+      // The derived path skips BOTH the permission matrix and the work-task
+      // machine, so it is fenced to containers: a `task` can never reach DONE
+      // without its review/QA hops, whatever the caller passes.
+      if (opts.derived && task.kind !== "goal" && task.kind !== "initiative") {
+        throw new TaskEngineError(
+          "TASK_TRANSITION_INVALID",
+          `derived transitions are for containers only (07 §2); ${task.kind} must walk the state machine`,
+        );
+      }
+
+      // A5: a container must not be closed by hand while its children are
+      // still running — that is exactly how a `goal` used to reach DONE the
+      // moment the CEO delegated it, with none of the work delivered.
+      if (
+        !opts.derived &&
+        (task.kind === "goal" || task.kind === "initiative") &&
+        (to === "DONE" || to === "FAILED")
+      ) {
+        throw new TaskEngineError(
+          "TASK_TRANSITION_INVALID",
+          `a ${task.kind} is a container (07 §2): its status is derived from its children, so it closes by roll-up when they are terminal — not by a direct ${to}`,
+        );
+      }
+
       const classes = await this.actorClasses(tx, ctx, actor, task);
       let reason = `no actor class of [${classes.join(", ")}] may perform ${from} → ${to}`;
       const agentId = actor.kind === "agent" ? actor.agentId : null;
-      const allowed = classes.some((kind) => {
-        const verdict = authorizeTaskTransition(from, to, { kind, agentId }, {
-          ownerAgentId: task.ownerAgentId,
+      const allowed =
+        opts.derived === true ||
+        classes.some((kind) => {
+          const verdict = authorizeTaskTransition(from, to, { kind, agentId }, {
+            ownerAgentId: task.ownerAgentId,
+          });
+          if (!verdict.allowed) reason = verdict.reason;
+          return verdict.allowed;
         });
-        if (!verdict.allowed) reason = verdict.reason;
-        return verdict.allowed;
-      });
       if (!allowed) throw new TaskEngineError("TASK_TRANSITION_INVALID", reason);
 
       const [updated] = await tx
@@ -488,6 +524,15 @@ export class TaskStateService {
           context: task.context,
           outcome: to === "DONE" ? "success" : "failure",
         });
+      }
+      // A5 (07 §2): container status is "derived-but-persisted … child-
+      // completion triggers move a container to DONE when all children are
+      // terminal-successful, FAILED if any critical-path child FAILED without
+      // replacement". The trigger did not exist, so a `goal`/`initiative`
+      // closed the moment its owner said so — with the delegated work still
+      // running. This is the join the delivery loop was missing.
+      if (TERMINAL.has(to) && task.parentId) {
+        await this.rollUpContainer(tx, ctx, task.parentId);
       }
       return updated!;
     }
@@ -730,6 +775,55 @@ export class TaskStateService {
     }
     if (isManager) classes.push("manager");
     return classes;
+  }
+
+  /**
+   * A5 (07 §2) — container roll-up. Containers (`goal`, `initiative`) hold no
+   * work of their own; their status is derived from their children. Runs
+   * inside the caller's transaction so the child's terminal state and the
+   * container's follow-on state commit together (INV-11), and recurses so a
+   * finished epic can close its initiative and that initiative its goal.
+   *
+   * Deliberately narrow:
+   * - only containers roll up; an `epic`/`task` keeps its own lifecycle
+   * - a container with NO children never auto-closes (nothing was delivered)
+   * - CANCELLED children do not block the roll-up (the work was withdrawn),
+   *   but a FAILED child fails the container — 07 §2's "critical-path child
+   *   FAILED without replacement". Replacement = a sibling of the same kind
+   *   that reached DONE, which is exactly what a retry produces.
+   */
+  private async rollUpContainer(tx: Tx, ctx: CompanyContext, parentId: string): Promise<void> {
+    const [parent] = await tx
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, parentId)))
+      .for("update");
+    if (!parent) return;
+    if (parent.kind !== "goal" && parent.kind !== "initiative") return;
+    if (TERMINAL.has(parent.status)) return; // already closed
+
+    const children = await tx
+      .select({ id: tasks.id, status: tasks.status, kind: tasks.kind })
+      .from(tasks)
+      .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.parentId, parentId)));
+    if (children.length === 0) return;
+    if (children.some((c) => !TERMINAL.has(c.status))) return; // still working
+
+    const failed = children.filter((c) => c.status === "FAILED");
+    const succeeded = children.filter((c) => c.status === "DONE");
+    // a FAILED child is tolerated when a sibling of the same kind delivered
+    const replaced = failed.every((f) => succeeded.some((s) => s.kind === f.kind));
+    const target = failed.length > 0 && !replaced ? "FAILED" : "DONE";
+    if (target === "DONE" && succeeded.length === 0) return; // only cancellations
+
+    await this.transitionInTx(tx, ctx, parentId, target, { kind: "system" }, {
+      derived: true,
+      note: `container roll-up: ${succeeded.length}/${children.length} child task(s) delivered${
+        failed.length > 0 ? `, ${failed.length} failed` : ""
+      }`,
+    });
+    // …and a closed initiative may in turn close its goal
+    if (parent.parentId) await this.rollUpContainer(tx, ctx, parent.parentId);
   }
 
   /** DONE ⇒ dependents' edges resolve + task.dependency.resolved (07 §3). */

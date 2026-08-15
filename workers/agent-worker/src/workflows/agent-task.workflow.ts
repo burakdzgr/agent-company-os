@@ -162,6 +162,11 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
     if (pendingMessages.length < 50) pendingMessages.push(item);
   });
   setHandler(dependencyResolvedSignal, (payload) => {
+    // A4: signal delivery is at-least-once (09 §9 fire-and-forget + the
+    // consumer's redelivery), and "which dependencies are resolved" is a SET,
+    // not a stream — so a redelivery must not grow the list. Same dedupe
+    // discipline as messageReceived above.
+    if (signals.resolvedDependencies.includes(payload.dependsOnTaskId)) return;
     signals.resolvedDependencies.push(payload.dependsOnTaskId);
   });
   setHandler(reviewVerdictSignal, (payload) => {

@@ -178,6 +178,9 @@ async function main(): Promise<void> {
   let breakerConsumer:
     | import("./modules/costs/breaker-consumer.js").BreakerConsumerHandle
     | null = null;
+  let dependencyBridge:
+    | import("./modules/tasks/dependency-signal.js").DependencyBridgeHandle
+    | null = null;
   if (nats) {
     app.attachOfficeNats?.(nats); // projector publishes office.* (T25)
     app.realtime?.attachNats(nats); // /ws live fanout (T23)
@@ -289,6 +292,41 @@ async function main(): Promise<void> {
         onError: (err) => app.log.error({ err }, "breaker consumer error"),
       });
       app.log.info("cost circuit-breaker consumer started");
+
+      // A4 (07 §3): "when a predecessor reaches DONE … signals
+      // `dependencyResolved` into every waiting dependent workflow". The emit
+      // and the handler both existed; nothing sent the signal, so a blocked
+      // task only ever woke on its own timeout.
+      const { startDependencySignalBridge } = await import("./modules/tasks/dependency-signal.js");
+      dependencyBridge = await startDependencySignalBridge({
+        nats,
+        signal: async ({ companyId, taskId, dependsOnTaskId, result }) => {
+          const sessions = await guardedDb
+            .select({ workflowId: agentSessions.workflowId })
+            .from(agentSessions)
+            .where(
+              sqlAnd(
+                sqlEq(agentSessions.companyId, companyId),
+                sqlEq(agentSessions.taskId, taskId),
+                rawSql`${agentSessions.status} IN ('starting','running','waiting')`,
+              ),
+            );
+          for (const session of sessions) {
+            if (!session.workflowId) continue;
+            await temporalClient.workflow
+              .getHandle(session.workflowId)
+              .signal("dependencyResolved", { dependsOnTaskId, result })
+              // fire-and-forget (09 §9): the dependency row is already
+              // resolved in the DB, and the stuck-task sweep picks up a task
+              // whose workflow is gone
+              .catch((err: unknown) =>
+                app.log.debug({ err, taskId }, "dependencyResolved signal undeliverable"),
+              );
+          }
+        },
+        onError: (err) => app.log.error({ err }, "dependency signal bridge error"),
+      });
+      app.log.info("dependency signal bridge started");
     }
   }
 
@@ -298,6 +336,7 @@ async function main(): Promise<void> {
     clearInterval(rollupRefresh);
     await memoryTrigger?.stop().catch(() => {});
     await breakerConsumer?.stop().catch(() => {});
+    await dependencyBridge?.stop().catch(() => {});
     await relay?.stop();
     await dlq?.stop();
     await nats?.close().catch(() => {});
