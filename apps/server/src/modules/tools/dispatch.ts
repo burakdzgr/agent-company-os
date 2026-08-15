@@ -413,6 +413,60 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
           };
         }
 
+        // fs.edit (2026-08-15): cerrahi düzenleme — dosya base64 olarak alınır,
+        // eşleşme NODE tarafında birebir yapılır (shell escape riski yok) ve
+        // tamamı geri yazılır. Eşleşme yoksa / çoklu eşleşme replaceAll'suzsa
+        // yazma YAPILMAZ; ajan yapılandırılmış hatayı görür (fail-closed).
+        case "fs.edit": {
+          const path = safeRelPath(String(args.path));
+          const oldText = String(args.oldText);
+          const newText = String(args.newText);
+          const replaceAll = args.replaceAll === true;
+          const read = await execScript(ws.id, `base64 -w0 < ${shq(path)}`);
+          if (read.exitCode !== 0) {
+            throw new DispatchError(`fs.edit failed: cannot read ${path}: ${read.stderr.trim()}`);
+          }
+          const current = Buffer.from(read.stdout.trim(), "base64").toString("utf8");
+          const occurrences = current.split(oldText).length - 1;
+          if (occurrences === 0) {
+            throw new DispatchError(
+              `fs.edit NO_MATCH: oldText not found in ${path} — re-read the file and copy the exact snippet (whitespace included)`,
+            );
+          }
+          if (occurrences > 1 && !replaceAll) {
+            throw new DispatchError(
+              `fs.edit AMBIGUOUS: oldText occurs ${occurrences} times in ${path} — include more surrounding context or set replaceAll:true`,
+            );
+          }
+          const updated = replaceAll
+            ? current.split(oldText).join(newText)
+            : current.replace(oldText, newText);
+          const encodedNew = Buffer.from(updated, "utf8").toString("base64");
+          const write = await execScript(
+            ws.id,
+            `printf '%s' ${shq(encodedNew)} | base64 -d > ${shq(path)}`,
+          );
+          if (write.exitCode !== 0) {
+            throw new DispatchError(`fs.edit failed: ${write.stderr.trim()}`);
+          }
+          const editLock = await workspaces.acquireLock(ctx, {
+            workspaceId: ws.id,
+            pathPrefix: path,
+            actor: { kind: "agent", id: agentId },
+          });
+          return {
+            output: {
+              replacements: replaceAll ? occurrences : 1,
+              byteSize: Buffer.byteLength(updated, "utf8"),
+              lockConflicts: editLock.conflicts.map((c) => ({
+                taskId: c.taskId ?? "",
+                pathPrefix: c.pathPrefix,
+              })),
+              provenance: "workspace",
+            },
+          };
+        }
+
         case "fs.search": {
           const pattern = String(args.pattern);
           const maxResults = args.maxResults as number;

@@ -89,6 +89,40 @@ export const fsWrite: ToolDefinition = {
   timeoutMs: 15_000,
 };
 
+/**
+ * fs.edit — R1 SURGICAL edit: replace an exact snippet inside an existing
+ * file. Added 2026-08-15 after a live finding: with only whole-file fs.write,
+ * an agent editing a 700-line file re-emits a truncated version and silently
+ * destroys the rest (observed: +382/-1743 lines). Editing existing code MUST
+ * go through this tool; fs.write stays for NEW files.
+ * Fail-closed semantics (mirrors a proven code-agent contract): no match =>
+ * error; multiple matches without replaceAll => error (ambiguous).
+ */
+export const fsEdit: ToolDefinition = {
+  name: "fs.edit",
+  version: 1,
+  description:
+    "Replace an exact text snippet inside an existing file (surgical edit). Use this instead of fs.write when changing files that already exist.",
+  input: z.object({
+    path: workspacePath,
+    oldText: z.string().min(1).max(200_000),
+    newText: z.string().max(200_000),
+    replaceAll: z.boolean().default(false),
+  }),
+  output: z.object({
+    replacements: z.number().int(),
+    byteSize: z.number().int(),
+    lockConflicts: z.array(z.object({ taskId: z.string(), pathPrefix: z.string() })),
+    provenance: z.literal("workspace"),
+  }),
+  risk: "R1",
+  scopes: ["fs"],
+  sandboxLevel: "coding",
+  sideEffectFree: false,
+  estimateCost: zeroCost,
+  timeoutMs: 15_000,
+};
+
 /** terminal.run — R1 shell command in the workspace container (17 §2.2). */
 export const terminalRun: ToolDefinition = {
   name: "terminal.run",
@@ -382,6 +416,7 @@ export const memorySearch: ToolDefinition = {
 export const MVP_TOOLS: readonly ToolDefinition[] = [
   fsRead,
   fsWrite,
+  fsEdit,
   fsSearch,
   gitCommit,
   gitBranch,

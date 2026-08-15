@@ -1,4 +1,4 @@
-// T39 unit surface: registry integrity for the 13 MVP tools, pattern
+// T39 unit surface: registry integrity for the 14 MVP tools, pattern
 // matching used by grants/policies, taint elevation, S2 env scrubbing.
 import { describe, expect, it } from "vitest";
 import {
@@ -12,11 +12,12 @@ import { buildRegistry, getTool, listTools, toolRegistry } from "./registry.js";
 import { dbInspect, fsRead, gitMerge, MVP_TOOLS, terminalRun, webSearch } from "./definitions.js";
 
 describe("tool registry (17 §2)", () => {
-  it("registers exactly the 13 MVP tools of 35 §9", () => {
+  it("registers exactly the 14 MVP tools of 35 §9 (fs.edit added 2026-08-15)", () => {
     expect(listTools().map((t) => t.name).sort()).toEqual(
       [
         "fs.read",
         "fs.write",
+        "fs.edit",
         "fs.search",
         "git.commit",
         "git.branch",
@@ -137,6 +138,8 @@ function sampleInputFor(name: string): unknown {
       return {};
     case "memory.search":
       return { query: "auth conventions" };
+    case "fs.edit":
+      return { path: "src/a.ts", oldText: "const a = 1;", newText: "const a = 2;" };
     default:
       throw new Error(`no sample input for ${name}`);
   }
@@ -144,5 +147,5 @@ function sampleInputFor(name: string): unknown {
 
 // keep MVP_TOOLS referenced so the export surface is exercised
 it("MVP_TOOLS export matches the registry size", () => {
-  expect(MVP_TOOLS).toHaveLength(13);
+  expect(MVP_TOOLS).toHaveLength(14);
 });
