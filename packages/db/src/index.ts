@@ -99,6 +99,15 @@ export {
   type ApprovalVerdictResult,
   type SweepResult,
 } from "./approvals.js";
+// A6 (09 §9): stuck-task-sweep — ASSIGNED-too-long / WAITING-past-SLA
+export {
+  sweepStuckTasks,
+  describeStuckTask,
+  DEFAULT_WAIT_FOR_MS,
+  ASSIGNED_STALE_MS,
+  type StuckTaskFinding,
+  type StuckSweepResult,
+} from "./stuck-tasks.js";
 export {
   ReviewsService,
   ReviewError,

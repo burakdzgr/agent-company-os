@@ -168,6 +168,45 @@ async function main(): Promise<void> {
     })().catch((err) => app.log.error({ err }, "approval sweep failed"));
   }, 30_000);
 
+  // A6 — stuck-task sweep (09 §9 Schedules: `stuck-task-sweep`, every 30m;
+  // 07 §7–8). Work only ever advanced from three places: an HTTP route, a
+  // `delegate_task`, and intake. A task parked in WAITING (guard, dependency,
+  // approval) had NOTHING to pull it back, and if the owner's workflow had
+  // died the task sat there forever with no sign of it anywhere. The interval
+  // is the same recorded narrowing of the Temporal-cron scheduler the other
+  // three sweeps use.
+  const { sweepStuckTasks, describeStuckTask } = await import("@acos/db");
+  const stuckSweep = setInterval(() => {
+    void (async () => {
+      const result = await sweepStuckTasks(sweepDb, guardedDb);
+      for (const finding of result.findings) {
+        app.log.warn(
+          { taskId: finding.taskId, kind: finding.kind, stuckForMs: finding.stuckForMs },
+          describeStuckTask(finding),
+        );
+        // the owner's loop is gone → restart it, otherwise the escalation
+        // event alone would just tell the Founder about a task nobody works
+        if (finding.needsWorkflowRestart && finding.ownerAgentId && app.agentWorkflowStarter) {
+          await app
+            .agentWorkflowStarter({
+              companyId: finding.companyId,
+              agentId: finding.ownerAgentId,
+              taskId: finding.taskId,
+            })
+            .catch((err: unknown) =>
+              app.log.error({ err, taskId: finding.taskId }, "stuck-task workflow restart failed"),
+            );
+        }
+      }
+      if (result.findings.length > 0) {
+        app.log.info(
+          { stuck: result.findings.length, blocked: result.blocked },
+          "stuck-task sweep finished",
+        );
+      }
+    })().catch((err) => app.log.error({ err }, "stuck-task sweep failed"));
+  }, 30 * 60_000);
+
   const nats = await natsConnect({ servers: config.nats.url }).catch((err: unknown) => {
     app.log.error({ err }, "NATS unavailable at boot — outbox relay disabled");
     return null;
@@ -332,6 +371,7 @@ async function main(): Promise<void> {
 
   const close = async () => {
     clearInterval(approvalSweep);
+    clearInterval(stuckSweep);
     clearInterval(retrievalBatch);
     clearInterval(rollupRefresh);
     await memoryTrigger?.stop().catch(() => {});
