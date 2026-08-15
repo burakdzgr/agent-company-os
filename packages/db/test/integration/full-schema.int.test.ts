@@ -1,9 +1,22 @@
-// T12 acceptance (+0012 from T21): all 12 migrations apply in order; row-level insert/read on
-// EVERY table — dark Phase-2 tables included.
+// T12 acceptance (+0012 from T21): every migration applies in order; row-level
+// insert/read on EVERY table — dark Phase-2 tables included.
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
 import { runMigrations } from "../../src/migrate.js";
 import { startPostgres, type StartedPostgreSqlContainer } from "./helpers";
+
+/** Beklenen migration sayısı journal'dan; elle yazılan sayı sessizce eskiyor. */
+const EXPECTED_MIGRATIONS: number = (
+  JSON.parse(
+    readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "../../migrations/meta/_journal.json"),
+      "utf8",
+    ),
+  ) as { entries: unknown[] }
+).entries.length;
 
 let container: StartedPostgreSqlContainer;
 let client: Client;
@@ -86,11 +99,13 @@ async function insertBase(): Promise<void> {
 }
 
 describe("migrations 0001–0011 + row-level coverage of every table (T12)", () => {
-  it("applies all 13 migrations", async () => {
+  // Sayı journal'dan türetiliyor: sabit yazılıydı ve yeni migration'lar
+  // eklenince sessizce kırıldı (entegrasyon suite'i `test` görevinde koşmuyor).
+  it("applies every migration in the journal", async () => {
     const { rows } = await client.query(
       'SELECT count(*)::int AS n FROM drizzle."__drizzle_migrations"',
     );
-    expect(rows[0].n).toBe(13);
+    expect(rows[0].n).toBe(EXPECTED_MIGRATIONS);
   });
 
   it("inserts and reads a row in every table", async () => {

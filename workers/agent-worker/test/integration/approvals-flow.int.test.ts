@@ -280,9 +280,19 @@ describe("escalate → Approval Engine → workflow resume (T35)", () => {
         sql`${events.companyId} = ${companyId} AND ${events.type} = 'task.status.changed' AND ${events.taskId} = ${approvedTaskId}`,
       )
       .orderBy(events.seq);
+    // Son ayak `complete_task`'ın kendisi: 07 §5'te bir görev DONE'a doğrudan
+    // gitmez, önce REVIEW'a çıkar (repoda DONE'a yazan üç yol var: git.merge,
+    // inceleme zinciri, onay motoru). Beklenti bunu içermiyordu ve bu test
+    // 2026-08-15 öncesinden beri kırıktı — `test` görevi entegrasyon
+    // suite'ini koşmadığı için sessizce.
     expect(
       trail.map((e) => `${(e.payload as { from: string }).from}→${(e.payload as { to: string }).to}`),
-    ).toEqual(["ASSIGNED→IN_PROGRESS", "IN_PROGRESS→WAITING", "WAITING→IN_PROGRESS"]);
+    ).toEqual([
+      "ASSIGNED→IN_PROGRESS",
+      "IN_PROGRESS→WAITING",
+      "WAITING→IN_PROGRESS",
+      "IN_PROGRESS→REVIEW",
+    ]);
   }, 120_000);
 
   it("on silence the workflow's expiry timer closes the approval — approval.expired + rejected semantics", async () => {

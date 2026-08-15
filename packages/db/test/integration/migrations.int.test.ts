@@ -1,7 +1,29 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "pg";
 import { runMigrations } from "../../src/migrate.js";
 import { startPostgres, type StartedPostgreSqlContainer } from "./helpers";
+
+/**
+ * Beklenen migration sayısı JOURNAL'DAN okunuyor, elle yazılmıyor.
+ *
+ * Sabit sayı (13) yazılıydı ve 0014–0016 eklenince bu üç test kırıldı —
+ * üstelik sessizce: `test` görevi yalnız birim testlerini koşuyor, entegrasyon
+ * suite'i ayrı. Testin asıl iddiası "kaç tane migration var" değil, "hepsi
+ * TAM BİR KEZ uygulandı" (eşzamanlı koşuda advisory lock yarışı). Sayıyı
+ * kaynaktan türetmek o iddiayı korur ve bir sonraki migration'da yine
+ * kırılmaz.
+ */
+const EXPECTED_MIGRATIONS: number = (() => {
+  const journal = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../migrations/meta/_journal.json",
+  );
+  const parsed = JSON.parse(readFileSync(journal, "utf8")) as { entries: unknown[] };
+  return parsed.entries.length;
+})();
 
 let container: StartedPostgreSqlContainer;
 let client: Client;
@@ -23,15 +45,15 @@ afterAll(async () => {
 });
 
 describe("migrations 0001–0003 on empty PG16 (T11)", () => {
-  it("applied exactly thirteen migrations despite the concurrent race", async () => {
+  it("applied every migration exactly once despite the concurrent race", async () => {
     const { rows } = await client.query('SELECT count(*)::int AS n FROM drizzle."__drizzle_migrations"');
-    expect(rows[0].n).toBe(13);
+    expect(rows[0].n).toBe(EXPECTED_MIGRATIONS);
   });
 
   it("is idempotent: a repeat run applies nothing new", async () => {
     await runMigrations(uri);
     const { rows } = await client.query('SELECT count(*)::int AS n FROM drizzle."__drizzle_migrations"');
-    expect(rows[0].n).toBe(13);
+    expect(rows[0].n).toBe(EXPECTED_MIGRATIONS);
   });
 
   it("installs the three extensions (20 §1)", async () => {
