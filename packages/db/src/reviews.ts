@@ -15,7 +15,7 @@ import type { CompanyContext } from "./context.js";
 import type { GuardedDb } from "./tenant.js";
 import { SkillsService } from "./skills.js";
 import { TaskStateService } from "./task-engine.js";
-import { agents, positions, reviews, tasks, workspaces } from "./schema/index.js";
+import { agents, positions, reviews, taskAssignments, tasks, workspaces } from "./schema/index.js";
 
 async function emitDomainEvent(tx: Tx, ctx: CompanyContext, input: NewEventInput) {
   const payload = parseEventPayload(input.type, input.version ?? 1, input.payload ?? {});
@@ -225,6 +225,25 @@ export class ReviewsService {
           reviewerAgentId: reviewer.id,
         })
         .returning();
+      // 2026-08-15 live finding: the reviewer must ALSO be recorded as a task
+      // assignment. `TaskStateService.actorClasses` derives the `reviewer`/`qa`
+      // classes from task_assignments or the position's default_role — so a
+      // manager picked by `pickReviewer` (REVIEWER_ROLES.code allows manager)
+      // was rejected by the permission matrix on REVIEW → CHANGES_REQUESTED
+      // ("manager may not perform …"), deadlocking every review it decided.
+      // The assignment is the canonical carrier of a per-task capability role
+      // (07 §5); INV-14 independence is unaffected (author ≠ reviewer is
+      // enforced above and by the DB check).
+      await tx
+        .insert(taskAssignments)
+        .values({
+          companyId: ctx.companyId,
+          taskId: input.taskId,
+          agentId: reviewer.id,
+          role: kind === "qa" ? "qa" : "reviewer",
+          reason: `review:${kind}`,
+        })
+        .onConflictDoNothing();
       await emitDomainEvent(tx, ctx, {
         type: "review.requested",
         actor: { kind: "agent", id: input.authorAgentId },

@@ -179,7 +179,10 @@ export const costEntries = pgTable(
     index("cost_entries_agent_occurred_idx").on(t.agentId, t.occurredAt),
     index("cost_entries_project_occurred_idx").on(t.projectId, t.occurredAt),
     check("cost_entries_kind_check", sql`${t.kind} IN ('llm','tool','compute','media','api')`),
-    check("cost_entries_amount_check", sql`${t.amountCents} >= 0`),
+    // 26 §1.1: the ledger is append-only and corrections are COMPENSATING
+    // entries (negative amount, `ref` at the corrected entry) — never updates.
+    // A `>= 0` check made the documented correction path impossible, so it was
+    // dropped in 0015. `kind` stays constrained; the sign does not.
   ],
 );
 

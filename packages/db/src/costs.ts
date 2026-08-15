@@ -219,84 +219,102 @@ export class CostService {
 
   async recordCost(ctx: CompanyContext, entry: CostEntryInput): Promise<void> {
     await this.db.transaction(async (tx) => {
-      if (entry.id) {
-        const existing = await tx.execute(
-          sql`SELECT 1 FROM cost_entries WHERE company_id = ${ctx.companyId} AND id = ${entry.id} LIMIT 1`,
-        );
-        if (existing.rows.length > 0) return; // replayed activity — exactly-once
-      }
-      await tx.insert(costEntries).values({
-        ...(entry.id && { id: entry.id }),
-        companyId: ctx.companyId,
-        kind: entry.kind,
-        ref: entry.ref,
-        amountCents: entry.amountCents,
-        quantity: entry.quantity?.toString() ?? null,
-        agentId: entry.agentId ?? null,
-        taskId: entry.taskId ?? null,
-        projectId: entry.projectId ?? null,
-        orgUnitId: entry.orgUnitId ?? null,
-      });
-      if (entry.taskId) {
-        await tx
-          .update(tasks)
-          .set({ spentCents: sql`${tasks.spentCents} + ${entry.amountCents}` })
-          .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, entry.taskId)));
-      }
-      await emitDomainEvent(tx, ctx, {
-        type: "cost.entry.recorded",
-        actor: { kind: "system", id: null },
-        ...(entry.agentId && { agentId: entry.agentId }),
-        ...(entry.taskId && { taskId: entry.taskId }),
-        ...(entry.projectId && { projectId: entry.projectId }),
-        payload: { kind: entry.kind, amountCents: entry.amountCents, refs: { ref: entry.ref } },
-      });
-
-      // applicable budget scopes for this entry (26 §4 — a step must pass all)
-      const applicable = await tx
-        .select()
-        .from(budgets)
-        .where(and(eq(budgets.companyId, ctx.companyId), eq(budgets.enabled, true)));
-      for (const budget of applicable) {
-        const matches =
-          budget.scopeKind === "company" ||
-          (budget.scopeKind === "unit" && budget.scopeRef === entry.orgUnitId) ||
-          (budget.scopeKind === "project" && budget.scopeRef === entry.projectId) ||
-          (budget.scopeKind === "agent" && budget.scopeRef === entry.agentId) ||
-          (budget.scopeKind === "task" && budget.scopeRef !== null && entry.taskId !== undefined);
-        if (!matches) continue;
-        const spent = await this.spentCents(tx, ctx, budget);
-        if (budget.scopeKind === "task" && spent === 0) continue; // entry outside this task's subtree
-        const crossed = spent >= budget.limitCents && spent - entry.amountCents < budget.limitCents;
-        if (!crossed) continue;
-        if (budget.kind === "hard") {
-          const pausedAgentIds =
-            budget.scopeKind === "company" ? await this.tripBreaker(tx, ctx) : [];
-          await emitDomainEvent(tx, ctx, {
-            type: "budget.exceeded",
-            actor: { kind: "system", id: null },
-            payload: {
-              scope: budget.scopeKind,
-              budgetId: budget.id,
-              spentCents: spent,
-              limitCents: budget.limitCents,
-              pausedAgentIds,
-            },
-          });
-        } else {
-          await emitDomainEvent(tx, ctx, {
-            type: "budget.warning",
-            actor: { kind: "system", id: null },
-            payload: {
-              scope: budget.scopeKind,
-              budgetId: budget.id,
-              spentCents: spent,
-              limitCents: budget.limitCents,
-            },
-          });
-        }
-      }
+      await this.recordCostInTx(tx, ctx, entry);
     });
+  }
+
+  /**
+   * The same ledger write, joined to a caller-owned transaction.
+   *
+   * A2 (2026-08-15 code review; 26 §2): "the cost entry is written in the SAME
+   * Postgres transaction as the invocation record it prices — `llm_calls` +
+   * its `cost_entries` row commit together; `tool_invocations` + cost entry
+   * together [...] no async billing pipeline, no drift, no lost attribution
+   * on crash". Callers that already own a transaction (the Tool Gateway's
+   * settle step, the agent worker's `persistStep`) must use this variant;
+   * `recordCost` stays for callers with nothing else to commit.
+   *
+   * INV-11 holds either way: the `cost.entry.recorded` / `budget.*` events are
+   * appended through the outbox inside whichever transaction is running.
+   */
+  async recordCostInTx(tx: Tx, ctx: CompanyContext, entry: CostEntryInput): Promise<void> {
+    if (entry.id) {
+      const existing = await tx.execute(
+        sql`SELECT 1 FROM cost_entries WHERE company_id = ${ctx.companyId} AND id = ${entry.id} LIMIT 1`,
+      );
+      if (existing.rows.length > 0) return; // replayed activity — exactly-once
+    }
+    await tx.insert(costEntries).values({
+      ...(entry.id && { id: entry.id }),
+      companyId: ctx.companyId,
+      kind: entry.kind,
+      ref: entry.ref,
+      amountCents: entry.amountCents,
+      quantity: entry.quantity?.toString() ?? null,
+      agentId: entry.agentId ?? null,
+      taskId: entry.taskId ?? null,
+      projectId: entry.projectId ?? null,
+      orgUnitId: entry.orgUnitId ?? null,
+    });
+    if (entry.taskId) {
+      await tx
+        .update(tasks)
+        .set({ spentCents: sql`${tasks.spentCents} + ${entry.amountCents}` })
+        .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, entry.taskId)));
+    }
+    await emitDomainEvent(tx, ctx, {
+      type: "cost.entry.recorded",
+      actor: { kind: "system", id: null },
+      ...(entry.agentId && { agentId: entry.agentId }),
+      ...(entry.taskId && { taskId: entry.taskId }),
+      ...(entry.projectId && { projectId: entry.projectId }),
+      payload: { kind: entry.kind, amountCents: entry.amountCents, refs: { ref: entry.ref } },
+    });
+
+    // applicable budget scopes for this entry (26 §4 — a step must pass all)
+    const applicable = await tx
+      .select()
+      .from(budgets)
+      .where(and(eq(budgets.companyId, ctx.companyId), eq(budgets.enabled, true)));
+    for (const budget of applicable) {
+      const matches =
+        budget.scopeKind === "company" ||
+        (budget.scopeKind === "unit" && budget.scopeRef === entry.orgUnitId) ||
+        (budget.scopeKind === "project" && budget.scopeRef === entry.projectId) ||
+        (budget.scopeKind === "agent" && budget.scopeRef === entry.agentId) ||
+        (budget.scopeKind === "task" && budget.scopeRef !== null && entry.taskId !== undefined);
+      if (!matches) continue;
+      const spent = await this.spentCents(tx, ctx, budget);
+      if (budget.scopeKind === "task" && spent === 0) continue; // entry outside this task's subtree
+      const crossed = spent >= budget.limitCents && spent - entry.amountCents < budget.limitCents;
+      if (!crossed) continue;
+      if (budget.kind === "hard") {
+        const pausedAgentIds =
+          budget.scopeKind === "company" ? await this.tripBreaker(tx, ctx) : [];
+        await emitDomainEvent(tx, ctx, {
+          type: "budget.exceeded",
+          actor: { kind: "system", id: null },
+          payload: {
+            scope: budget.scopeKind,
+            budgetId: budget.id,
+            spentCents: spent,
+            limitCents: budget.limitCents,
+            pausedAgentIds,
+          },
+        });
+      } else {
+        await emitDomainEvent(tx, ctx, {
+          type: "budget.warning",
+          actor: { kind: "system", id: null },
+          payload: {
+            scope: budget.scopeKind,
+            budgetId: budget.id,
+            spentCents: spent,
+            limitCents: budget.limitCents,
+          },
+        });
+      }
+    }
   }
 
   /** 26 §5 circuit breaker: pause every non-critical active agent. */

@@ -1173,12 +1173,25 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
             costCents: sql`${agentSessions.costCents} + ${input.costCents}`,
           })
           .where(and(eq(agentSessions.companyId, ctx.companyId), eq(agentSessions.id, input.sessionId)));
-        return { inserted: true };
-      }).then(async (result) => {
         // per-step cost through CostService (08 §13, T34): idempotent id,
-        // breach detection + company circuit breaker fire from agent spend
-        if (result.inserted && input.costCents > 0) {
-          await costService.recordCost(ctx, {
+        // breach detection + company circuit breaker fire from agent spend.
+        //
+        // A2 (2026-08-15 code review; 26 §2): this used to run in a `.then()`
+        // AFTER the step transaction had committed, guarded by
+        // `result.inserted`. Two ways that lost money: a crash between the two
+        // writes left the step (and the session counters) charged with no
+        // ledger entry, and a retry then saw the step row already present, so
+        // `inserted` was false and the cost was skipped forever. 26 §2 is
+        // explicit — "the cost entry is written in the same Postgres
+        // transaction as the invocation record it prices [...] no async
+        // billing pipeline, no drift, no lost attribution on crash". Inside
+        // the transaction the `inserted` guard is implicit (the replay path
+        // returned above) and the entry's deterministic id keeps it
+        // exactly-once. INV-11 holds: `cost.entry.recorded` is appended
+        // through the same outbox transaction. INV-13 is untouched — the
+        // ledger only bumps `tasks.spent_cents`, never `tasks.status`.
+        if (input.costCents > 0) {
+          await costService.recordCostInTx(tx, ctx, {
             id: uuidv5("llm-cost", input.stepId),
             kind: "llm",
             ref: uuidv5(`llm:0`, input.stepId),
@@ -1188,7 +1201,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
             taskId: input.taskId,
           });
         }
-        return result;
+        return { inserted: true };
       });
     },
 

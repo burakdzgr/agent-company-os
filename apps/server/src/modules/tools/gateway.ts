@@ -124,6 +124,14 @@ export interface ToolDispatchPort {
 /** Workspace provisioning allowance (first-touch clone + image pull). */
 const PREPARE_TIMEOUT_MS = 600_000;
 
+/**
+ * A3: how long a `dispatched` invocation may hold its budget reservation.
+ * Bounded by the longest possible execution window (PREPARE_TIMEOUT_MS plus
+ * the widest tool timeout / the 45-minute dispatch proxy) so that an
+ * invocation orphaned by a crashed process cannot pin a budget forever.
+ */
+const IN_FLIGHT_RESERVATION_MS = 60 * 60 * 1000;
+
 export type CredentialResolver = (
   ctx: CompanyContext,
   name: string,
@@ -195,7 +203,14 @@ function normalizeRelPath(input: string): string | null {
  */
 function branchMatches(pattern: string, branch: string): boolean {
   if (branch.length > 255) return false;
-  const anchored = /^\^.*\$$/s.test(pattern) ? pattern : `^(?:${pattern})$`;
+  // A pattern the author anchored at the start is a PREFIX rule — `^task/`
+  // must keep matching `task/81-fix-login`. Re-grouping the remainder also
+  // contains a top-level alternation, so `^a|b` can no longer match a bare
+  // `b`. A pattern with no anchor of its own is a full match, which is what
+  // stops `main` from also allowing `not-main-really`.
+  const anchored = pattern.startsWith("^")
+    ? `^(?:${pattern.slice(1)})`
+    : `^(?:${pattern})$`;
   try {
     return new RegExp(anchored).test(branch);
   } catch {
@@ -426,7 +441,11 @@ export class ToolGateway {
     const allowRule = matching.find((p) => p.effect === "allow");
 
     // ---- 6. budget: tightest applicable scope (26 §1) ----
-    const budget = await this.tightestBudget(ctx, req.taskId ?? null);
+    // Advisory read — the binding check-and-reserve happens under a row lock
+    // in the invocation transaction below (A3).
+    const budget = await this.db.transaction((tx) =>
+      this.tightestBudget(tx, ctx, req.taskId ?? null, false),
+    );
 
     // ---- 7. THE decision — canonical domain authorize() (06 §2) ----
     let decision: Decision;
@@ -478,28 +497,50 @@ export class ToolGateway {
     }
 
     // ---- audit row — ALWAYS — + events, one tx (17 §4 step 6) ----
-    const detailReason =
-      decision.verdict === "deny"
-        ? decision.reason +
-          (!constraintOutcome.ok && !constraintOutcome.escalate
-            ? `:${constraintOutcome.detail}`
-            : "")
-        : decision.verdict === "require_approval"
-          ? `approver=${decision.approver}` +
-            (!constraintOutcome.ok ? `:${constraintOutcome.detail}` : "")
-          : "authorized";
-    const status =
-      decision.verdict === "deny"
-        ? "denied"
-        : decision.verdict === "require_approval"
-          ? "awaiting_approval"
-          : "dispatched";
     const actor = { kind: "agent" as const, id: agent.id };
     const refs = {
       taskId: req.taskId ?? null,
       agentId: agent.id,
     };
-    const invocationId = await this.db.transaction(async (tx) => {
+    const audited = await this.db.transaction(async (tx) => {
+      // A3 (2026-08-15 code review; 26 §4 "a step must pass every applicable
+      // scope" + §5.2 gateway pre-execution check): CHECK-AND-RESERVE, atomic.
+      //
+      // The step-6 read is advisory — N concurrent invocations all observe the
+      // same remainder, all pass it, and the scope is overspent by (N-1)×est.
+      // The governing row is therefore re-read FOR UPDATE inside the very
+      // transaction that writes the invocation row, and the estimate then
+      // rides that row as an in-flight reservation (`status='dispatched'` +
+      // `cost_cents=est`) which `tightestBudget` subtracts. The next caller
+      // blocks on the lock and reads a remainder that already contains it.
+      // Settlement swaps the reservation for the real ledger entry in a
+      // single transaction (A2), so nothing is ever counted twice.
+      if (decision.verdict === "allow" && estCostCents > 0) {
+        const locked = await this.tightestBudget(tx, ctx, req.taskId ?? null, true);
+        if (locked.hard && estCostCents > locked.remainingCents) {
+          decision = { verdict: "deny", reason: "BUDGET_EXCEEDED", redirect: "manager" };
+        }
+      }
+      const detailReason =
+        decision.verdict === "deny"
+          ? decision.reason +
+            (!constraintOutcome.ok && !constraintOutcome.escalate
+              ? `:${constraintOutcome.detail}`
+              : "")
+          : decision.verdict === "require_approval"
+            ? `approver=${decision.approver}` +
+              (!constraintOutcome.ok ? `:${constraintOutcome.detail}` : "")
+            : "authorized";
+      const status: ToolInvokeResponse["status"] =
+        decision.verdict === "deny"
+          ? "denied"
+          : decision.verdict === "require_approval"
+            ? "awaiting_approval"
+            : "dispatched";
+      // The reservation only ever sits on an in-flight row; settlement
+      // overwrites it with the actual cost (or 0 on failure), so the column's
+      // settled meaning is unchanged.
+      const reservedCents = status === "dispatched" ? estCostCents : 0;
       const [row] = await tx
         .insert(toolInvocations)
         .values({
@@ -514,7 +555,7 @@ export class ToolGateway {
           decisionReason: detailReason.slice(0, 1000),
           status,
           workspaceId: req.workspaceId ?? null,
-          costCents: 0,
+          costCents: reservedCents,
         })
         .returning({ id: toolInvocations.id });
       await emitDomainEvent(tx, ctx, {
@@ -551,8 +592,9 @@ export class ToolGateway {
           meta: { toolName: def.name, riskClass: effectiveRisk, reason: detailReason },
         });
       }
-      return row!.id;
+      return { invocationId: row!.id, detailReason, status };
     });
+    const { invocationId, detailReason, status } = audited;
 
     const base: ToolInvokeResponse = {
       invocationId,
@@ -623,6 +665,10 @@ export class ToolGateway {
             error: message.slice(0, 2000),
             durationMs: this.now().getTime() - started,
             finishedAt: this.now(),
+            // A3: nothing ran to completion, so the reservation is released
+            // (leaving `dispatched` already drops it out of the in-flight sum)
+            // and the row must not claim a cost that has no ledger entry.
+            costCents: 0,
           })
           .where(
             and(eq(toolInvocations.companyId, ctx.companyId), eq(toolInvocations.id, invocationId)),
@@ -646,6 +692,18 @@ export class ToolGateway {
       : { flagged: false, patterns: [], severe: false, version: 0 };
 
     await this.db.transaction(async (tx) => {
+      // Lock ordering, A2 + A3 together. The reserve path takes the governing
+      // task row FOR UPDATE and only then the outbox sequence; settling books
+      // the ledger entry (which bumps `tasks.spent_cents`) after emitting
+      // events, i.e. sequence-then-task. Two concurrent invocations against
+      // the same task therefore grabbed the two locks in opposite orders and
+      // Postgres aborted one with 40P01. Taking the task lock up front puts
+      // both paths on the same order.
+      if (req.taskId && actualCost > 0) {
+        await tx.execute(
+          sql`SELECT 1 FROM tasks WHERE company_id = ${ctx.companyId} AND id = ${req.taskId} FOR UPDATE`,
+        );
+      }
       await tx
         .update(toolInvocations)
         .set({
@@ -703,17 +761,25 @@ export class ToolGateway {
           });
         }
       }
+      // A2 (2026-08-15 code review; 26 §2): the ledger entry commits in the
+      // SAME transaction as the invocation it prices — "`tool_invocations` +
+      // cost entry together [...] no async billing pipeline, no drift, no lost
+      // attribution on crash". It used to run after this transaction had
+      // committed: a crash in between left the call `succeeded` with no cost
+      // entry, so every budget scope under-counted it (a real race since B1
+      // made LLM/tool costs non-zero). Committing here also retires the A3
+      // in-flight reservation and books the real spend in one step.
+      if (actualCost > 0) {
+        await this.costs.recordCostInTx(tx, ctx, {
+          id: invocationId, // exactly-once even on replays
+          kind: "tool",
+          ref: def.name,
+          agentId: agent.id,
+          taskId: req.taskId ?? undefined,
+          amountCents: actualCost,
+        });
+      }
     });
-    if (actualCost > 0) {
-      await this.costs.recordCost(ctx, {
-        id: invocationId, // exactly-once even on replays
-        kind: "tool",
-        ref: def.name,
-        agentId: agent.id,
-        taskId: req.taskId ?? undefined,
-        amountCents: actualCost,
-      });
-    }
     const success: ToolInvokeResponse = {
       ...base,
       status: "succeeded",
@@ -865,22 +931,35 @@ export class ToolGateway {
     return { ok: true };
   }
 
-  /** Tightest applicable budget: task total (hard, T28) else company daily. */
+  /**
+   * Tightest applicable budget: task total (hard, T28) else company daily.
+   *
+   * A3: the remainder subtracts BOTH settled ledger spend and the estimates of
+   * invocations still in flight (`status='dispatched'`), so a concurrent call
+   * that has been authorised but has not billed yet is already accounted for.
+   * With `lock` the governing row is taken FOR UPDATE first, which serialises
+   * concurrent check-and-reserve transactions on that row.
+   */
   private async tightestBudget(
+    tx: Tx,
     ctx: CompanyContext,
     taskId: string | null,
+    lock: boolean,
   ): Promise<{ remainingCents: number; hard: boolean }> {
+    const inFlightSince = new Date(this.now().getTime() - IN_FLIGHT_RESERVATION_MS);
     if (taskId) {
-      const [task] = await this.db
+      const taskQuery = tx
         .select({ budget: tasks.budgetCents, spent: tasks.spentCents })
         .from(tasks)
         .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)))
         .limit(1);
+      const [task] = lock ? await taskQuery.for("update") : await taskQuery;
       if (task?.budget != null) {
-        return { remainingCents: Math.max(0, task.budget - task.spent), hard: true };
+        const reserved = await this.inFlightReservedCents(tx, ctx, taskId, inFlightSince);
+        return { remainingCents: Math.max(0, task.budget - task.spent - reserved), hard: true };
       }
     }
-    const [companyDaily] = await this.db
+    const budgetQuery = tx
       .select()
       .from(budgets)
       .where(
@@ -892,21 +971,51 @@ export class ToolGateway {
         ),
       )
       .limit(1);
+    const [companyDaily] = lock ? await budgetQuery.for("update") : await budgetQuery;
     if (companyDaily) {
       const dayStart = new Date(this.now());
       dayStart.setUTCHours(0, 0, 0, 0);
-      const [row] = await this.db
+      const [row] = await tx
         .select({ total: sql<string>`coalesce(sum(${costEntries.amountCents}), 0)` })
         .from(costEntries)
         .where(
           and(eq(costEntries.companyId, ctx.companyId), gt(costEntries.occurredAt, dayStart)),
         );
+      const reserved = await this.inFlightReservedCents(tx, ctx, null, inFlightSince);
       return {
-        remainingCents: Math.max(0, companyDaily.limitCents - Number(row?.total ?? 0)),
+        remainingCents: Math.max(
+          0,
+          companyDaily.limitCents - Number(row?.total ?? 0) - reserved,
+        ),
         hard: companyDaily.kind === "hard",
       };
     }
+    // No budget row governs this call. 26 §5.3 makes the company daily budget
+    // the circuit breaker's trigger, so the seed plants one for every company
+    // (apps/server/src/seed.ts) — this fallback only survives for installs
+    // that deliberately deleted it.
     return { remainingCents: Number.MAX_SAFE_INTEGER, hard: false };
+  }
+
+  /** A3: estimates held by invocations that are dispatched but not settled. */
+  private async inFlightReservedCents(
+    tx: Tx,
+    ctx: CompanyContext,
+    taskId: string | null,
+    since: Date,
+  ): Promise<number> {
+    const [row] = await tx
+      .select({ total: sql<string>`coalesce(sum(${toolInvocations.costCents}), 0)` })
+      .from(toolInvocations)
+      .where(
+        and(
+          eq(toolInvocations.companyId, ctx.companyId),
+          eq(toolInvocations.status, "dispatched"),
+          gt(toolInvocations.createdAt, since),
+          ...(taskId ? [eq(toolInvocations.taskId, taskId)] : []),
+        ),
+      );
+    return Number(row?.total ?? 0);
   }
 
   /** Token bucket on the T11 UNLOGGED rate_limits table (no Redis, 17 §6). */

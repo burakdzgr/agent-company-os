@@ -21,6 +21,7 @@ import {
 import {
   agents,
   auditLog,
+  costEntries,
   events,
   orgEdges,
   orgUnits,
@@ -60,10 +61,14 @@ let DEV = "";
 let LEAD = "";
 let CEO = "";
 let PAUSED = "";
+let RACER = "";
+let SETTLER = "";
 let positionId = "";
 let unitId = "";
 let taskTightBudget = "";
 let taskFree = "";
+let taskRace = "";
+let taskLedger = "";
 
 interface DispatchCall {
   tool: string;
@@ -93,6 +98,12 @@ const fakePort: ToolDispatchPort = {
           costCents: 2,
         };
       case "terminal.run":
+        // A3: the race fixture needs the first call to still be IN FLIGHT when
+        // the second one asks for budget — otherwise the two run back to back
+        // and there is no race to observe.
+        if ((input as { command?: string }).command === "race") {
+          await new Promise((r) => setTimeout(r, 250));
+        }
         return {
           output: {
             exitCode: 0,
@@ -227,6 +238,10 @@ beforeAll(async () => {
   LEAD = await hire("Lena Lead", 2, 3);
   CEO = await hire("Cem CEO", 3, 5);
   PAUSED = await hire("Paula Paused", 4, 2, "paused");
+  // A2/A3 fixtures get their own agents so the shared rate-limit buckets and
+  // grant constraints of the suite above cannot perturb them.
+  RACER = await hire("Rana Racer", 5, 3);
+  SETTLER = await hire("Suat Settler", 6, 3);
   for (const agentId of [DEV, LEAD, CEO]) {
     await db.insert(orgEdges).values({ companyId, fromAgentId: agentId, kind: "member_of", toUnitId: unitId });
   }
@@ -259,6 +274,36 @@ beforeAll(async () => {
     })
     .returning();
   taskFree = free!.id;
+  // A3: 40¢ hard budget — one terminal.run at 1800s estimates 30¢, so exactly
+  // one of two concurrent calls can be authorised.
+  const [race] = await db
+    .insert(tasks)
+    .values({
+      companyId,
+      number: 3,
+      kind: "task",
+      title: "Budget race task",
+      objective: "x",
+      status: "IN_PROGRESS",
+      ownerAgentId: RACER,
+      budgetCents: 40,
+      spentCents: 0,
+    })
+    .returning();
+  taskRace = race!.id;
+  const [ledger] = await db
+    .insert(tasks)
+    .values({
+      companyId,
+      number: 4,
+      kind: "task",
+      title: "Ledger atomicity task",
+      objective: "x",
+      status: "IN_PROGRESS",
+      ownerAgentId: SETTLER,
+    })
+    .returning();
+  taskLedger = ledger!.id;
 }, 240_000);
 
 afterAll(async () => {
@@ -597,6 +642,110 @@ describe("rate limiting + idempotency", () => {
     expect(replay.replayed).toBe(true);
     expect(replay.invocationId).toBe(first.invocationId);
     expect((await db.select().from(toolInvocations)).length).toBe(rowsBefore);
+  });
+});
+
+describe("A2 — the cost entry commits with the invocation it prices (26 §2)", () => {
+  async function ledgerFor(taskId: string) {
+    return db
+      .select()
+      .from(costEntries)
+      .where(and(eq(costEntries.companyId, companyId), eq(costEntries.taskId, taskId)));
+  }
+  async function invocationsFor(taskId: string) {
+    return db
+      .select()
+      .from(toolInvocations)
+      .where(and(eq(toolInvocations.companyId, companyId), eq(toolInvocations.taskId, taskId)));
+  }
+  async function spentCentsOf(taskId: string) {
+    const [row] = await db.select({ spent: tasks.spentCents }).from(tasks).where(eq(tasks.id, taskId));
+    return row!.spent;
+  }
+
+  it("a ledger failure rolls the invocation back — never `succeeded` without its cost entry", async () => {
+    await grant("terminal.run", "agent", SETTLER);
+    // Fault injection at the ledger, scoped to this task only: before the fix
+    // recordCost ran AFTER the invocation transaction had committed, so the
+    // row was already `succeeded` when the ledger write blew up.
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION acos_test_ledger_down() RETURNS trigger AS $fn$
+      BEGIN RAISE EXCEPTION 'ledger down'; END $fn$ LANGUAGE plpgsql;
+    `);
+    await pool.query(`
+      CREATE TRIGGER acos_test_ledger_down_trg BEFORE INSERT ON cost_entries
+      FOR EACH ROW WHEN (NEW.task_id = '${taskLedger}') EXECUTE FUNCTION acos_test_ledger_down();
+    `);
+
+    await expect(
+      gateway.invoke(ctx, {
+        agentId: SETTLER,
+        toolName: "terminal.run",
+        input: { command: "npm test", timeoutSec: 60 },
+        taskId: taskLedger,
+      }),
+    ).rejects.toThrow(); // drizzle wraps the trigger error; state assertions below carry the meaning
+
+    // the whole settle transaction rolled back: no ledger row, no spend, and
+    // the invocation is still in flight rather than reporting success
+    expect(await ledgerFor(taskLedger)).toHaveLength(0);
+    expect(await spentCentsOf(taskLedger)).toBe(0);
+    const stuck = await invocationsFor(taskLedger);
+    expect(stuck).toHaveLength(1);
+    expect(stuck[0]!.status).toBe("dispatched");
+    expect(stuck[0]!.finishedAt).toBeNull();
+
+    await pool.query(`DROP TRIGGER acos_test_ledger_down_trg ON cost_entries`);
+
+    const ok2 = await gateway.invoke(ctx, {
+      agentId: SETTLER,
+      toolName: "terminal.run",
+      input: { command: "npm test", timeoutSec: 120 },
+      taskId: taskLedger,
+    });
+    expect(ok2.status).toBe("succeeded");
+    expect(ok2.costCents).toBe(5);
+    const ledger = await ledgerFor(taskLedger);
+    expect(ledger).toHaveLength(1);
+    expect(ledger[0]!.amountCents).toBe(5);
+    expect(ledger[0]!.id).toBe(ok2.invocationId);
+    expect(await spentCentsOf(taskLedger)).toBe(5);
+  });
+});
+
+describe("A3 — concurrent invocations cannot overspend a hard budget (26 §4/§5.2)", () => {
+  it("two parallel calls that each fit alone: the second is denied BUDGET_EXCEEDED", async () => {
+    await grant("terminal.run", "agent", RACER);
+    // 40¢ hard task budget, two concurrent 30¢ estimates. Without the
+    // check-and-reserve both read `remaining = 40`, both pass, and the task
+    // ends up 20¢ over its hard limit.
+    const call = () =>
+      gateway.invoke(ctx, {
+        agentId: RACER,
+        toolName: "terminal.run",
+        input: { command: "race", timeoutSec: 1800 }, // estimate 30¢
+        taskId: taskRace,
+      });
+    const [a, b] = await Promise.all([call(), call()]);
+
+    const allowed = [a, b].filter((r) => r.decision === "allow");
+    const denied = [a, b].filter((r) => r.decision === "deny");
+    expect(allowed).toHaveLength(1);
+    expect(denied).toHaveLength(1);
+    expect(denied[0]!.reason).toContain("BUDGET_EXCEEDED");
+    expect(allowed[0]!.status).toBe("succeeded");
+    expect((await invocationRow(denied[0]!.invocationId!)).status).toBe("denied");
+
+    // only the winner is billed, and the reservation left no residue
+    const entries = await db
+      .select()
+      .from(costEntries)
+      .where(and(eq(costEntries.companyId, companyId), eq(costEntries.taskId, taskRace)));
+    expect(entries).toHaveLength(1);
+    expect(entries[0]!.amountCents).toBe(5);
+    const [task] = await db.select({ spent: tasks.spentCents }).from(tasks).where(eq(tasks.id, taskRace));
+    expect(task!.spent).toBe(5);
+    expect(task!.spent).toBeLessThanOrEqual(40);
   });
 });
 
