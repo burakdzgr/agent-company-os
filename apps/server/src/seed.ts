@@ -46,6 +46,14 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
     // nightly live-LLM lane boots the same seed with a provider key present
     await ensureLiveModelRouting(db, existingCompany.id);
     await ensureCompanyDailyBudget(db, existingCompany.id);
+    // 2026-08-15: tool grants were reachable only from the org-seeding path,
+    // which this early return skips — so a newly wired tool (task.query,
+    // memory.search, web.fetch …) never received a grant on an install that
+    // already existed. The permission simply never appeared and the tool
+    // failed with NO_PERMISSION_GRANT, looking like a gateway bug. The list is
+    // idempotent per (tool, subject), so re-running it on every boot is the
+    // whole point of calling it "an additive seed upgrade".
+    await seedToolGrants(db, companyContext(existingCompany.id));
     return { created: false, companyId: existingCompany.id, founderUserId: existingUser.id };
   }
 
