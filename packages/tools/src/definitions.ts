@@ -72,6 +72,13 @@ export const fsWrite: ToolDefinition = {
     path: workspacePath,
     content: z.string().max(2_000_000),
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
+    /**
+     * 2026-08-15: existing files are REFUSED unless this is explicitly true.
+     * A model re-emitting a long file hits its output-token ceiling and
+     * silently truncates the rest (observed: −1750 lines). Editing existing
+     * code goes through fs.edit; this flag stays for deliberate rewrites.
+     */
+    overwrite: z.boolean().default(false),
   }),
   output: z.object({
     byteSize: z.number().int(),

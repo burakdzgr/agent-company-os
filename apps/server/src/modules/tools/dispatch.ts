@@ -381,6 +381,18 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
 
         case "fs.write": {
           const path = safeRelPath(String(args.path));
+          // fail-closed (2026-08-15): var olan dosyaya tam-dosya yazma
+          // reddedilir — model uzun dosyayı yeniden üretirken çıktı token
+          // tavanına çarpıp gerisini sessizce siliyordu. Düzenleme fs.edit'ten
+          // geçer; bilinçli yeniden yazım overwrite:true ile mümkün.
+          if (args.overwrite !== true) {
+            const exists = await execScript(ws.id, `[ -e ${shq(path)} ] && echo YES || echo NO`);
+            if (exists.stdout.includes("YES")) {
+              throw new DispatchError(
+                `fs.write REFUSED: ${path} already exists. Use fs.edit {path, oldText, newText} for surgical changes (whole-file rewrites silently truncate long files). Pass overwrite:true only for a deliberate full rewrite.`,
+              );
+            }
+          }
           const content = String(args.content);
           const encoded =
             args.encoding === "base64"
