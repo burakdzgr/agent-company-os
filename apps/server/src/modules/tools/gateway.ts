@@ -164,6 +164,45 @@ interface PolicyRule {
 
 const RISK_ORDER: RiskClass[] = ["R0", "R1", "R2", "R3"];
 
+/**
+ * Y4 (2026-08-15 code review): grant-constraint helpers, fail-closed.
+ *
+ * Path comparison happens on a normalized, workspace-relative form so a
+ * traversal (`src/../../etc/passwd`) can never satisfy a `src/` prefix, and
+ * matching stops at segment boundaries so `src` does not admit `srcret/`.
+ * Returns null when the path leaves the workspace.
+ */
+function normalizeRelPath(input: string): string | null {
+  const segments = input.replace(/\\/g, "/").split("/");
+  const out: string[] = [];
+  for (const segment of segments) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") {
+      if (out.length === 0) return null; // escapes the workspace root
+      out.pop();
+      continue;
+    }
+    out.push(segment);
+  }
+  return out.join("/");
+}
+
+/**
+ * Y4: branch patterns come from the DB. They are anchored (an unanchored
+ * `main` also matched `not-main-really`) and the subject is length-bounded to
+ * blunt catastrophic backtracking; an invalid pattern denies rather than
+ * throwing or silently allowing.
+ */
+function branchMatches(pattern: string, branch: string): boolean {
+  if (branch.length > 255) return false;
+  const anchored = /^\^.*\$$/s.test(pattern) ? pattern : `^(?:${pattern})$`;
+  try {
+    return new RegExp(anchored).test(branch);
+  } catch {
+    return false;
+  }
+}
+
 export class ToolGateway {
   private readonly db: GuardedDb;
   private readonly dispatchPort: ToolDispatchPort;
@@ -746,7 +785,21 @@ export class ToolGateway {
         ...(Array.isArray(input.paths) ? (input.paths as string[]) : []),
       ];
       for (const p of paths) {
-        if (!c.pathPrefixes.some((prefix) => p.startsWith(prefix))) {
+        // Y4 (2026-08-15 code review): normalize BEFORE comparing and require
+        // a segment boundary. Raw startsWith let `src/../../etc/passwd` pass
+        // (safeRelPath catches it downstream today, but the check belongs
+        // here too — a future tool that skips safeRelPath would open a hole)
+        // and let prefix `src` allow the unrelated `srcret/` directory.
+        const normalized = normalizeRelPath(p);
+        if (normalized === null) {
+          return { ok: false, detail: `path_escapes_workspace:${p}`, escalate: false };
+        }
+        const inPrefix = c.pathPrefixes.some((prefix) => {
+          const base = normalizeRelPath(prefix);
+          if (base === null) return false;
+          return base === "" || normalized === base || normalized.startsWith(`${base}/`);
+        });
+        if (!inPrefix) {
           return { ok: false, detail: `path_not_in_prefixes:${p}`, escalate: false };
         }
       }
@@ -759,14 +812,25 @@ export class ToolGateway {
     }
     if (c.branchPatterns.length > 0 && typeof input.branch === "string") {
       for (const pattern of c.branchPatterns) {
-        if (!new RegExp(pattern).test(input.branch)) {
+        // Y4: DB-supplied patterns were unanchored (`main` also matched
+        // `not-main-really`) and ran unbounded (ReDoS on a hostile pattern).
+        // Anchor + length-bound the subject; a pattern that fails to compile
+        // is a DENY, never a pass-through.
+        if (!branchMatches(pattern, input.branch)) {
           return { ok: false, detail: `branch_not_allowed:${input.branch}`, escalate: false };
         }
       }
     }
     // network: URL host must be inside the grant's narrowed allowlist
     if (c.domainAllowlist && typeof input.url === "string") {
-      const host = new URL(input.url).hostname;
+      // Y4: `new URL()` sat OUTSIDE the caller's try/catch — a malformed URL
+      // threw an unhandled error (HTTP 500) instead of a fail-closed deny.
+      let host: string;
+      try {
+        host = new URL(input.url).hostname;
+      } catch {
+        return { ok: false, detail: "invalid_url", escalate: false };
+      }
       const allowed = c.domainAllowlist.some(
         (d) => host === d || host.endsWith(d.startsWith(".") ? d : `.${d}`),
       );
