@@ -106,7 +106,23 @@ Brifing yeniden numaralandı; aşağıdakiler o numaralandırmaya göre. A1–A3
 | **D4** proje-bazlı egress (27 §12) | ✅ | 2026-08-15 | squid.conf'un kendi yorumu bunu öngörüyordu ("generated include"), üretici yazılmamıştı: ajanlar yalnız paket registry'lerine çıkabiliyordu. `projects.settings` (migration 0016) + include üreticisi + salt-okunur mount + doğrulayan reload. Asıl risk konfigürasyon enjeksiyonuydu (satır sonu içeren "alan adı" allowlist'i açabilirdi) — desen fail-closed. Canlıda kanıtlandı. |
 | **E** kalanı | ✅ ◑ | 2026-08-15 | `guard_stopped` oturumu artık "completed" sayılmıyor (teslimat yoksa oturum başarılı değildir); `subjectFilters[1]` ölü kodu kaldırıldı; MVP_TOOLS yorumu düzeltildi. **Dispatch hatasında olay yayılması YAPILMADI:** 10 §10'un tablosunda `tool.invocation.failed` yok ve katalog testi kaydı dokümanla birebir eşleştiriyor. Gözlemlenebilirlik bugün `tool_invocations` satırı + ajan adımının `observation` alanından sağlanıyor; olayı zaman çizelgesine taşımak doküman kararı ister. |
 
-### D2 / D3 — uygulanmadı (gerekçe)
+### D2 / D3 — Founder onayıyla açıldı (2026-08-15)
+
+Aşağıdaki gerekçe **kaydedilmiş tarihçedir**; Founder Faz 2 yüzeylerini açma kararını verdikten sonra üç kalem uygulandı:
+
+| Madde | Durum | Not |
+|---|---|---|
+| `tool.invocation.failed` (10 §10.1) | ✅ | İzin verilmiş ama çalışırken patlayan çağrı artık zaman çizelgesine düşüyor. Olay önce **dokümana** eklendi (katalog testi kaydı dokümanla birebir eşleştiriyor), sonra koda; sayaç 190 → 191. |
+| **D2** entegrasyon adapter'ları (ADR-017, 30 §) | ✅ *(dış hesapla kanıtlanmadı)* | `SocialChannelPort` (packages/domain, 30 §'in saydığı sekiz yetenek; `capabilitiesOf` beyan ile gerçeği ayrı tutmuyor) + Instagram adapter'ı (iki adımlı Graph API yayını, 5xx/429 geçici · 4xx kalıcı sınıflaması, metrik okuma). Token ajan girdisinden değil bağlantı kimliğinden sunucuda çözülüyor (S2); bağlantı yoksa platforma hiç gidilmiyor. |
+| **D3** yayın kuyruğu + dispatcher (30 §) | ✅ | `publish_jobs` ve `marketing.content.publish.*` şemada/katalogda vardı, kodda tek referansı yoktu — pazarlama "içerik üret"ten öteye geçemiyordu. Zamanla → sahiplen → yayınla/başarısız ol; iki dispatcher aynı işi iki kez alamıyor; kalıcı hata deneme hakkını tüketmeden bitiyor; adapter'ı olmayan platform sessizce beklemiyor (30 §'in manuel-yayın düşüş yolu tetiklenebilsin diye). |
+
+**Kendi iddiamın düzeltmesi:** çift yayın korumasının `SKIP LOCKED`'tan geldiğini yazmıştım. Kaldırıp ölçtüm: koruma tek ifadelik `UPDATE … WHERE status='scheduled'` yükleminden geliyor; `SKIP LOCKED` doğruluk için değil, dispatcher'ların birbirini beklememesi için. Kırmızı kanıtı doğru yerden alındı.
+
+**Dış hesapla kanıtlanmadı:** gerçek bir Instagram hesabı olmadığından giden isteğin şekli ve akış kayıtlı fixture'lara karşı doğrulandı — 30 §'in kendi risk azaltması bunu öngörüyor (*"contract tests on recorded fixtures"*). Canlı hesap bağlanınca gereken tek şey `secrets` satırı + bağlantı kaydıdır.
+
+**Açık kalan:** REST/UI yüzeyi hâlâ kapalı — `scope.test.ts` (29 §6.5) `/marketing`, `/campaigns`, `/content` yollarını engellemeye devam ediyor. Pazarlama panosu açılacaksa o guard'ın da bilinçli olarak gevşetilmesi gerekir; bu ayrı bir karardır.
+
+### D2 / D3 — ilk değerlendirme (karar öncesi kayıt)
 
 Brifingin **D2 (entegrasyon modülü, ADR-017)** ve **D3 (pazarlama aktüasyonu)** maddeleri, mimari dokümanların **Phase 2** olarak ayırdığı yüzeylerdir:
 
