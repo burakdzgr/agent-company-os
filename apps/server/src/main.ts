@@ -156,6 +156,9 @@ async function main(): Promise<void> {
   let relay: OutboxRelay | null = null;
   let dlq: DlqHandler | null = null;
   let memoryTrigger: import("./modules/memory/trigger.js").MemoryTriggerHandle | null = null;
+  let breakerConsumer:
+    | import("./modules/costs/breaker-consumer.js").BreakerConsumerHandle
+    | null = null;
   if (nats) {
     app.attachOfficeNats?.(nats); // projector publishes office.* (T25)
     app.realtime?.attachNats(nats); // /ws live fanout (T23)
@@ -210,6 +213,63 @@ async function main(): Promise<void> {
         onError: (err) => app.log.error({ err }, "memory-trigger consumer error"),
       });
       app.log.info("memory-trigger consumer started");
+
+      // 26 §5 madde 3: kesicinin ikinci yarısı — koşan oturumlara
+      // managerDirective(pause). Veritabanı yarısı (agents → paused)
+      // CostService.tripBreaker'da; o satırı koşan workflow okumadığı için
+      // kesici tek başına bir sonraki adımı durdurmuyordu.
+      const { startBreakerConsumer } = await import("./modules/costs/breaker-consumer.js");
+      const { agentSessions } = await import("@acos/db/schema");
+      const { and: sqlAnd, eq: sqlEq, inArray, sql: rawSql } = await import("drizzle-orm");
+      // workflow id'yi yeniden kurmuyoruz: oturum satırı onu zaten taşıyor
+      // (agent_sessions.workflow_id NOT NULL), yani kimlik kuralı değişse
+      // bile sinyal doğru workflow'a gider.
+      const liveSessions = async (companyId: string, agentIds: string[]) =>
+        agentIds.length === 0
+          ? []
+          : guardedDb
+              .select({ workflowId: agentSessions.workflowId, agentId: agentSessions.agentId })
+              .from(agentSessions)
+              .where(
+                sqlAnd(
+                  sqlEq(agentSessions.companyId, companyId),
+                  inArray(agentSessions.agentId, agentIds),
+                  rawSql`${agentSessions.status} IN ('starting','running','waiting')`,
+                ),
+              );
+      breakerConsumer = await startBreakerConsumer({
+        nats,
+        signal: async ({ companyId, agentIds, directive, reason }) => {
+          for (const session of await liveSessions(companyId, agentIds)) {
+            if (!session.workflowId) continue;
+            await temporalClient.workflow
+              .getHandle(session.workflowId)
+              .signal("managerDirective", { directive, reason })
+              // bitmiş/hiç başlamamış workflow: ajan satırı zaten paused,
+              // yeni başlatmalar onu görür (26 §5 "new workflow starts refused")
+              .catch((err: unknown) =>
+                app.log.debug({ err, agentId: session.agentId }, "managerDirective undeliverable"),
+              );
+          }
+        },
+        // budget.restored: kesicinin duraklattıkları restoreBudget içinde zaten
+        // `active`e döndü; sinyal onların park edilmiş döngülerini uyandırır.
+        // Zaten koşan bir döngüye resume göndermek etkisiz — güvenli.
+        resumedAgentIds: async (companyId) => {
+          const rows = await guardedDb
+            .select({ id: agentSessions.agentId })
+            .from(agentSessions)
+            .where(
+              sqlAnd(
+                sqlEq(agentSessions.companyId, companyId),
+                rawSql`${agentSessions.status} IN ('starting','running','waiting')`,
+              ),
+            );
+          return [...new Set(rows.map((r) => r.id))];
+        },
+        onError: (err) => app.log.error({ err }, "breaker consumer error"),
+      });
+      app.log.info("cost circuit-breaker consumer started");
     }
   }
 
@@ -218,6 +278,7 @@ async function main(): Promise<void> {
     clearInterval(retrievalBatch);
     clearInterval(rollupRefresh);
     await memoryTrigger?.stop().catch(() => {});
+    await breakerConsumer?.stop().catch(() => {});
     await relay?.stop();
     await dlq?.stop();
     await nats?.close().catch(() => {});
