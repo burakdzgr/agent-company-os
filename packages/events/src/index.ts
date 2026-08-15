@@ -24,6 +24,12 @@ export {
   companySubjectWildcard,
   parseSubject,
 } from "./subjects.js";
+export {
+  MEMORY_SIGNIFICANT_PREFIXES,
+  MEMORY_SIGNIFICANT_TYPES,
+  MEMORY_SIGNIFICANT_SUBJECT_FILTERS,
+  isMemorySignificant,
+} from "./significance.js";
 
 // Catalog registration (side-effectful imports) + canonical exports.
 export { CompanyCreatedV1 } from "./catalog/org.js";

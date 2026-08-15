@@ -62,6 +62,22 @@ export function createMemoryActivities(deps: MemoryActivityDeps) {
     },
 
     /**
+     * 12 §5.0 rows 2–4 (M1): the agent-anchored trigger window — N significant
+     * events, escalation resolved, experiment concluded. Same TriggerWindow
+     * shape with `task: null` and the acting agent as the anchor.
+     */
+    async loadAgentWindowActivity(input: {
+      companyId: string;
+      agentId: string;
+      eventIds?: string[];
+    }): Promise<TriggerWindow> {
+      return service.loadAgentWindow(companyContext(input.companyId), {
+        agentId: input.agentId,
+        ...(input.eventIds ? { eventIds: input.eventIds } : {}),
+      });
+    },
+
+    /**
      * 12 §5.1: extract 0–8 MemoryCandidates from the window digest.
      * Scripted: fixture-keyed canned extractions with evidence refs taken
      * from the real window events (fabricated refs when the window is empty —
@@ -72,10 +88,26 @@ export function createMemoryActivities(deps: MemoryActivityDeps) {
       window: TriggerWindow;
     }): Promise<MemoryCandidate[]> {
       const { window } = input;
-      if (!window.task) return [];
+      // 12 §5.0: the window is anchored either on a task (row 1) or on the
+      // acting agent (rows 2–4, M1). Neither ⇒ nothing to extract from.
+      const anchor = window.task
+        ? {
+            headline: `Task "${window.task.title}" reached ${window.task.status}.`,
+            agentId: window.task.ownerAgentId,
+            fixtureKey: window.task.fixtureKey,
+          }
+        : window.agent
+          ? {
+              headline:
+                `Agent "${window.agent.name}" produced ${window.events.length} significant events.`,
+              agentId: window.agent.id,
+              fixtureKey: null,
+            }
+          : null;
+      if (!anchor) return [];
 
       if (deps.scripted || !deps.router || !deps.routingFor) {
-        const canned = cannedConsolidation(window.task.fixtureKey ?? "none");
+        const canned = cannedConsolidation(anchor.fixtureKey ?? "none");
         const eventRefs = window.events.slice(0, 2).map((e) => ({
           kind: "event" as const,
           ref: e.id,
@@ -99,12 +131,12 @@ export function createMemoryActivities(deps: MemoryActivityDeps) {
       }
 
       const ctx = companyContext(input.companyId);
-      const routing = await deps.routingFor(ctx, window.task.ownerAgentId ?? "");
+      const routing = await deps.routingFor(ctx, anchor.agentId ?? "");
       const digest = window.events
         .map((e) => `- [${e.occurredAt}] ${e.type}: ${e.payloadSummary}`)
         .join("\n");
       const prompt =
-        `Task "${window.task.title}" reached ${window.task.status}. ` +
+        `${anchor.headline} ` +
         `Extract 0-8 memory candidates as a JSON array matching the MemoryCandidate contract ` +
         `(type, title, content, summary, entities, suggested_scope agent|project, ` +
         `scope_rationale, importance 0-1, importance_rationale, confidence 0-1, ` +

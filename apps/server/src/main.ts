@@ -170,13 +170,16 @@ async function main(): Promise<void> {
     await dlq.start();
     app.log.info("outbox relay + DLQ handler started");
 
-    // terminal tasks → memoryConsolidationWorkflow (T44; 12 §5.0) — rides the
-    // T21 memory-trigger durable; the deterministic workflow id dedupes
+    // 12 §5.0 triggers → memoryConsolidationWorkflow (T44/M1) — rides the T21
+    // memory-trigger durable; the deterministic workflow id
+    // `memory-consolidation-<companyId>-<triggerRef>` dedupes (12 §5)
     if (temporalClientRef) {
       const temporalClient = temporalClientRef;
       const { startMemoryTrigger } = await import("./modules/memory/trigger.js");
       const { ExecutiveReportService, companyContext: reportCtx } = await import("@acos/db");
+      const { CompanyService } = await import("./modules/companies/service.js");
       const reportService = new ExecutiveReportService(guardedDb);
+      const companyService = new CompanyService(guardedDb);
       memoryTrigger = await startMemoryTrigger({
         nats,
         // demo 23–24 (T49): terminal task → project-completion check → the
@@ -186,12 +189,17 @@ async function main(): Promise<void> {
             .onTaskTerminal(reportCtx(companyId), taskId)
             .catch((err) => app.log.error({ err, taskId }, "executive report hook failed"));
         },
-        start: async ({ companyId, taskId, trigger }) => {
+        // 12 §5.0 row 2: N comes from the existing company setting, not a new one
+        thresholdFor: async (companyId) => {
+          const settings = await companyService.getSettings(reportCtx(companyId));
+          return settings?.consolidationEventThreshold ?? 25;
+        },
+        start: async ({ companyId, taskId, agentId, sourceEventIds, trigger, triggerRef }) => {
           await temporalClient.workflow
             .start("memoryConsolidationWorkflow", {
               taskQueue: "memory",
-              workflowId: `memory-consolidation-${companyId}-task-${taskId}`,
-              args: [{ companyId, taskId, trigger }],
+              workflowId: `memory-consolidation-${companyId}-${triggerRef}`,
+              args: [{ companyId, taskId, agentId, sourceEventIds, trigger }],
             })
             .catch((err: unknown) => {
               if ((err as { name?: string }).name !== "WorkflowExecutionAlreadyStartedError") {

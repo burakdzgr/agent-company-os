@@ -18,11 +18,28 @@ const activities = proxyActivities<MemoryActivities>({
   retry: { maximumAttempts: 3 },
 });
 
+/** 12 §5.0 trigger table. */
+export type MemoryConsolidationTrigger =
+  | "task_completed"
+  | "task_failed"
+  | "significant_events"
+  | "escalation_resolved"
+  | "experiment_completed";
+
 export interface MemoryConsolidationInput {
   companyId: string;
-  taskId: string;
+  /**
+   * Task-completion window (12 §5.0 row 1). Additive M1 change: OPTIONAL now —
+   * rows 2–4 of the trigger table (N significant events / escalation resolved /
+   * experiment concluded) have no owning task and anchor on `agentId` instead.
+   */
+  taskId?: string;
+  /** Agent-anchored window (12 §5.0 rows 2–4). */
+  agentId?: string;
+  /** The exact events forming the window ("the N events since last run", §5.0). */
+  sourceEventIds?: string[];
   /** completed | failed — FAILED is a costly signal (12 §5.2) */
-  trigger: "task_completed" | "task_failed";
+  trigger: MemoryConsolidationTrigger;
 }
 
 /** Run report (12 §5.10). */
@@ -46,13 +63,33 @@ export async function memoryConsolidationWorkflow(
     discarded: 0,
     hallucinatedEvidence: 0,
   };
-  const batchId = `task-${input.taskId}`;
+  const batchId = input.taskId ? `task-${input.taskId}` : `agent-${input.agentId ?? "unknown"}`;
 
-  const window = await activities.loadTriggerWindowActivity({
-    companyId: input.companyId,
-    taskId: input.taskId,
-  });
-  if (!window.task) return report;
+  // 12 §5.0: row 1 loads the task window; rows 2–4 have no task and load the
+  // acting agent's window instead (same TriggerWindow shape, `task: null`).
+  const window = input.taskId
+    ? await activities.loadTriggerWindowActivity({
+        companyId: input.companyId,
+        taskId: input.taskId,
+      })
+    : input.agentId
+      ? await activities.loadAgentWindowActivity({
+          companyId: input.companyId,
+          agentId: input.agentId,
+          ...(input.sourceEventIds ? { eventIds: input.sourceEventIds } : {}),
+        })
+      : { task: null, events: [], agent: null };
+
+  // the window's anchor: the task, or the agent for the task-less triggers
+  const anchor = window.task
+    ? {
+        projectId: window.task.projectId,
+        ownerAgentId: window.task.ownerAgentId,
+      }
+    : window.agent
+      ? { projectId: window.agent.projectId, ownerAgentId: window.agent.id }
+      : null;
+  if (!anchor) return report;
 
   const candidates = await activities.extractCandidatesActivity({
     companyId: input.companyId,
@@ -68,7 +105,8 @@ export async function memoryConsolidationWorkflow(
     );
     const importance = adjustImportance({
       selfScore: candidate.importance,
-      costlyTrigger: input.trigger === "task_failed",
+      // 12 §5.2: "+0.1 if trigger was an escalation or a FAILED terminal task"
+      costlyTrigger: input.trigger === "task_failed" || input.trigger === "escalation_resolved",
       evidenceRefCount: candidate.evidence_refs.length,
       type: candidate.type,
       hasEntities,
@@ -85,9 +123,9 @@ export async function memoryConsolidationWorkflow(
       type: candidate.type,
       suggestedScope: candidate.suggested_scope,
       referencesProjectArtifacts: files.length > 0 || components.length > 0,
-      hasProject: window.task.projectId !== null,
+      hasProject: anchor.projectId !== null,
     });
-    const scopeRef = scope === "project" ? window.task.projectId! : window.task.ownerAgentId;
+    const scopeRef = scope === "project" ? anchor.projectId! : anchor.ownerAgentId;
     if (!scopeRef) {
       report.discarded += 1; // orphan task without owner — nothing to anchor to
       continue;
@@ -111,7 +149,7 @@ export async function memoryConsolidationWorkflow(
     const text = `${candidate.title}\n${candidate.summary}\n${candidate.content}`;
     const embedded = await activities.embedCandidateActivity({
       companyId: input.companyId,
-      agentId: window.task.ownerAgentId,
+      agentId: anchor.ownerAgentId,
       text,
     });
     if (!embedded.ok) {
@@ -149,7 +187,7 @@ export async function memoryConsolidationWorkflow(
           confidence,
         },
         sourceEventId: window.events[0]?.id ?? null,
-        createdByAgentId: window.task.ownerAgentId,
+        createdByAgentId: anchor.ownerAgentId,
         embedding: null,
         embeddingModel: embedded.model,
         embedFailedError: embedded.error,
@@ -223,7 +261,7 @@ export async function memoryConsolidationWorkflow(
         confidence,
       },
       sourceEventId: window.events[0]?.id ?? null,
-      createdByAgentId: window.task.ownerAgentId,
+      createdByAgentId: anchor.ownerAgentId,
       embedding: embedded.embedding,
       embeddingModel: embedded.model,
       evidence: evidence.resolved,
@@ -236,7 +274,7 @@ export async function memoryConsolidationWorkflow(
   await activities.completeConsolidationActivity({
     companyId: input.companyId,
     batchId,
-    taskId: input.taskId,
+    ...(input.taskId ? { taskId: input.taskId } : {}),
     extracted: report.extracted,
     persisted: report.persisted,
     merged: report.merged,

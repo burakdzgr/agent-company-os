@@ -3,12 +3,17 @@
 // activities, the promotion sweep (T45) and the Observatory REST surface all
 // persist/merge/query through the SAME rules — the company-scope assert, the
 // contradiction confidence cap and the versioning discipline cannot diverge.
-import { and, asc, eq, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
-import { parseEventPayload } from "@acos/events";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
+import {
+  MEMORY_SIGNIFICANT_PREFIXES,
+  MEMORY_SIGNIFICANT_TYPES,
+  parseEventPayload,
+} from "@acos/events";
 import { appendEvents, type NewEventInput, type Tx } from "./outbox.js";
 import type { CompanyContext } from "./context.js";
 import type { GuardedDb } from "./tenant.js";
 import {
+  agents,
   artifacts,
   auditLog,
   events,
@@ -44,11 +49,13 @@ const IMPORTANCE_ACTIVE_THRESHOLD = 0.45;
 /**
  * "Significant events" (12 §5.0): the trigger window is the catalog subset of
  * task transitions, review verdicts, build/test results and escalations. MVP
- * narrowing [recorded]: matched by type prefix here instead of a
- * `memory_significant` catalog flag.
+ * narrowing [recorded]: matched by type prefix instead of a
+ * `memory_significant` catalog flag. The list now lives in `@acos/events`
+ * (12 §5.0 names `packages/events` as its home) so the window here and the
+ * `memory-trigger` N-significant-events counter cannot drift apart.
  */
-const SIGNIFICANT_PREFIXES = ["task.", "review.", "tool.invocation.", "workspace."];
-const SIGNIFICANT_TYPES = ["agent.escalated", "agent.message.sent"];
+const SIGNIFICANT_PREFIXES: string[] = [...MEMORY_SIGNIFICANT_PREFIXES];
+const SIGNIFICANT_TYPES: string[] = [...MEMORY_SIGNIFICANT_TYPES];
 
 export interface WindowEvent {
   id: string;
@@ -67,6 +74,17 @@ export interface TriggerWindow {
     fixtureKey: string | null;
   } | null;
   events: WindowEvent[];
+  /**
+   * 12 §5.0 rows 2–4 (N significant events / escalation resolved / experiment
+   * concluded): those triggers have no owning task, so the window is anchored
+   * on the acting agent instead. Absent/null for the task-completion window.
+   */
+  agent?: {
+    id: string;
+    name: string;
+    /** the project the windowed events belong to, when they agree on one */
+    projectId: string | null;
+  } | null;
 }
 
 export interface SimilarMemory {
@@ -168,6 +186,76 @@ export class MemoryConsolidationService {
         fixtureKey: typeof context.taskFixture === "string" ? context.taskFixture : null,
       },
       events: rows
+        .filter((row): row is typeof row & { id: string } => row.id !== null)
+        .map((row) => ({
+          id: row.id,
+          type: row.type,
+          occurredAt: row.occurredAt.toISOString(),
+          payloadSummary: JSON.stringify(row.payload).slice(0, 300),
+        })),
+    };
+  }
+
+  /**
+   * Agent-scoped trigger window (12 §5.0 rows 2–4). "N significant events"
+   * declares its window as "the N events since last run for that agent" — the
+   * memory-trigger consumer counts them and hands the exact ids over in
+   * `eventIds`; escalation/experiment triggers pass the single resolving event.
+   * With no ids the last `limit` significant events of the agent are used.
+   */
+  async loadAgentWindow(
+    ctx: CompanyContext,
+    input: { agentId: string; eventIds?: string[]; limit?: number },
+  ): Promise<TriggerWindow> {
+    if (!UUID_RE.test(input.agentId)) return { task: null, events: [], agent: null };
+    const [agent] = await this.db
+      .select({ id: agents.id, name: agents.name })
+      .from(agents)
+      .where(and(eq(agents.companyId, ctx.companyId), eq(agents.id, input.agentId)));
+    if (!agent) return { task: null, events: [], agent: null };
+
+    const limit = Math.min(input.limit ?? 200, 200);
+    const ids = (input.eventIds ?? []).filter((id) => UUID_RE.test(id)).slice(0, limit);
+    const significant = or(
+      ...SIGNIFICANT_PREFIXES.map((p) => like(events.type, `${p}%`)),
+      inArray(events.type, SIGNIFICANT_TYPES),
+    );
+    const rows = await this.db
+      .select({
+        id: events.id,
+        seq: events.seq,
+        type: events.type,
+        occurredAt: events.occurredAt,
+        payload: events.payload,
+        projectId: events.projectId,
+      })
+      .from(events)
+      .where(
+        // explicit ids: the trigger already established which events belong to
+        // this window, so they are NOT re-filtered by events.agent_id (the
+        // resolving escalation/experiment event may carry no subject agent)
+        ids.length > 0
+          ? and(eq(events.companyId, ctx.companyId), inArray(events.id, ids))
+          : and(
+              eq(events.companyId, ctx.companyId),
+              eq(events.agentId, input.agentId),
+              significant,
+            ),
+      )
+      // newest-first + limit, then re-ordered chronologically below: without
+      // explicit ids the window is the TAIL of the agent's event stream
+      .orderBy(desc(events.seq))
+      .limit(limit);
+
+    const chronological = [...rows].reverse();
+    return {
+      task: null,
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        projectId: chronological.find((row) => row.projectId !== null)?.projectId ?? null,
+      },
+      events: chronological
         .filter((row): row is typeof row & { id: string } => row.id !== null)
         .map((row) => ({
           id: row.id,

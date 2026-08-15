@@ -8,6 +8,7 @@ import {
   type JetStreamManager,
   type NatsConnection,
 } from "nats";
+import { MEMORY_SIGNIFICANT_SUBJECT_FILTERS } from "@acos/events";
 
 export const STREAM_NAME = "ACOS_EVENTS";
 const HOUR_NS = 3_600_000_000_000;
@@ -16,12 +17,17 @@ const SECOND_NS = 1_000_000_000;
 export const DURABLE_CONSUMERS: Array<{ name: string; filters: string[] }> = [
   { name: "office-projector", filters: ["co.*.agent.>", "co.*.task.>", "co.*.approval.>"] },
   {
+    // 10 §5 memory-trigger row: the terminal-task subjects PLUS "significance
+    // counters on the rest" — the 12 §5.0 N-significant-events trigger can only
+    // count what the consumer actually receives, so the significant subset
+    // (@acos/events) is subscribed wholesale. `co.*.task.>` subsumes
+    // task.completed/failed and `co.*.review.>` subsumes review.completed;
+    // JetStream rejects OVERLAPPING filter_subjects, so they are not repeated.
     name: "memory-trigger",
     filters: [
-      "co.*.task.completed",
-      "co.*.task.failed",
-      "co.*.agent.escalated",
-      "co.*.review.completed",
+      ...MEMORY_SIGNIFICANT_SUBJECT_FILTERS,
+      "co.*.escalation.resolved", // 12 §5.0 row 3
+      "co.*.experiment.completed", // 12 §5.0 row 4
     ],
   },
   { name: "cost-aggregator", filters: ["co.*.task.>", "co.*.budget.>"] },
@@ -69,10 +75,30 @@ export async function ensureDurableConsumers(
       deliver_policy: DeliverPolicy.All,
       filter_subjects: consumer.filters,
     };
+    let existing;
     try {
-      await jsm.consumers.info(STREAM_NAME, consumer.name);
+      existing = await jsm.consumers.info(STREAM_NAME, consumer.name);
     } catch {
       await jsm.consumers.add(STREAM_NAME, config);
+      continue;
+    }
+    // An already-provisioned durable keeps its ORIGINAL filters, so a widened
+    // filter list (M1: the 12 §5.0 significance counters) would never reach the
+    // consumer on an existing deployment. Reconcile in place — durable state
+    // (ack floor, pending) survives an update, unlike a delete+add.
+    const current = existing.config.filter_subjects ??
+      (existing.config.filter_subject ? [existing.config.filter_subject] : []);
+    const drifted =
+      current.length !== consumer.filters.length ||
+      consumer.filters.some((subject) => !current.includes(subject));
+    if (drifted) {
+      await jsm.consumers.update(STREAM_NAME, consumer.name, {
+        // `filter_subject` and `filter_subjects` are mutually exclusive server
+        // side, and update() merges into the CURRENT config — clear the
+        // singular form so a legacy single-filter durable can be widened
+        filter_subject: "",
+        filter_subjects: consumer.filters,
+      });
     }
   }
 }
