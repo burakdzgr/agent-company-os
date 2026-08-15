@@ -8,11 +8,14 @@
 // Tool coverage in T40: fs.read / fs.write (T38 soft lock upserted, warn-
 // not-block) / fs.search / terminal.run / git.diff / git.commit (Task:
 // trailer injected per 15 §3.4). git.branch/git.merge land with the review
-// flow (T43); db.inspect/web.*/task.query/memory.search with T42/T45 — all
-// return typed failures that the gateway audits as status=failed.
+// flow (T43). task.query/memory.search are platform-data tools wired in B1'
+// (no workspace at all); db.inspect/web.* stay unimplemented and return typed
+// failures that the gateway audits as status=failed.
 import {
   companyContext,
+  MemoryRetrievalService,
   ReviewsService,
+  TasksService,
   TaskStateService,
   WorkspaceService,
   type CompanyContext,
@@ -140,6 +143,8 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
   const workspaces = new WorkspaceService(db);
   const reviewsService = new ReviewsService(db);
   const taskState = new TaskStateService(db);
+  const tasksService = new TasksService(db);
+  const memoryRetrieval = new MemoryRetrievalService(db);
   const defaultImage = options.defaultImage ?? "acos/workspace-node";
 
   // T38 seam: DB records + events stay in WorkspaceService; the container/git
@@ -298,6 +303,60 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
             provenance: "workspace",
           },
           resultSummary: `squash-merged ${branch} → main @ ${result.mergeCommit.slice(0, 8)}`,
+        };
+      }
+
+      // B1' — platform-data tools (17 §4): no workspace, no container. They
+      // read the company's OWN tables through the same guarded services the
+      // API uses, so tenant isolation and scope rules cannot diverge.
+      if (tool.name === "task.query") {
+        const statuses = (args.status as string[] | undefined) ?? [];
+        const rows = await tasksService.list(ctx, {
+          ...(statuses.length > 0 && { status: statuses }),
+          ...(typeof args.ownerAgentId === "string" && { ownerAgentId: args.ownerAgentId }),
+          ...(typeof args.projectId === "string" && { projectId: args.projectId }),
+          ...(typeof args.search === "string" && { q: args.search }),
+        });
+        const limit = (args.limit as number) ?? 25;
+        return {
+          output: {
+            tasks: rows.slice(0, limit).map((t) => ({
+              id: t.id,
+              number: t.number,
+              title: t.title,
+              status: t.status,
+              ownerAgentId: t.ownerAgentId,
+            })),
+            total: rows.length,
+            provenance: "platform",
+          },
+          resultSummary: `${Math.min(rows.length, limit)} of ${rows.length} task(s)`,
+        };
+      }
+
+      if (tool.name === "memory.search") {
+        let projectId: string | null = null;
+        if (taskId) {
+          const [task] = await db
+            .select({ projectId: tasks.projectId })
+            .from(tasks)
+            .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)));
+          projectId = task?.projectId ?? null;
+        }
+        const found = await memoryRetrieval.searchScoped(ctx, {
+          agentId,
+          projectId,
+          taskId: taskId ?? null,
+          query: String(args.query),
+          scopes: (args.scopes as Array<"agent" | "project" | "company">) ?? [],
+          limit: (args.limit as number) ?? 10,
+        });
+        return {
+          output: { memories: found, provenance: "platform" },
+          resultSummary:
+            found.length === 0
+              ? "no active memory matched (semantic lane skipped — lexical only)"
+              : `${found.length} memory/memories, top score ${found[0]!.score.toFixed(2)}`,
         };
       }
 

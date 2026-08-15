@@ -591,10 +591,10 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         `- {"type":"think","thought":"<reasoning, <=4000 chars>","plan":["step",...]?}`,
         // araç adları packages/tools MVP kaydıyla eşleşir (registry testi kilitler)
         // B4 (2026-08-15 code review): only tools with a real dispatch are
-        // advertised. db.inspect / web.* / task.query / memory.search are
-        // registered but unimplemented — advertising them burned a step and
-        // an LLM call per attempt. They return here once wired.
-        `- {"type":"use_tool","tool":"<one of: fs.read | fs.search | fs.edit | fs.write | terminal.run | git.diff | git.commit | git.branch | git.merge>","input":{...},"reason":"<=500 chars"} — terminal.run executes shell commands in YOUR task workspace (a clone of the project repo) and streams to the Founder-visible terminal`,
+        // advertised. db.inspect / web.* remain registered-but-unimplemented —
+        // advertising them burned a step and an LLM call per attempt. B1'
+        // wired task.query + memory.search, so those two are back.
+        `- {"type":"use_tool","tool":"<one of: fs.read | fs.search | fs.edit | fs.write | terminal.run | git.diff | git.commit | git.branch | git.merge | task.query | memory.search>","input":{...},"reason":"<=500 chars"} — terminal.run executes shell commands in YOUR task workspace (a clone of the project repo) and streams to the Founder-visible terminal; task.query reads this company's task board; memory.search looks up what the company already learned`,
         `  EDITING RULE (hard): to change an EXISTING file use fs.edit {path, oldText, newText, replaceAll?} — an exact-snippet replacement. fs.write OVERWRITES THE WHOLE FILE and is ONLY for brand-new files; using it on an existing file destroys everything you did not re-type. Copy oldText verbatim from a prior fs.read (whitespace included); add surrounding lines if the snippet is not unique.`,
         `- {"type":"send_message","channelId":"<uuid>","kind":"text|help_request|review_request|escalation|status","body":"...","mentions":[],"refs":[]}`,
         `- {"type":"create_task","kind":"initiative|epic|task|subtask","parentTaskId":"<uuid>","title":"<=200","objective":"...","successCriteria":["..."],"priority":"P0|P1|P2|P3","estimatedEffort":1-13,"risk":"low|medium|high|critical"}`,

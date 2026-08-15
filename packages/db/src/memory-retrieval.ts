@@ -3,7 +3,7 @@
 // buildWorkingSetActivity, the nightly perf lane and the Observatory health
 // widget (T48) all read through the SAME lanes, scoring and packing — the
 // budgets and the "only active rows are retrievable" rule cannot diverge.
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
 import {
   MEMORY_TOKEN_BUDGETS,
   packMemories,
@@ -319,6 +319,98 @@ export class MemoryRetrievalService {
       flags,
       durationMs,
     };
+  }
+
+  /**
+   * B1' — the on-demand lane behind the `memory.search` tool (17 §4). The
+   * working set is pushed at step start; this is the agent PULLING with a
+   * question of its own, so the shape is per-row rather than packed prose.
+   *
+   * Same rules as §7: only `active` rows are retrievable, the same binding
+   * score formula ranks them, and INV-15 scope isolation is enforced HERE
+   * rather than trusted from the caller — `agent` means this agent's own
+   * rows, `project` means the task's project, `company` is shared.
+   *
+   * There is no embedding at the dispatch edge, so the semantic lane is
+   * skipped and matching is lexical; §7.5c already defines that degraded
+   * mode, and the cosine term simply contributes 0 to the score.
+   */
+  async searchScoped(
+    ctx: CompanyContext,
+    input: {
+      agentId: string;
+      projectId: string | null;
+      taskId: string | null;
+      query: string;
+      scopes: Array<"agent" | "project" | "company">;
+      limit: number;
+    },
+  ): Promise<Array<{ id: string; title: string; summary: string; scope: string; score: number }>> {
+    const started = Date.now();
+    const now = new Date();
+    const wanted = input.scopes.length > 0 ? input.scopes : ["agent", "project", "company"];
+    const visible = [
+      ...(wanted.includes("agent")
+        ? [and(eq(memories.scope, "agent"), eq(memories.scopeRef, input.agentId))]
+        : []),
+      ...(wanted.includes("project") && input.projectId
+        ? [and(eq(memories.scope, "project"), eq(memories.scopeRef, input.projectId))]
+        : []),
+      ...(wanted.includes("company") ? [eq(memories.scope, "company")] : []),
+    ];
+    if (visible.length === 0) return [];
+
+    const term = `%${input.query.replace(/[%_\\]/g, (c) => `\\${c}`)}%`;
+    const rows = await this.db
+      .select(this.baseColumns())
+      .from(memories)
+      .where(
+        and(
+          eq(memories.companyId, ctx.companyId),
+          eq(memories.status, "active"),
+          or(...visible),
+          sql`(${memories.title} ILIKE ${term} OR ${memories.summary} ILIKE ${term} OR ${memories.content} ILIKE ${term})`,
+        ),
+      )
+      .orderBy(desc(memories.importance))
+      .limit(Math.min(input.limit * 4, 200));
+
+    const ranked = rows
+      .map((row) => {
+        const packable = toPackable(row, false, now);
+        return {
+          id: row.id,
+          title: row.title,
+          summary: row.summary,
+          scope: row.scope,
+          score: packable.score,
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, input.limit);
+
+    // §7.4 observability: the pull lane is counted like the push lane, so a
+    // memory the agent keeps asking for shows up in retrieval_count too.
+    try {
+      await this.db.insert(memoryRetrievals).values({
+        companyId: ctx.companyId,
+        agentId: input.agentId,
+        taskId: input.taskId,
+        lane: "tool_search",
+        queryRef: input.query.slice(0, 200),
+        returnedIds: ranked.map((r) => r.id),
+        scores: ranked.map((r) => r.score),
+        budgetTokensUsed: 0,
+        empty: ranked.length === 0,
+        truncated: false,
+        semanticSkipped: true,
+        slow: Date.now() - started > SLOW_MS,
+        durationMs: Date.now() - started,
+      });
+    } catch {
+      /* observability only */
+    }
+    return ranked;
   }
 }
 
