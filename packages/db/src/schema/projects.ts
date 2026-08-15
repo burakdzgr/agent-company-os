@@ -33,6 +33,14 @@ export const projects = pgTable(
       .references(() => users.id, { onDelete: "restrict" }),
     // FK to artifacts appended at the end of migration 0004 (created later there).
     intakeReportArtifactId: uuid("intake_report_artifact_id"),
+    /**
+     * D4 (27 §12): "per-workspace additions come from project settings via a
+     * generated include". The doc names project settings as the source of the
+     * egress allowlist; there was no such column, so agents could only ever
+     * reach the built-in package registries. Shape today:
+     * `{ egressDomains: string[] }` — additive, defaults to `{}`.
+     */
+    settings: jsonb("settings").notNull().default(sql`'{}'::jsonb`),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
   (t) => [

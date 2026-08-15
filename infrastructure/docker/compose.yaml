@@ -123,6 +123,11 @@ services:
       LLM_MODE: ${LLM_MODE:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # D4 (27 §12): per-project egress allowlist include, rendered here and
+      # read by egress-proxy (read-only on its side).
+      EGRESS_INCLUDE_PATH: /var/acos/egress/projects.conf
+    volumes:
+      - "${DATA_DIR:-./data}/egress:/var/acos/egress"
     ports:
       # Container always listens on 3000; host side is overridable because dev
       # machines may already occupy 3000 (SERVER_PORT is only interpolated here,
@@ -279,6 +284,11 @@ services:
       # so the two cannot drift apart (they did, and squid then denied every
       # workspace request without anything looking wrong).
       WORKSPACE_SUBNET: ${WORKSPACE_SUBNET:-172.30.0.0/16}
+    volumes:
+      # D4 (27 §12): the server renders projects.settings.egressDomains here;
+      # the proxy reads it read-only and reloads on change. The proxy must
+      # never be able to rewrite its own allowlist.
+      - "${DATA_DIR:-./data}/egress:/etc/squid/acos:ro"
     networks:
       - default
       - acos-workspaces

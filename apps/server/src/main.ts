@@ -168,6 +168,29 @@ async function main(): Promise<void> {
     })().catch((err) => app.log.error({ err }, "approval sweep failed"));
   }, 30_000);
 
+  // D4 — per-project egress allowlist (27 §12). The include is rendered from
+  // projects.settings.egressDomains onto the volume the proxy reads; squid's
+  // own watcher reloads only when the file actually changes. Polling keeps
+  // this correct no matter WHERE the settings changed (API, agent, seed).
+  const egressIncludePath = process.env.EGRESS_INCLUDE_PATH;
+  const egressSweep = egressIncludePath
+    ? setInterval(() => {
+        void (async () => {
+          const { writeEgressInclude } = await import("./modules/projects/egress.js");
+          if (await writeEgressInclude(sweepDb, egressIncludePath)) {
+            app.log.info({ path: egressIncludePath }, "egress allowlist include rewritten");
+          }
+        })().catch((err) => app.log.error({ err }, "egress include render failed"));
+      }, 30_000)
+    : null;
+  if (egressIncludePath) {
+    // boot: the proxy must not run a stale allowlist while we wait for a tick
+    const { writeEgressInclude } = await import("./modules/projects/egress.js");
+    await writeEgressInclude(sweepDb, egressIncludePath).catch((err: unknown) =>
+      app.log.error({ err }, "initial egress include render failed"),
+    );
+  }
+
   // A6 — stuck-task sweep (09 §9 Schedules: `stuck-task-sweep`, every 30m;
   // 07 §7–8). Work only ever advanced from three places: an HTTP route, a
   // `delegate_task`, and intake. A task parked in WAITING (guard, dependency,
@@ -372,6 +395,7 @@ async function main(): Promise<void> {
   const close = async () => {
     clearInterval(approvalSweep);
     clearInterval(stuckSweep);
+    if (egressSweep) clearInterval(egressSweep);
     clearInterval(retrievalBatch);
     clearInterval(rollupRefresh);
     await memoryTrigger?.stop().catch(() => {});
