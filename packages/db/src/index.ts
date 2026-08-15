@@ -99,6 +99,8 @@ export {
   type ApprovalVerdictResult,
   type SweepResult,
 } from "./approvals.js";
+// D1 (14 §5): teslimat kaydı + project.deployment.* olayları
+export { DeploymentsService, DeploymentError } from "./deployments.js";
 // A6 (09 §9): stuck-task-sweep — ASSIGNED-too-long / WAITING-past-SLA
 export {
   sweepStuckTasks,
