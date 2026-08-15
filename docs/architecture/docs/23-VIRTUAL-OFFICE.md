@@ -48,15 +48,23 @@ The floor plan is **company-configurable zones bound to org structure**, stored 
 ```
 
 - **Default auto-layout** (computed server-side when a company has no saved layout, and re-run
-  on org changes until the Founder edits): departments (`org_units.kind=department`) become
-  rooms tiled left-to-right sized by headcount; teams become desk clusters inside their
-  department room (one desk per member, +25% spare); executives (agents whose position is on the
-  `lead|expert` track reporting into the CEO chain) get an executive area; two meeting spots per
-  department plus one central meeting area. Auto-layout is deterministic (seeded by org_unit
-  UUIDs) so it is stable across reloads.
-- **Home desk assignment**: an agent's home desk = first free desk in the zone of its primary
-  `org_unit_id` (`member_of` edge), persisted in the layout JSONB (`desks[].agentId`) so desks
-  don't shuffle; freed on offboarding.
+  on org changes until the Founder edits). **The room unit is the TEAM** (revised — the first
+  cut made the room unit the department, and on screen that produced one enormous "Engineering"
+  hall in which Backend / Frontend / DevOps / QA were indistinguishable; teams were desk
+  clusters with no visual boundary, so the org structure the office is meant to be a twin of
+  was invisible). Each team (`org_units.kind=team`) with members becomes its own room, sized by
+  headcount (one desk per member, +25% spare, min 2); members attached directly to a department
+  get that department's **"&lt;Department&gt; Genel"** room; the department itself is not drawn as a
+  room — it is the **band** that keeps its team rooms adjacent and gives them a shared accent
+  colour. Rooms flow left-to-right and wrap to a new band when the row would exceed the grid
+  width; executives get an executive room; one central meeting area. Room height follows
+  headcount rather than a fixed value (a fixed 22-cell height gave a two-person team a mostly
+  empty hall). The grid grows with the plan instead of a fixed 80×50. Auto-layout is
+  deterministic (seeded by org_unit UUIDs) so it is stable across reloads.
+- **Home desk assignment**: an agent's home desk = first free desk in the room of its **own**
+  unit, then any room of the same department, then anywhere. The three tiers matter now that the
+  room is the team: ranking by department alone could seat an agent in a sibling team's room.
+  Persisted in the layout JSONB (`desks[].agentId`) so desks don't shuffle; freed on offboarding.
 - **Editor UI** (Settings → Office, `24-FRONTEND-ARCHITECTURE.md` §6.14): drag/resize zone
   rects on the same Pixi canvas in edit mode, snap to grid, validation (zones within bounds,
   desks inside their zone, min 1 desk per member), save → `PUT
@@ -138,6 +146,17 @@ Layer containers (bottom→top), all children sorted once, `sortableChildren` of
 1. **floor** — static tiling sprite (cached as texture).
 2. **zones** — `Graphics` rects + zone tint; rebuilt only on layout change.
 3. **desks** — desk sprites + equipment glyphs; static per layout.
+
+**Pixel tiles (revised).** Floors, walls, desks and props were `Graphics.rect` calls: flat
+rectangles with no edge light, no shadow, no texture — the office was drawn *with* code rather
+than *as* pixel art, and only the avatars (PixelLab, U15) actually looked the part. They are now
+hand-authored tiles in `apps/web/src/features/office/tiles.ts`, written as character maps
+(one letter per palette entry, one line per pixel row) so every pixel is a deliberate choice and
+stays reviewable in a diff. The bridge bakes each map **once** into a texture with
+`scaleMode: "nearest"` (smoothing would defeat the whole point) and repeats it via
+`TilingSprite` for floors/walls and `Sprite` for desks/props: one texture per art, one draw batch
+per layer, zero per-frame work. `tiles.ts` imports no Pixi — the office lint rule keeps rendering
+APIs in the bridge, so the tiles stay pure data plus a run-length emitter.
 4. **avatars** — one `AvatarActor` container per agent: body sprite (4-direction walk frames),
    status badge sprite, name `BitmapText` (toggleable), selection ring.
 5. **effects** — speech bubbles, interaction indicators, terminal glyphs, escalation pulses

@@ -13,14 +13,28 @@ import {
   Assets,
   Container,
   Graphics,
+  Sprite,
   Text,
   Texture,
+  TilingSprite,
   type Spritesheet,
 } from "pixi.js";
 import { useOfficeStore } from "../../stores/office.js";
 import { useFocus } from "../../stores/focus.js";
 import type { OfficeSceneEngine } from "./sceneState.js";
-import { WALL, computeFloorplan, shade, type Floorplan } from "./floorplan.js";
+import { WALL, computeFloorplan, type Floorplan } from "./floorplan.js";
+import {
+  COFFEE_ART,
+  DESK_ART,
+  PLANT_ART,
+  RACK_ART,
+  artSize,
+  corridorTileArt,
+  emitArt,
+  floorTileArt,
+  wallFaceArt,
+  type PixelArt,
+} from "./tiles.js";
 import {
   SPRITE_BASE,
   loadAvatars,
@@ -41,9 +55,15 @@ const BADGE_COLOR: Record<string, number> = {
 };
 
 const BG = 0x0b0e13;
-const CORRIDOR = 0x12161d;
-const WALL_FILL = 0x2a3340;
-const WALL_TOP = 0x3a4757;
+
+/**
+ * Sanat pikseli başına ekran pikseli.
+ *
+ * 2 seçildi: hücre 32px, masa çizimi 32 sanat pikseli geniş → masa tam 2
+ * hücre. 1 olsaydı pikseller görünmez, 4 olsaydı ofis ekrana sığmazdı.
+ * Piksel sanatının "chunky" okunması bu katsayıdan geliyor.
+ */
+const PIXEL = 2;
 
 const hexInt = (hex: string): number => parseInt(hex.slice(1), 16);
 /** 15% accent over the app dark — the room's floor base tint. */
@@ -87,22 +107,80 @@ function installDebugHook(engine: OfficeSceneEngine, getSnapshotCount: () => num
   };
 }
 
-function paintProps(g: Graphics, plan: Floorplan, cell: number): void {
+/**
+ * Bir piksel çizimini TEK SEFER dokuya pişirir.
+ *
+ * `scaleMode: "nearest"`: piksel sanatı büyütülürken yumuşatılırsa bulanır ve
+ * bütün mesele kaybolur. Doku başına bir kez pişirilir, sonra sprite olarak
+ * defalarca kullanılır — 40 masa tek dokudan 40 sprite demek.
+ */
+function bakeArt(app: Application, art: PixelArt, pixel: number): Texture {
+  const g = new Graphics();
+  emitArt(art, pixel, (x, y, w, h, color) => {
+    g.rect(x, y, w, h).fill(color);
+  });
+  const texture = app.renderer.generateTexture({ target: g, resolution: 1 });
+  texture.source.scaleMode = "nearest";
+  g.destroy();
+  return texture;
+}
+
+/**
+ * Masa çiziminin sol-üst köşesi.
+ *
+ * Hücre = sandalyenin bulunduğu yer (avatar oraya oturur); masa üstü ve
+ * monitör onun üstünde durur. Hem masa sprite'ı hem de canlı monitör
+ * tonlaması BU fonksiyondan konumlanır — iki yerde ayrı ofset tutmak,
+ * çizim değiştiğinde birinin kayması demekti.
+ */
+/** "Emre Şahin" → "Emre S." — plan üzerinde yan yana masalar için. */
+function shortName(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length < 2) return parts[0]?.slice(0, 12) ?? "";
+  return `${parts[0]!.slice(0, 10)} ${parts[parts.length - 1]![0]}.`;
+}
+
+function deskOrigin(cell: { x: number; y: number }, cellSize: number): { x: number; y: number } {
+  const size = artSize(DESK_ART, PIXEL);
+  // Katsayı 0.72 → 1.0: 0.72'de masa üstü hücrenin hemen üstüne düşüyordu ve
+  // avatar (hücrede, ~32px boyunda) ahşabın ÖNÜNE çıkıyordu — ekranda sıra
+  // "monitör, kişi, masa" oluyordu. Tepeden görünüşte doğru sıra "masa+monitör,
+  // sonra oturan kişi"; çizimi tam boy yukarı kaydırmak bunu veriyor.
+  return { x: cell.x * cellSize - size.w / 2, y: cell.y * cellSize - size.h };
+}
+
+interface TileSet {
+  desk: Texture;
+  plant: Texture;
+  rack: Texture;
+  coffee: Texture;
+  wall: Texture;
+  corridor: Texture;
+  /** oda vurgu rengi → zemin karosu (oda başına bir kez pişirilir) */
+  floors: Map<string, Texture>;
+}
+
+function paintProps(
+  g: Graphics,
+  layer: Container,
+  plan: Floorplan,
+  cell: number,
+  tiles: TileSet,
+): void {
+  const place = (texture: Texture, x: number, y: number) => {
+    const sprite = new Sprite(texture);
+    sprite.position.set(x, y);
+    layer.addChild(sprite);
+  };
   for (const prop of plan.props) {
     const x = prop.x * cell;
     const y = prop.y * cell;
     if (prop.kind === "rack") {
-      g.rect(x, y, 1.3 * cell, 2.8 * cell).fill(0x161b22);
-      for (let i = 0; i < 5; i++) {
-        g.rect(x + 0.2 * cell, y + (0.3 + i * 0.5) * cell, 0.7 * cell, 0.18 * cell).fill(0x243040);
-        g.rect(x + 1.0 * cell, y + (0.3 + i * 0.5) * cell, 0.14 * cell, 0.18 * cell).fill(
-          i % 2 ? 0x3fd0a0 : 0xffcb47,
-        );
-      }
+      place(tiles.rack, x, y);
     } else if (prop.kind === "plant") {
-      g.rect(x + 0.25 * cell, y + 0.9 * cell, 0.5 * cell, 0.5 * cell).fill(0x5a4632);
-      g.circle(x + 0.5 * cell, y + 0.55 * cell, 0.5 * cell).fill(0x2f7d4a);
-      g.circle(x + 0.3 * cell, y + 0.35 * cell, 0.3 * cell).fill(0x3c9a5c);
+      place(tiles.plant, x, y);
+    } else if (prop.kind === "coffee") {
+      place(tiles.coffee, x, y);
     } else if (prop.kind === "meeting_table") {
       const w = 5 * cell;
       const h = 2 * cell;
@@ -117,10 +195,6 @@ function paintProps(g: Graphics, plan: Floorplan, cell: number): void {
           0x2b3440,
         );
       }
-    } else if (prop.kind === "coffee") {
-      g.rect(x, y, 0.9 * cell, 1.1 * cell).fill(0x20262e);
-      g.rect(x + 0.2 * cell, y + 0.2 * cell, 0.5 * cell, 0.3 * cell).fill(0x3a2c22);
-      g.circle(x + 0.72 * cell, y + 0.9 * cell, 0.08 * cell).fill(0xff6b8a);
     } else {
       // reception
       g.rect(x, y, 5 * cell, 1.1 * cell).fill(0x3a3550);
@@ -129,51 +203,58 @@ function paintProps(g: Graphics, plan: Floorplan, cell: number): void {
   }
 }
 
-function paintFloorplan(layer: Container, plan: Floorplan, cell: number): void {
+function paintFloorplan(layer: Container, plan: Floorplan, cell: number, tiles: TileSet): void {
   layer.removeChildren();
   const g = new Graphics();
-  layer.addChild(g);
+
+  // Zeminler ve duvarlar DÖŞEME (TilingSprite): tek dokunun tekrarı, tek
+  // draw call, ve büyütünce piksel yapısı korunuyor. Eskiden düz dolgu +
+  // dama tahtasıydı; ölçeklenince "piksel sanatı" değil "renkli dikdörtgen"
+  // gibi duruyordu.
+  const tile = (texture: Texture, x: number, y: number, w: number, h: number) => {
+    const sprite = new TilingSprite({ texture, width: w, height: h });
+    sprite.position.set(x, y);
+    layer.addChild(sprite);
+    return sprite;
+  };
 
   // corridor/lobby ground fills the whole envelope; rooms paint over it
-  g.rect(plan.bounds.x * cell, plan.bounds.y * cell, plan.bounds.w * cell, plan.bounds.h * cell).fill(
-    CORRIDOR,
+  tile(
+    tiles.corridor,
+    plan.bounds.x * cell,
+    plan.bounds.y * cell,
+    plan.bounds.w * cell,
+    plan.bounds.h * cell,
   );
 
-  // room floors: per-department base tint + 1-cell checker
+  // room floors: departman vurgusundan pişirilmiş karo
   for (const room of plan.rooms) {
-    const base = roomBase(room.accent);
-    const light = hexInt(shade(base, 7));
+    const floor = tiles.floors.get(room.accent);
     const { x, y, w, h } = room.rect;
-    g.rect(x * cell, y * cell, w * cell, h * cell).fill(hexInt(base));
-    for (let cy = Math.ceil(y); cy < y + h; cy++) {
-      for (let cx = Math.ceil(x); cx < x + w; cx++) {
-        if ((cx + cy) % 2 === 0) g.rect(cx * cell, cy * cell, cell, cell).fill(light);
-      }
-    }
+    if (floor) tile(floor, x * cell, y * cell, w * cell, h * cell);
   }
 
   // meeting floor
   if (plan.meeting) {
     const { x, y, w, h } = plan.meeting.rect;
-    g.rect(x * cell, y * cell, w * cell, h * cell).fill(0x151a24);
+    tile(tiles.corridor, x * cell, y * cell, w * cell, h * cell);
   }
 
-  // desks: chair + wooden top (monitor tint is dynamic — see monitor layer)
+  layer.addChild(g);
+
+  // walls (door gaps pre-cut) — döşenmiş duvar yüzü
+  for (const wall of plan.walls) {
+    tile(tiles.wall, wall.x * cell, wall.y * cell, wall.w * cell, wall.h * cell);
+  }
+
+  // desks: pişirilmiş piksel masa (monitör tonu dinamik — monitor layer)
   for (const room of plan.rooms) {
     for (const desk of room.desks) {
-      const cx = desk.cell.x * cell;
-      const cy = desk.cell.y * cell;
-      g.rect(cx - 0.35 * cell, cy + 0.25 * cell, 0.7 * cell, 0.55 * cell).fill(0x2b3440); // chair
-      g.rect(cx - 0.95 * cell, cy - 1.35 * cell, 1.9 * cell, 0.85 * cell).fill(0x5a4632); // top
-      g.rect(cx - 0.95 * cell, cy - 1.35 * cell, 1.9 * cell, 0.15 * cell).fill(0x6d573f);
-      g.rect(cx - 0.5 * cell, cy - 1.28 * cell, 1.0 * cell, 0.62 * cell).fill(0x0c0f14); // monitor
+      const sprite = new Sprite(tiles.desk);
+      const origin = deskOrigin(desk.cell, cell);
+      sprite.position.set(origin.x, origin.y);
+      layer.addChild(sprite);
     }
-  }
-
-  // walls (door gaps pre-cut) with a top highlight for pseudo-3D
-  for (const wall of plan.walls) {
-    g.rect(wall.x * cell, wall.y * cell, wall.w * cell, wall.h * cell).fill(WALL_FILL);
-    g.rect(wall.x * cell, wall.y * cell, wall.w * cell, 0.22 * cell).fill(WALL_TOP);
   }
 
   // entrance: dark threshold + welcome mat
@@ -187,16 +268,28 @@ function paintFloorplan(layer: Container, plan: Floorplan, cell: number): void {
     0.4 * cell,
   ).fill(0x2f3a2a);
 
-  paintProps(g, plan, cell);
+  paintProps(g, layer, plan, cell, tiles);
 
-  // labels
+  // Salon tabelaları: ODANIN ÜST DUVARINA asılır.
+  //
+  // Eskiden zeminin üstüne, ilk masa sırasının hizasına yazılıyordu ve
+  // masalar tabelanın üstüne binip yazıyı okunmaz hâle getiriyordu
+  // (ekran görüntüsünde "ENGINEERING" yazısının yarısı masaların altındaydı).
   for (const room of plan.rooms) {
+    const plate = new Graphics();
+    const text = room.label.toUpperCase();
+    const width = Math.min(room.rect.w * cell - 8, text.length * 7.4 + 12);
+    plate
+      .roundRect((room.rect.x + 0.4) * cell, (room.rect.y + 0.15) * cell, width, 18, 3)
+      .fill({ color: 0x0c1016, alpha: 0.85 })
+      .stroke({ color: hexInt(room.accent), width: 1, alpha: 0.55 });
+    layer.addChild(plate);
+
     const label = new Text({
-      text: room.label.toUpperCase(),
-      style: { fill: room.accent, fontSize: 13, fontFamily: "monospace", fontWeight: "bold" },
+      text,
+      style: { fill: room.accent, fontSize: 11, fontFamily: "monospace", fontWeight: "bold" },
     });
-    label.alpha = 0.8;
-    label.position.set((room.rect.x + 1.2) * cell, (room.rect.y + 1.0) * cell);
+    label.position.set((room.rect.x + 0.4) * cell + 6, (room.rect.y + 0.15) * cell + 3);
     layer.addChild(label);
   }
   if (plan.meeting) {
@@ -306,6 +399,19 @@ export function OfficeCanvas({
 
       const CELL = 32;
 
+      // Piksel döşemeleri ÖMÜRDE BİR KEZ pişirilir; her plan değişiminde
+      // yeniden üretilseydi büyük org'da her yeniden yerleşimde görünür bir
+      // takılma olurdu.
+      const tiles: TileSet = {
+        desk: bakeArt(app, DESK_ART, PIXEL),
+        plant: bakeArt(app, PLANT_ART, PIXEL),
+        rack: bakeArt(app, RACK_ART, PIXEL),
+        coffee: bakeArt(app, COFFEE_ART, PIXEL),
+        wall: bakeArt(app, wallFaceArt(), PIXEL),
+        corridor: bakeArt(app, corridorTileArt(), PIXEL),
+        floors: new Map<string, Texture>(),
+      };
+
       // P2 (UI/UX review): FILL the panel edge-to-edge — fit the plan's
       // width (the dominant axis of the auto-layout) instead of letterboxing
       // the whole tall plan into a wide panel; the rooms anchor to the top
@@ -370,7 +476,17 @@ export function OfficeCanvas({
         if (engine.layout && engine.layoutVersion !== renderedLayoutVersion) {
           renderedLayoutVersion = engine.layoutVersion;
           plan = computeFloorplan(engine.layout);
-          paintFloorplan(zoneLayer, plan, CELL);
+          // zemin karoları oda vurgularından pişirilir — plan değişince
+          // yeni vurgular gelebilir, önbelleğe eklenir (aynı renk bir kez)
+          for (const room of plan.rooms) {
+            if (!tiles.floors.has(room.accent)) {
+              tiles.floors.set(
+                room.accent,
+                bakeArt(app, floorTileArt(hexInt(roomBase(room.accent)), 11), PIXEL),
+              );
+            }
+          }
+          paintFloorplan(zoneLayer, plan, CELL, tiles);
           fitCamera();
         }
         if (engine.version === renderedEngineVersion) return;
@@ -384,14 +500,13 @@ export function OfficeCanvas({
               if (!desk.agentId) continue;
               const avatar = engine.avatars.get(desk.agentId);
               const color = avatar ? (BADGE_COLOR[avatar.badge] ?? 0x233040) : 0x233040;
+              // Ekran dikdörtgeni masa ÇİZİMİNDEN türetilir, elle girilen
+              // sayılardan değil: DESK_ART'ta ekran 10..21. sütun ve 3..6.
+              // satırda. Sabit ofsetler çizim değişince sessizce kayıyordu.
+              const origin = deskOrigin(desk.cell, CELL);
               monitorLayer
-                .rect(
-                  (desk.cell.x - 0.45) * CELL,
-                  (desk.cell.y - 1.22) * CELL,
-                  0.9 * CELL,
-                  0.5 * CELL,
-                )
-                .fill({ color, alpha: avatar ? 0.8 : 0.35 });
+                .rect(origin.x + 10 * PIXEL, origin.y + 3 * PIXEL, 12 * PIXEL, 4 * PIXEL)
+                .fill({ color, alpha: avatar ? 0.85 : 0.3 });
             }
           }
         }
@@ -499,7 +614,11 @@ export function OfficeCanvas({
               .stroke({ color: 0x0b0e13, width: 2 });
             node.label.position.set(0, 14);
           }
-          node.label.text = avatar.name;
+          // Masa aralığı 3 hücre (96px) ama tam ad çoğu zaman daha geniş ve
+          // komşu masalardaki adlar üst üste biniyordu ("Emre ŞahinBaran
+          // Çelik"). Ofis planında kim nerede oturuyor sorusuna ilk ad zaten
+          // cevap veriyor; tam ad tıklanınca açılan ajan kartında duruyor.
+          node.label.text = shortName(avatar.name);
           node.label.visible = camera.scale.x >= 0.85 || agentId === selectedRef.current;
           node.root.position.set(avatar.pos.x * CELL, avatar.pos.y * CELL);
           node.root.zIndex = avatar.pos.y;

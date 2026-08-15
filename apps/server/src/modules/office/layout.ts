@@ -1,8 +1,16 @@
-// Default auto-layout (23 §2): computed server-side when a company has no
-// saved layout. Deterministic — zones are seeded by org-unit UUID order, so
-// the same org data always yields the same floor plan. Departments become
-// rooms tiled left-to-right sized by headcount; members get one desk each
-// (+25% spare, min 1); one central meeting area.
+// Default auto-layout (23 §2, revised): computed server-side when a company
+// has no saved layout. Deterministic — zones are seeded by org-unit UUID
+// order, so the same org data always yields the same floor plan.
+//
+// ODA BİRİMİ = TAKIM (revizyon). İlk sürümde oda birimi departmandı ve
+// takımlar o odanın içinde yalnızca masa kümesiydi; ekranda tek bir dev
+// "ENGINEERING" salonu görünüyor, Backend/Frontend/DevOps/QA ayrımı hiç
+// okunmuyordu. Artık her takım kendi salonunu alır; departman ise salonları
+// bir arada tutan ve ortak vurgu rengini veren KUŞAK olur. Takıma bağlı
+// olmayan departman üyeleri o departmanın "Genel" salonuna oturur.
+//
+// Oda boyu personel sayısından gelir (kişi başı bir masa +%25 yedek), sabit
+// değil: sabit yükseklik 2 kişilik bir takıma 22 hücrelik boş salon veriyordu.
 import type { OfficeLayout, OfficeZone, OfficeDesk } from "@acos/contracts";
 
 export interface OrgUnitInput {
@@ -19,11 +27,33 @@ export interface AgentInput {
   orgUnitId: string;
 }
 
-const GRID = { cellSize: 32, cols: 80, rows: 50 };
+const CELL_SIZE = 32;
 const ROOM_TOP = 2;
-const ROOM_HEIGHT = 22;
 const ROOM_GAP = 2;
-const DESK_STEP = 2;
+/** Salon sırası bu genişliği aşınca alt kuşağa iner. */
+const ROW_WRAP = 74;
+const ROW_GAP = 2;
+/**
+ * Masa aralığı (hücre).
+ *
+ * 2 idi ve masa çizimi tam 2 hücre geniş olduğu için masalar birbirine
+ * yapışıyordu; yakınlaştırınca ajan isimleri de üst üste biniyordu. 3, masa
+ * başına bir hücre nefes payı bırakıyor.
+ */
+const DESK_STEP = 3;
+/** Salonun üstünde tabela için ayrılan, masasız şerit. */
+const LABEL_BAND = 3;
+/** Salonun altında kapı/geçiş için ayrılan boşluk. */
+const DOOR_BAND = 2;
+/** Departman vurgu renkleri — packages/ui departmentColors ile aynı sıra. */
+const DEPARTMENT_ACCENTS = [
+  "#4c9aff",
+  "#a879ff",
+  "#3fd0a0",
+  "#ffcb47",
+  "#ff8a5c",
+  "#ff6b8a",
+];
 
 /** Walks a unit up to its department (or itself when already top-level). */
 function departmentOf(unitId: string, unitsById: Map<string, OrgUnitInput>): OrgUnitInput | null {
@@ -35,67 +65,128 @@ function departmentOf(unitId: string, unitsById: Map<string, OrgUnitInput>): Org
   return current;
 }
 
+/** Bir salonun personelinden türeyen ölçüsü. */
+function roomSize(headcount: number): { deskCount: number; perRow: number; w: number; h: number } {
+  const deskCount = Math.max(headcount + Math.max(1, Math.ceil(headcount * 0.25)), 2);
+  const perRow = Math.max(2, Math.min(5, Math.ceil(Math.sqrt(deskCount))));
+  const rows = Math.ceil(deskCount / perRow);
+  return {
+    deskCount,
+    perRow,
+    w: perRow * DESK_STEP + 3,
+    h: LABEL_BAND + rows * DESK_STEP + DOOR_BAND,
+  };
+}
+
 export function computeAutoLayout(units: OrgUnitInput[], agents: AgentInput[]): OfficeLayout {
   const unitsById = new Map(units.map((u) => [u.id, u]));
   const active = agents.filter((a) => a.status === "active" || a.status === "draft");
 
-  // department bucket per agent (deterministic: departments sorted by uuid)
-  const byDepartment = new Map<string, AgentInput[]>();
+  // Salon kovası = ajanın KENDİ birimi (takım). Departmana doğrudan bağlı
+  // üyeler departman kovasında toplanır ve "Genel" salonunu oluşturur.
+  const byUnit = new Map<string, AgentInput[]>();
   for (const agent of active) {
-    const department = departmentOf(agent.orgUnitId, unitsById);
+    const key = unitsById.has(agent.orgUnitId) ? agent.orgUnitId : "unassigned";
+    const bucket = byUnit.get(key) ?? [];
+    bucket.push(agent);
+    byUnit.set(key, bucket);
+  }
+
+  // Departman → o departmanın salonları. Sıralama tamamen uuid tabanlı:
+  // aynı org verisi her zaman aynı planı üretir (23 §2 determinizm şartı).
+  const byDepartment = new Map<string, string[]>();
+  for (const unitId of [...byUnit.keys()].sort()) {
+    const department = unitId === "unassigned" ? null : departmentOf(unitId, unitsById);
     const key = department?.id ?? "unassigned";
     const bucket = byDepartment.get(key) ?? [];
-    bucket.push(agent);
+    bucket.push(unitId);
     byDepartment.set(key, bucket);
   }
-  const departmentIds = [...byDepartment.keys()].sort();
 
   const zones: OfficeZone[] = [];
   let cursorX = 2;
-  for (const departmentId of departmentIds) {
-    const members = byDepartment
-      .get(departmentId)!
-      .slice()
-      .sort((a, b) => a.id.localeCompare(b.id));
-    const deskCount = Math.max(members.length + Math.max(1, Math.ceil(members.length * 0.25)), 2);
-    const desksPerRow = Math.max(2, Math.ceil(Math.sqrt(deskCount)));
-    const width = desksPerRow * DESK_STEP + 3;
+  let rowTop = ROOM_TOP;
+  let rowHeight = 0;
 
-    const desks: OfficeDesk[] = [];
-    for (let i = 0; i < deskCount; i++) {
-      const row = Math.floor(i / desksPerRow);
-      const col = i % desksPerRow;
-      desks.push({
-        id: `d_${departmentId.slice(-6)}_${i}`,
-        cell: { x: cursorX + 2 + col * DESK_STEP, y: ROOM_TOP + 2 + row * DESK_STEP },
-        agentId: members[i]?.id ?? null, // home desks persist in layout (23 §2)
+  [...byDepartment.keys()].sort().forEach((departmentId, departmentIndex) => {
+    const accent = DEPARTMENT_ACCENTS[departmentIndex % DEPARTMENT_ACCENTS.length]!;
+    const department = unitsById.get(departmentId);
+
+    for (const unitId of byDepartment.get(departmentId)!) {
+      const members = byUnit.get(unitId)!.slice().sort((a, b) => a.id.localeCompare(b.id));
+      const unit = unitId === "unassigned" ? null : unitsById.get(unitId);
+      const size = roomSize(members.length);
+
+      // satır taşarsa alt kuşağa in — departmanlar bölünebilir ama salonlar
+      // sırayla kaldığı için aynı renk hâlâ yan yana kümelenir
+      if (cursorX + size.w > ROW_WRAP && cursorX > 2) {
+        rowTop += rowHeight + ROW_GAP;
+        cursorX = 2;
+        rowHeight = 0;
+      }
+
+      const desks: OfficeDesk[] = [];
+      for (let i = 0; i < size.deskCount; i++) {
+        const row = Math.floor(i / size.perRow);
+        const col = i % size.perRow;
+        desks.push({
+          id: `d_${unitId.slice(-6)}_${i}`,
+          cell: {
+            x: cursorX + 2 + col * DESK_STEP,
+            y: rowTop + LABEL_BAND + row * DESK_STEP,
+          },
+          agentId: members[i]?.id ?? null, // home desks persist in layout (23 §2)
+        });
+      }
+
+      // Departmanın kendisi bir salon olarak çizilmez; salon takımdır.
+      // Departmana doğrudan bağlı üyeler "<Departman> Genel" salonunu alır.
+      const isDepartmentBucket = unit?.kind === "department" || unit == null;
+      const label = isDepartmentBucket
+        ? `${department?.name ?? unit?.name ?? "Genel"} Genel`
+        : (unit?.name ?? "Genel");
+
+      zones.push({
+        id: `z_${unitId.slice(-6)}`,
+        kind: unit?.kind === "executive" ? "executive" : "team",
+        ...(unit && { orgUnitId: unit.id }),
+        rect: { x: cursorX, y: rowTop, w: size.w, h: size.h },
+        label,
+        color: accent,
+        desks,
       });
+      cursorX += size.w + ROOM_GAP;
+      rowHeight = Math.max(rowHeight, size.h);
     }
-
-    const unit = unitsById.get(departmentId);
-    zones.push({
-      id: `z_${departmentId.slice(-6)}`,
-      kind: "department",
-      ...(unit && { orgUnitId: unit.id }),
-      rect: { x: cursorX, y: ROOM_TOP, w: width, h: ROOM_HEIGHT },
-      label: unit?.name ?? "Unassigned",
-      desks,
-    });
-    cursorX += width + ROOM_GAP;
-  }
+  });
 
   zones.push({
     id: "z_meet_central",
     kind: "meeting",
-    rect: { x: 2, y: ROOM_TOP + ROOM_HEIGHT + 2, w: 12, h: 8 },
-    label: "Meeting Area",
+    rect: { x: 2, y: rowTop + rowHeight + ROW_GAP + 1, w: 12, h: 8 },
+    label: "Toplantı",
     spots: 6,
   });
 
-  return { version: 1, grid: GRID, zones, walls: [] };
+  // Izgara plana göre büyür: sabit 80×50 dar org'da boş, geniş org'da yetersizdi.
+  const maxX = Math.max(...zones.map((z) => z.rect.x + z.rect.w));
+  const maxY = Math.max(...zones.map((z) => z.rect.y + z.rect.h));
+  return {
+    version: 1,
+    grid: { cellSize: CELL_SIZE, cols: maxX + 4, rows: maxY + 4 },
+    zones,
+    walls: [],
+  };
 }
 
-/** First free desk in the agent's department zone, else anywhere (23 §2). */
+/**
+ * İlk boş masa — önce ajanın KENDİ takım salonunda, sonra aynı departmanın
+ * diğer salonlarında, sonra herhangi bir yerde (23 §2).
+ *
+ * Üç kademe gerekiyor çünkü salon artık takım: yalnız departmana bakan eski
+ * sıralama, ajanı kendi takımının salonu yerine kardeş takımın salonuna
+ * oturtabiliyordu.
+ */
 export function assignHomeDesk(
   layout: OfficeLayout,
   agentId: string,
@@ -103,11 +194,17 @@ export function assignHomeDesk(
   unitsById: Map<string, OrgUnitInput>,
 ): OfficeDesk | null {
   const department = agentUnitId ? departmentOf(agentUnitId, unitsById) : null;
-  const zoneOrder = [...layout.zones].sort((a, b) => {
-    const aHome = department && a.orgUnitId === department.id ? 0 : 1;
-    const bHome = department && b.orgUnitId === department.id ? 0 : 1;
-    return aHome - bHome || a.id.localeCompare(b.id);
-  });
+  const rank = (zone: { orgUnitId?: string | undefined }): number => {
+    if (agentUnitId && zone.orgUnitId === agentUnitId) return 0;
+    if (department && zone.orgUnitId) {
+      const zoneDepartment = departmentOf(zone.orgUnitId, unitsById);
+      if (zoneDepartment?.id === department.id) return 1;
+    }
+    return 2;
+  };
+  const zoneOrder = [...layout.zones].sort(
+    (a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id),
+  );
   for (const zone of zoneOrder) {
     for (const desk of zone.desks ?? []) {
       if (desk.agentId === agentId) return desk; // already assigned
