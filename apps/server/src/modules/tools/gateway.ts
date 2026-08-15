@@ -256,7 +256,22 @@ export class ToolGateway {
           ctx, req, agent.id, def.risk, "IDEMPOTENCY_KEY_REUSED_WITH_DIFFERENT_INPUT", input,
         );
       }
-      // fresh | in_flight → proceed (in_flight: the crashed first attempt
+      // B3 (2026-08-15 code review): `in_flight` used to always proceed —
+      // a retry could run the SAME side-effecting command a second time
+      // while the first was still executing in the container (npm install,
+      // migrations, test suites in triplicate). Read-only tools keep the
+      // takeover semantics; side-effecting ones are now fail-closed.
+      if (start.kind === "in_flight" && !def.sideEffectFree) {
+        return this.finalizeDenied(
+          ctx,
+          req,
+          agent.id,
+          def.risk,
+          "IN_FLIGHT_DUPLICATE: a prior attempt with this idempotency key is still running",
+          input,
+        );
+      }
+      // fresh | in_flight(read-only) → proceed (the crashed first attempt
       // never recorded a result; this attempt takes over the key)
     }
 

@@ -34,6 +34,19 @@ const activities = proxyActivities<ReturnType<typeof createAgentTaskActivities>>
   retry: { maximumAttempts: 3, initialInterval: "2s", maximumInterval: "60s" },
 });
 
+/**
+ * B3 (2026-08-15 kod incelemesi): tool dispatch, 120 sn'lik sınıf tavanının
+ * ALTINDA kalamaz — gateway'in kendi prepare bütçesi 10 dk, terminal.run
+ * tavanı 30,5 dk. Eski hâlde Temporal 120 sn'de aktiviteyi iptal edip yeniden
+ * deniyordu; gateway `in_flight` anahtarını devralıyor ve AYNI komut 3 kez
+ * paralel koşuyordu (npm install / migration / test suite). Ayrıca yan etkili
+ * araçlarda otomatik retry zaten güvenli değil → tek deneme.
+ */
+const toolActivity = proxyActivities<ReturnType<typeof createAgentTaskActivities>>({
+  startToCloseTimeout: "45m", // prepare (10 dk) + en uzun araç (30,5 dk) + pay
+  retry: { maximumAttempts: 1 },
+});
+
 /** Carried across continueAsNew (08 §10) — small, schema-versioned. */
 export interface CarriedState {
   stepNo: number;
@@ -441,7 +454,8 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
           : action.type === "think" || action.type === "record_decision"
             ? readStreak // düşünme adımı okuma serisini bozmaz da beslemez de
             : 0;
-      const observation = await activities.executeActionActivity({ ...ref, stepId, action });
+      // B3: yan etkili aksiyonlar (araç çağrıları dahil) uzun-pencere + retry'sız
+      const observation = await toolActivity.executeActionActivity({ ...ref, stepId, action });
       await activities.persistStepActivity({
         ...ref,
         stepId,

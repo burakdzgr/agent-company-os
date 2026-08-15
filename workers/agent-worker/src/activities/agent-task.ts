@@ -352,7 +352,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           ),
         )
         .orderBy(sql`${agentSteps.stepNo} DESC`)
-        .limit(5);
+        .limit(8); // B5: 5 → 8 (kırpma düzeldi, pencere de dar kalmasın)
 
       // Mevcut görev ağacı bağlamı (2026-08-14): ajanlar birbirinin kurduğu
       // ağacı görmeden mükerrer initiative/epic açıyordu. Kendi görevinin
@@ -518,19 +518,54 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       // files, web responses) enter the prompt only inside provenance fences;
       // flagged outputs keep their taint visible. Fencing is central — here,
       // never in tool authors' code.
-      const renderStep = (s: (typeof recentSteps)[number]): string => {
+      /**
+       * B5 (2026-08-15 kod incelemesi): gözlemler 200 karaktere kırpılıyordu —
+       * ajan okuduğu dosyayı GÖREMİYOR, ezberden `oldText` uydurup NO_MATCH
+       * alıyor ya da yeniden okuyup 50 adımı eritiyordu. Artık kırpma alan
+       * farkındalıklı: yük taşıyan alanlar (content/diff/stdoutTail…) cömert
+       * bütçeyle, en son adım TAM bütçeyle girer ve kırpma AÇIKÇA bildirilir
+       * (sessiz kırpma, ajanın eksik veriyi tam sanmasına yol açıyordu).
+       * Bütçeler 08 §8'in char/4 sezgisi: 24k+12k char ≈ 9k token tavanı.
+       */
+      const PAYLOAD_FIELDS = [
+        "content",
+        "diff",
+        "stdoutTail",
+        "stderrTail",
+        "matches",
+        "text",
+        "summary",
+      ] as const;
+      const clip = (value: string, budget: number): string =>
+        value.length <= budget
+          ? value
+          : `${value.slice(0, budget)}\n…[TRUNCATED: ${value.length - budget} more chars — re-read with a narrower path/range if you need the rest]`;
+      const renderObservation = (observation: unknown, budget: number): string => {
+        const obs = (observation ?? {}) as Record<string, unknown>;
+        const output = (obs.output ?? {}) as Record<string, unknown>;
+        // yük alanı varsa onu tam metin olarak öne çıkar, kalanı özetle
+        const payloadKey = PAYLOAD_FIELDS.find((k) => output[k] !== undefined);
+        if (payloadKey === undefined) return clip(JSON.stringify(obs), Math.min(budget, 2_000));
+        const payload =
+          typeof output[payloadKey] === "string"
+            ? (output[payloadKey] as string)
+            : JSON.stringify(output[payloadKey]);
+        const meta = { ...obs, output: { ...output, [payloadKey]: `<see ${payloadKey} below>` } };
+        return `${clip(JSON.stringify(meta), 600)}\n${payloadKey}:\n${clip(payload, budget)}`;
+      };
+      const renderStep = (s: (typeof recentSteps)[number], isLatest: boolean): string => {
         const obs = (s.observation ?? {}) as {
           output?: { provenance?: string };
           outputFlagged?: boolean;
         };
-        const compact = JSON.stringify(s.observation ?? {}).slice(0, 200);
+        const body = renderObservation(s.observation, isLatest ? 24_000 : 12_000);
         const provenance = obs.output?.provenance;
         if (provenance === "workspace" || provenance === "web" || obs.outputFlagged) {
-          return `${s.stepNo}. ${s.actionKind} ->\n${provenanceFence(compact, {
+          return `${s.stepNo}. ${s.actionKind} ->\n${provenanceFence(body, {
             source: `${provenance ?? "tool"}:step-${s.stepNo}`,
           })}`;
         }
-        return `${s.stepNo}. ${s.actionKind} -> ${compact}`;
+        return `${s.stepNo}. ${s.actionKind} -> ${body}`;
       };
       const hasFences = recentSteps.some((s) => {
         const obs = (s.observation ?? {}) as {
@@ -555,7 +590,11 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         "# AgentAction catalog — respond with EXACTLY ONE of these shapes",
         `- {"type":"think","thought":"<reasoning, <=4000 chars>","plan":["step",...]?}`,
         // araç adları packages/tools MVP kaydıyla eşleşir (registry testi kilitler)
-        `- {"type":"use_tool","tool":"<one of: fs.read | fs.search | fs.edit | fs.write | terminal.run | git.diff | git.commit | git.branch | git.merge | db.inspect | web.fetch | web.search | task.query | memory.search>","input":{...},"reason":"<=500 chars"} — terminal.run executes shell commands in YOUR task workspace (a clone of the project repo) and streams to the Founder-visible terminal`,
+        // B4 (2026-08-15 code review): only tools with a real dispatch are
+        // advertised. db.inspect / web.* / task.query / memory.search are
+        // registered but unimplemented — advertising them burned a step and
+        // an LLM call per attempt. They return here once wired.
+        `- {"type":"use_tool","tool":"<one of: fs.read | fs.search | fs.edit | fs.write | terminal.run | git.diff | git.commit | git.branch | git.merge>","input":{...},"reason":"<=500 chars"} — terminal.run executes shell commands in YOUR task workspace (a clone of the project repo) and streams to the Founder-visible terminal`,
         `  EDITING RULE (hard): to change an EXISTING file use fs.edit {path, oldText, newText, replaceAll?} — an exact-snippet replacement. fs.write OVERWRITES THE WHOLE FILE and is ONLY for brand-new files; using it on an existing file destroys everything you did not re-type. Copy oldText verbatim from a prior fs.read (whitespace included); add surrounding lines if the snippet is not unique.`,
         `- {"type":"send_message","channelId":"<uuid>","kind":"text|help_request|review_request|escalation|status","body":"...","mentions":[],"refs":[]}`,
         `- {"type":"create_task","kind":"initiative|epic|task|subtask","parentTaskId":"<uuid>","title":"<=200","objective":"...","successCriteria":["..."],"priority":"P0|P1|P2|P3","estimatedEffort":1-13,"risk":"low|medium|high|critical"}`,
@@ -580,7 +619,13 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         `# Project memory\n${memorySections.project || "(none)"}`,
         `# Agent memory\n${memorySections.agent || "(none)"}`,
         `# Thread + signals\n${(input.signalMarkers ?? []).join("\n") || "(no new messages)"}`,
-        `# Recent steps\n${recentSteps.slice().reverse().map(renderStep).join("\n") || "(none yet)"}`,
+        `# Recent steps\n${
+          recentSteps
+            .slice()
+            .reverse()
+            .map((s, i, all) => renderStep(s, i === all.length - 1))
+            .join("\n") || "(none yet)"
+        }`,
         actionCatalog,
         `# Output\nRespond with EXACTLY one AgentAction JSON object, no prose. Step ${input.stepNo}.`,
       ].join("\n\n");

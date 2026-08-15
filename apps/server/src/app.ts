@@ -324,6 +324,14 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
         db: guardedDb,
         // late-bound so T40 wiring (or tests) can attach after buildApp
         dispatch: {
+          // B2 (2026-08-15 kod incelemesi): prepare köprüsü EKSİKTİ — gateway
+          // `if (this.dispatchPort.prepare)` görüp atlıyordu, böylece repo
+          // klonu + imaj çekme + konteyner kurulumu aracın kendi penceresinde
+          // (fs.read = 10 sn) koşuyor ve ilk araç çağrısı hep timeout'a
+          // düşüyordu. prepare kendi 10 dk'lık bütçesinde çalışmalı (17 §4).
+          prepare: async (req) => {
+            await app.toolDispatchPort?.prepare?.(req);
+          },
           dispatch: (invocation) => {
             if (!app.toolDispatchPort) {
               return Promise.reject(new Error("tool dispatch not wired (lands with T40)"));

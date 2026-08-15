@@ -36,6 +36,18 @@ function toUsage(usage: {
 type LanguageModelFactory = (modelId: string) => Parameters<typeof generateText>[0]["model"];
 type EmbeddingModelFactory = (modelId: string) => Parameters<typeof aiEmbed>[0]["model"];
 
+/**
+ * Y7: models that still accept a non-default `temperature`. Newer generations
+ * (Opus 5 / Sonnet 5 / Opus 4.7+) reject it with HTTP 400, so the parameter is
+ * dropped for them rather than failing a data-driven model swap.
+ */
+function acceptsTemperature(model: string): boolean {
+  const m = model.toLowerCase();
+  if (/(opus|sonnet)-5/.test(m)) return false;
+  if (/opus-4-(7|8|9)/.test(m)) return false;
+  return true;
+}
+
 function buildAdapter(
   providerId: string,
   languageModel: LanguageModelFactory,
@@ -49,7 +61,13 @@ function buildAdapter(
           model: languageModel(input.model),
           messages: input.messages,
           ...(input.maxTokens !== undefined && { maxOutputTokens: input.maxTokens }),
-          ...(input.temperature !== undefined && { temperature: input.temperature }),
+          // Y7 (2026-08-15 code review): newer model generations REJECT a
+          // non-default temperature with HTTP 400. The value is data-driven
+          // (model_profiles/agent_model_bindings params), so a model swap in
+          // the DB would break every call and no test would catch it. Drop it
+          // for models that do not accept it instead of failing the call.
+          ...(input.temperature !== undefined &&
+            acceptsTemperature(input.model) && { temperature: input.temperature }),
         });
         const finishReason =
           result.finishReason === "stop"
@@ -59,8 +77,18 @@ function buildAdapter(
               : result.finishReason === "content-filter"
                 ? ("content_filter" as const)
                 : ("other" as const);
+        // Y7: a refusal arrives as HTTP 200 with empty text — surface it as a
+        // typed error instead of letting the caller burn its JSON repairs.
+        if (result.text.trim() === "" && finishReason === "other") {
+          throw new LlmError(
+            "refused",
+            `${providerId}: model returned no content (refusal)`,
+            providerId,
+          );
+        }
         return { text: result.text, usage: toUsage(result.usage), finishReason };
       } catch (err) {
+        if (err instanceof LlmError) throw err;
         throw toLlmError(err, providerId);
       }
     },
