@@ -48,6 +48,40 @@ function acceptsTemperature(model: string): boolean {
   return true;
 }
 
+/**
+ * B3 (26 §3) — prompt caching. The agent loop re-sends an identical prefix
+ * (identity + persona + rules + action catalog) on every step of every task;
+ * without a breakpoint the provider re-reads and re-bills all of it each
+ * time. `cachedInputPerMTokCents` has always been in the pricing table and
+ * `cachedInputTokens` has always been read back from usage — the only missing
+ * piece was telling the provider where the stable prefix ends.
+ *
+ * Anthropic-only for now: it is the provider ACOS runs on, and its cache is
+ * explicit (an ephemeral breakpoint on a message). OpenAI caches long prefixes
+ * automatically with no marker, so the flag is simply not translated there —
+ * the same messages go out either way.
+ */
+function withCacheBreakpoints(
+  providerId: string,
+  messages: ReadonlyArray<{ role: string; content: string; cacheable?: boolean | undefined }>,
+): NonNullable<Parameters<typeof generateText>[0]["messages"]> {
+  const plain = messages.map(({ role, content }) => ({ role, content }));
+  if (providerId !== "anthropic") {
+    return plain as NonNullable<Parameters<typeof generateText>[0]["messages"]>;
+  }
+  return messages.map(({ role, content, cacheable }) =>
+    cacheable === true
+      ? {
+          role,
+          content,
+          // 1h TTL: an agent's step loop spans minutes, and the same prefix
+          // recurs across the company's tasks all day.
+          providerOptions: { anthropic: { cacheControl: { type: "ephemeral", ttl: "1h" } } },
+        }
+      : { role, content },
+  ) as NonNullable<Parameters<typeof generateText>[0]["messages"]>;
+}
+
 function buildAdapter(
   providerId: string,
   languageModel: LanguageModelFactory,
@@ -59,7 +93,7 @@ function buildAdapter(
       try {
         const result = await generateText({
           model: languageModel(input.model),
-          messages: input.messages,
+          messages: withCacheBreakpoints(providerId, input.messages),
           ...(input.maxTokens !== undefined && { maxOutputTokens: input.maxTokens }),
           // Y7 (2026-08-15 code review): newer model generations REJECT a
           // non-default temperature with HTTP 400. The value is data-driven

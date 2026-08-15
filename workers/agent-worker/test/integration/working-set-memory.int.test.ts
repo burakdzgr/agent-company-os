@@ -221,6 +221,50 @@ describe("working set memory sections (08 §8 / 12 §7)", { timeout: 60_000 }, (
     expect(logs[0]!.returnedIds.length).toBeGreaterThanOrEqual(3);
   });
 
+  // B3 (26 §3): prompt caching'in üzerinde durduğu tek varsayım, işaretlenen
+  // önekin adımlar arasında BİREBİR aynı kalması. Değişken bir alan oraya
+  // sızarsa cache her adımda ıskalar; fatura düşmez, artar. Bu yüzden asıl
+  // iddia "cache açık" değil, "önek gerçekten sabit".
+  it("cache'lenen sabit önek adımlar arasında birebir aynı kalır", async () => {
+    const activities = activitiesWith(embedRouter);
+    const first = await activities.buildWorkingSetActivity({
+      companyId,
+      agentId,
+      taskId,
+      sessionId: uuidv7(),
+      stepNo: 1,
+    });
+    const second = await activities.buildWorkingSetActivity({
+      companyId,
+      agentId,
+      taskId,
+      sessionId: uuidv7(),
+      stepNo: 7, // farklı adım, farklı oturum, farklı sinyaller
+      signalMarkers: ["[signal:reviewVerdict=changes_requested]"],
+    });
+
+    const prefixOf = (ws: { messages: Array<{ role: string; content: string; cacheable?: boolean }> }) =>
+      ws.messages.find((m) => m.cacheable === true);
+
+    const a = prefixOf(first);
+    const b = prefixOf(second);
+    expect(a, "cache breakpoint işaretlenmemiş").toBeDefined();
+    expect(b).toBeDefined();
+    expect(b!.content).toBe(a!.content); // birebir aynı → cache isabet eder
+    // önek gerçekten ödemeye değecek kadar büyük olmalı (katalog içeride)
+    expect(a!.content).toContain("AgentAction catalog");
+    expect(a!.content.length).toBeGreaterThan(1000);
+
+    // …ve adıma özgü her şey ÖNEKTEN SONRA: aksi hâlde ikinci çağrıda cache ıskalar
+    expect(a!.content).not.toContain("lastExitCode");
+    expect(a!.content).not.toContain("Step 1");
+    const userSecond = second.messages.find((m) => m.role === "user")!.content;
+    expect(userSecond).toContain("[signal:reviewVerdict=changes_requested]");
+    expect(userSecond).toContain("Step 7");
+    // iki adımın değişken kısmı farklı — yani test sabitliği tesadüfen ölçmüyor
+    expect(userSecond).not.toBe(first.messages.find((m) => m.role === "user")!.content);
+  });
+
   it("no embedding target ⇒ semantic lane skipped, build still succeeds (12 §7.5c)", async () => {
     const failingRouter = {
       complete: async () => {

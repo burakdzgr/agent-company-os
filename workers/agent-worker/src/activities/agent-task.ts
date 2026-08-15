@@ -613,13 +613,20 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         return p === "workspace" || p === "web" || obs.outputFlagged === true;
       });
 
-      const system = [
+      // B3 (26 §3): the message list is split by STABILITY, not by topic.
+      // Everything the agent re-sends unchanged on every step — identity,
+      // persona, the rules, the action catalog — goes into one cacheable
+      // prefix; anything that moves (markers with the last exit code, drained
+      // signals, the fence preamble that depends on this step's observations)
+      // goes after it. The catalog used to sit at the END of the variable user
+      // message, so no prefix was stable at all and there was nothing worth
+      // caching; the brief assumed the order was already right.
+      const stablePrefix = [
         `You are ${agentRow.name}, ${agentRow.positionTitle} (${agentRow.seniority}, autonomy L${agentRow.autonomyLevel}).`,
         agentRow.persona,
         `Non-negotiable rules: act only via a single AgentAction JSON object; never invent tools.`,
-        ...(hasFences ? [FENCE_PREAMBLE] : []),
-        markers,
       ].join("\n");
+      const stepPreamble = [...(hasFences ? [FENCE_PREAMBLE] : []), markers].join("\n");
       // Canlı model düzeltmesi (2026-08-14): scripted router şemayı "bilir",
       // gerçek model bilemez — katalog gösterilmeden AgentAction üretmesi
       // imkânsızdı (parse-fail → abandon). 08 §8'in aksiyon sözlüğü bölümü.
@@ -655,6 +662,7 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         "Output RAW JSON only — no markdown fences, no commentary before or after.",
       ].join("\n");
       const user = [
+        stepPreamble,
         `# Org context\nEscalation chain: ${managers.join(" -> ") || "(top level)"} -> Founder`,
         `# Task TASK-${task.number}: ${task.title}\nObjective: ${task.objective}\nStatus: ${task.status} | Priority: ${task.priority} | Risk: ${task.risk}\nSuccess criteria: ${task.successCriteria.join("; ") || "(none)"}\nBudget remaining cents: ${task.budgetCents === null ? "inherit" : task.budgetCents - task.spentCents}`,
         `# Project context\n${projectSection}`,
@@ -670,12 +678,15 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
             .map((s, i, all) => renderStep(s, i === all.length - 1))
             .join("\n") || "(none yet)"
         }`,
-        actionCatalog,
         `# Output\nRespond with EXACTLY one AgentAction JSON object, no prose. Step ${input.stepNo}.`,
       ].join("\n\n");
 
+      // The catalog rides with the stable prefix (it is identical on every
+      // step of every task, minus the per-task db.inspect line) so the cache
+      // breakpoint covers it too.
+      const system = `${stablePrefix}\n\n${actionCatalog}`;
       const messages: LlmMessage[] = [
-        { role: "system", content: system },
+        { role: "system", content: system, cacheable: true },
         { role: "user", content: user },
       ];
       return { messages, digest: fnvDigest(system + user) };

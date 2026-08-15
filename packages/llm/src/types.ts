@@ -20,6 +20,18 @@ export const PURPOSE_TO_BINDING: Record<LlmPurpose, BindingPurpose> = {
 export const LlmMessageSchema = z.object({
   role: z.enum(["system", "user", "assistant"]),
   content: z.string(),
+  /**
+   * B3 (26 §3) — prompt cache breakpoint. The agent loop re-sends the same
+   * identity + persona + action catalog on EVERY step; marking that prefix
+   * lets the provider bill it at the cached rate (already priced separately
+   * as `cachedInputPerMTokCents`). Adapters that do not support caching
+   * ignore the flag, so it can never change what the model is asked.
+   *
+   * Only mark a genuinely STABLE prefix: a marker that changes per step
+   * invalidates the cache for everything after it and costs more than it
+   * saves.
+   */
+  cacheable: z.boolean().optional(),
 });
 export type LlmMessage = z.infer<typeof LlmMessageSchema>;
 
