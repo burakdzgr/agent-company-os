@@ -87,6 +87,29 @@ get different arms**, and the tooltip can answer "whose memory is this" (`agent:
 No new endpoint, no schema migration — the columns already existed on `memories`; only the
 response projection was missing.
 
+## Both surfaces, one scene (revision)
+
+The first cut wired the galaxy into the Observatory route (`MemoryView`) only. The Command Center's
+left **Hafıza** panel (`MemoryPanel`) kept its own 2D `BrainGraph`, because 36 §5 specified a
+"brain-field" strip there. That is where the Founder actually works, so the galaxy was effectively
+invisible: the same domain object was being drawn two different ways on two screens, and the panel
+kept showing bubbles. 36 §5 is revised; the panel now renders `GalaxyScene variant="panel"` — same
+scene, same data, filter overlay and labels dropped because a 230px strip cannot carry them.
+
+`BrainGraph` is retained solely as the no-WebGL fallback, and the fallback now prints its reason
+(`webglStatus()`), because a silent downgrade is indistinguishable from a broken feature — this cost
+a full debugging round.
+
+Two further mechanics came out of that round:
+
+- **`GalaxyDust`** — ~21k decorative points on the *same* spiral equation as the layout (`ARMS`,
+  `ARM_TWIST` are shared exports, not duplicated constants) plus a bulge and a core glow sprite. It
+  is not data and never reacts to filters. Without it 22 memories in empty space read as floating
+  balls, not a galaxy: the structure has to come from the dust, with memories as the stars inside it.
+- **`webglStatus()` is probed once and cached, and the probe context is explicitly released**
+  (`WEBGL_lose_context`). The check sits in JSX, so it ran on every render, each run opening a WebGL
+  context that browsers cap (~16 live in Chromium).
+
 ## Visual QA (what the screenshot caught that the tests could not)
 
 The e2e test asserts behaviour — canvas mounted, real node count, live filtering — deliberately, not

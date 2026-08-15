@@ -12,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "@acos/ui";
 import type { MemoryDto, MemoryGraphResponse } from "@acos/contracts";
 import { api } from "../../lib/api.js";
+import { GalaxyScene, webglStatus } from "./galaxy/GalaxyScene.js";
 
 export const MEMORY_TYPE_COLOR: Record<string, string> = {
   failure: "#ff6b8a",
@@ -264,6 +265,7 @@ export function MemoryPanel() {
   const { companyId } = useParams({ from: "/c/$companyId" });
   const [tab, setTab] = useState<MemoryTab>("graf");
   const knownIds = useRef<Set<string> | null>(null);
+  const webgl = webglStatus(); // ömürde bir kez yoklanır, sonuç önbellekli
 
   const graph = useQuery({
     queryKey: [companyId, "memories", "graph"],
@@ -315,7 +317,22 @@ export function MemoryPanel() {
           )}
         </span>
       </div>
-      {tab === "graf" && graph.data && <BrainGraph graph={graph.data} />}
+      {/*
+        Graf sekmesi = 3D galaksi (ADR-021). WebGL yoksa eski 2D brain-field
+        şeridine düşülür ve SEBEBİ ekranda yazar — sessiz geri düşüş, hangi
+        yolda olduğumuzu tahmin etmek zorunda bıraktığı için kaldırıldı.
+      */}
+      {tab === "graf" &&
+        (webgl.ok ? (
+          <GalaxyScene companyId={companyId} onSelect={() => {}} variant="panel" />
+        ) : (
+          <>
+            {graph.data && <BrainGraph graph={graph.data} />}
+            <div className="shrink-0 border-b border-acos-line px-2.5 py-1 text-[9px] text-acos-fg2">
+              3D galaksi devre dışı — {webgl.reason}
+            </div>
+          </>
+        ))}
       <div className="min-h-0 flex-1 overflow-auto">
         {list.isLoading && <div className="p-3 text-[10px] text-acos-fg2">Yükleniyor…</div>}
         {!list.isLoading && items.length === 0 && (

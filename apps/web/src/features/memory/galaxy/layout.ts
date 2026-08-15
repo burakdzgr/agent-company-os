@@ -68,7 +68,16 @@ const SHELL: Record<MemoryScope, { inner: number; outer: number; thickness: numb
  * düğüm kimliğinden geliyordu ve iki farklı projenin anıları karışıyordu;
  * alan sunucuya eklendi (ADR-021 kısıtı kapandı).
  */
-const ARMS = 4;
+export const ARMS = 4;
+
+/**
+ * Sarmal bükülmesi (radyan / birim yarıçap).
+ *
+ * Dekoratif toz bulutu (GalaxyDust) BU sabiti paylaşmak zorunda: kollar aynı
+ * denklemden çizilmezse anılar tozun içinde değil, üstünde yüzer ve sahne
+ * "galaksi" değil "toz + toplar" gibi görünür.
+ */
+export const ARM_TWIST = 0.18;
 
 export function scopeOf(raw: string): MemoryScope {
   return raw === "company" || raw === "project" || raw === "agent" ? raw : "agent";
@@ -89,7 +98,7 @@ export function placeNode(node: GalaxyNodeInput): GalaxyNode {
   const radius = shell.inner + radial * (shell.outer - shell.inner);
   // kol tabanı + sarmal bükülme + kol içi dağılım
   const spread = (unit(hash, 2) - 0.5) * 0.5;
-  const angle = (arm / ARMS) * Math.PI * 2 + radius * 0.18 + spread;
+  const angle = (arm / ARMS) * Math.PI * 2 + radius * ARM_TWIST + spread;
   // çekirdekte kol yok: küre gibi dağılsın
   const finalAngle = scope === "company" ? unit(hash, 3) * Math.PI * 2 : angle;
   const height = (unit(hash, 4) - 0.5) * shell.thickness;

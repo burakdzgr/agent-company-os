@@ -45,7 +45,7 @@ Track this work in `PROGRESS-UI.md` as tasks U01–U16 (same table format as PRO
 | Tilemap/props | hand-authored pixel tiles + CC0 props | floor/walls/desks/plants baked as an atlas |
 | Desktop shell | **Electron** (`apps/desktop`; `electron` + `electron-builder`) | wraps the Vite build in a `BrowserWindow`; native window/menu/tray/notifications; can boot/monitor the compose stack; office detach = second `BrowserWindow`. Secure config: `contextIsolation:true`, `nodeIntegration:false`, `sandbox:true`, a minimal `preload` bridge; renderer loads the built SPA (or `ACOS_BASE_URL`). Heavier bundle (~150MB) accepted per Founder decision. |
 | Terminal | **xterm.js** (already chosen T41) | multi-terminal grid |
-| Graphs | **Cytoscape.js** (org/memory) + custom canvas (office, memory brain-field) | |
+| Graphs | **Cytoscape.js** (org) + **three.js/R3F** (memory galaxy, ADR-021) + custom canvas (office, memory 2D fallback) | |
 | Charts | Recharts | costs/reports |
 
 No other new deps. Reuse existing `packages/ui` + Radix primitives.
@@ -115,9 +115,16 @@ reachable (open as panels/tabs). Exactly mirrors `docs/ui/acos-final.html`:
 
 - **Hafıza (relational)**: top = animated relational graph — nodes = memories (color by type, size ∝
   importance, opacity ∝ confidence), edges = `memory_relations` (supports green / contradicts red-dashed /
-  derived_from purple / supersedes grey), on a faint "brain-field" backdrop; hover → provenance
-  (type/conf/evidence). Backed by the Observatory endpoints (T48). Below: live-updating memory list
-  (new memories fade in on `memory.created`). Views: Graf / Liste / Zaman.
+  derived_from purple / supersedes grey); hover → provenance (scope owner/type/conf). Backed by the
+  Observatory endpoints (T48). Below: live-updating memory list (new memories fade in on
+  `memory.created`). Views: Graf / Liste / Zaman.
+  - **Renderer (revised — ADR-021).** The graph is the **3D spiral galaxy**, in this panel exactly as
+    on the full Observatory page: same scene, `variant="panel"` (no filter overlay, no labels, 230px
+    strip). The original spec here was a 2D canvas "brain-field", and it shipped that way while the
+    galaxy went only to the Observatory route — the Founder works in the Command Center panel, so the
+    galaxy was invisible in practice. The defect was two surfaces rendering the same domain object
+    differently, not the styling. The 2D strip survives **only** as the no-WebGL fallback, and that
+    fallback now prints its reason on screen instead of degrading silently.
 - **Skiller**: two tabs. **Beceriler** = per-agent skill matrix with evidence-based levels (T47).
   **Terfi Adayı** = emergent skill candidates (see U12) with reason + evidence chips + "↑ Terfi Et"
   → Founder promotion; on approve the candidate becomes the agent's real skill.

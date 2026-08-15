@@ -24,10 +24,14 @@ export interface OrbitLike {
  *
  * Mesafe keyfi değil, en dış kabuktan türetildi: agent kabuğu 20 yarıçapa
  * kadar uzanıyor (layout SHELL), 55° fov'da 30 birimden bakınca dıştaki
- * düğümler kadrajın dışında kalıyordu. 36 birim + daha alçak bakış açısı
- * diski marjla çerçeveler; kullanıcı yine de OrbitControls ile yakınlaşabilir.
+ * düğümler kadrajın dışında kalıyordu.
+ *
+ * Yükseklik de ölçüldü: 11 birimden bakınca (≈17° eğim) disk neredeyse
+ * kenardan görünüyor ve sarmal kollar üst üste binip kayboluyordu. 21 birim
+ * ≈35° eğim verir — kollar okunur, disk hâlâ disk gibi durur (tam tepeden
+ * bakmak derinliği öldürürdü). Uzaklık ~37 birim: dış kabuk (20) marjla sığar.
  */
-export const HOME_POSITION: [number, number, number] = [0, 11, 36];
+export const HOME_POSITION: [number, number, number] = [0, 21, 30];
 
 export function CameraRig({
   target,

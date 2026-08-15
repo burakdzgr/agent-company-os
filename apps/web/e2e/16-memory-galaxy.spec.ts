@@ -52,3 +52,34 @@ test("hafıza galaksisi: canvas + gerçek düğümler + canlı filtre + seçim",
   await graph.screenshot({ path: shot });
   await test.info().attach("galaxy", { path: shot, contentType: "image/png" });
 });
+
+// Command Center'ın sol Hafıza paneli (36 §5) da aynı sahneyi kullanır.
+// Bu test AYRI duruyor çünkü ayrı bir yüzey: galaksi Gözlemevi'ne bağlanıp
+// panel eski 2D şeritte kalınca kimse fark etmemişti — panelde 3D'nin
+// gerçekten kurulduğunu doğrulayan bir koşul yoktu.
+test("hafıza paneli: Command Center şeridi de galaksi", async ({ page }) => {
+  test.setTimeout(120_000);
+
+  await login(page);
+  await openCompany(page, "Acme");
+
+  const panel = page.getByTestId("memory-panel");
+  await expect(panel).toBeVisible();
+  await panel.getByTestId("memtab-graf").click();
+
+  // panel varyantı: 3D sahne kuruldu (2D BrainGraph da aynı testid'de canvas
+  // kullanıyor, o yüzden canvas'ın varlığı yetmez — WebGL bağlamı aranır)
+  const strip = panel.getByTestId("memory-brain-graph");
+  await expect(strip.locator("canvas")).toBeVisible({ timeout: 30_000 });
+  const isWebgl = await strip.locator("canvas").first().evaluate((canvas) => {
+    // R3F canvas'ının bağlamı webgl2/webgl olur; 2D şerit "2d" bağlam kullanır
+    const el = canvas as HTMLCanvasElement;
+    return Boolean(el.getContext("webgl2") ?? el.getContext("webgl"));
+  });
+  expect(isWebgl).toBe(true);
+
+  await page.waitForTimeout(1500);
+  const shot = test.info().outputPath("panel-galaxy.png");
+  await panel.screenshot({ path: shot });
+  await test.info().attach("panel-galaxy", { path: shot, contentType: "image/png" });
+});
