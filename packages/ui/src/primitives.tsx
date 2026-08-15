@@ -47,14 +47,25 @@ export function Card({
   actions,
   children,
   className,
+  "data-testid": testId,
 }: {
   title?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
+  /**
+   * e2e seçici sözleşmesi (N6/U16). Card bunu ÖNCEDEN kabul etmiyordu:
+   * çağıranlar `data-testid` yazıyordu, TypeScript fazlalık prop'u eledi ve
+   * öznitelik DOM'a hiç ulaşmıyordu — testid sessizce ölüydü (ör.
+   * MemoryGraph'in `memory-graph`'i). Artık açıkça taşınıyor.
+   */
+  "data-testid"?: string;
 }) {
   return (
-    <section className={cn("rounded-card border border-ink-200 bg-acos-bg1 shadow-sm", className)}>
+    <section
+      data-testid={testId}
+      className={cn("rounded-card border border-ink-200 bg-acos-bg1 shadow-sm", className)}
+    >
       {(title || actions) && (
         <header className="flex items-center justify-between border-b border-ink-100 px-4 py-2.5">
           <h3 className="text-sm font-semibold text-ink-800">{title}</h3>

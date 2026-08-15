@@ -9,6 +9,7 @@ import { Button, Card, Field, Input, StatusPill, cn } from "@acos/ui";
 import type { MemoryDto } from "@acos/contracts";
 import { api } from "../../lib/api.js";
 import { MemoryGraph } from "./MemoryGraph.js";
+import { GalaxyScene, webglAvailable } from "./galaxy/GalaxyScene.js";
 import { memoryTypeColor } from "./MemoryPanel.js";
 
 const STATUS_TONE: Record<string, "ok" | "warn" | "accent" | "neutral"> = {
@@ -494,7 +495,18 @@ export function MemoryView() {
               </table>
             </Card>
           )}
-          {tab === "graph" && <MemoryGraph companyId={companyId} onSelect={setSelectedId} />}
+          {/*
+            ADR-021: grafik varsayılan olarak 3D galaksi. WebGL yoksa (eski
+            sürücü, uzak masaüstü, headless) 2D cytoscape grafiğine düşülür —
+            görselleştirme bir lüks katmandır, panelin çalışmasını
+            engellememeli. Test kimliği `memory-graph` her iki yolda da aynı.
+          */}
+          {tab === "graph" &&
+            (webglAvailable() ? (
+              <GalaxyScene companyId={companyId} onSelect={setSelectedId} />
+            ) : (
+              <MemoryGraph companyId={companyId} onSelect={setSelectedId} />
+            ))}
           {tab === "timeline" && (
             <MemoryTimeline
               items={list.data?.items ?? []}
