@@ -34,6 +34,7 @@ import {
   agentSteps,
   agents,
   artifacts as artifactsTable,
+  environments,
   llmCalls,
   modelProfiles,
   positions,
@@ -405,6 +406,11 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       // alanına bağlar ama prompt bunu hiç yüzeye çıkarmıyordu; ajan kendi
       // şirketinin elindeki analizden habersiz "hangi proje?" diye soruyordu.
       let projectSection = "(no linked project)";
+      // B3': db.inspect ancak projenin bir veritabanı tanımı varsa iş görür.
+      // Tanımsızken katalogda göstermek B4'ün tam olarak düzelttiği israfı
+      // geri getirirdi (her deneme bir adım + bir LLM çağrısı yakar), o yüzden
+      // katalog satırı bu bayrağa bağlı.
+      let hasProjectDatabase = false;
       if (task.projectId) {
         const [projectRow] = await guardedDb
           .select({
@@ -441,6 +447,19 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
               report = `\nIntake analysis report "${artifact.title}" (truncated):\n${artifact.contentMd.slice(0, 6000)}`;
             }
           }
+          const envRows = await guardedDb
+            .select({ config: environments.config })
+            .from(environments)
+            .where(
+              and(
+                eq(environments.companyId, ctx.companyId),
+                eq(environments.projectId, task.projectId),
+              ),
+            );
+          hasProjectDatabase = envRows.some((row) => {
+            const config = (row.config ?? {}) as Record<string, unknown>;
+            return typeof (config.databaseUrl ?? config.database_url) === "string";
+          });
           projectSection = [
             `Project: ${projectRow.name} (status: ${projectRow.status})`,
             `Objective: ${projectRow.objectiveMd}`,
@@ -591,10 +610,17 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         `- {"type":"think","thought":"<reasoning, <=4000 chars>","plan":["step",...]?}`,
         // araç adları packages/tools MVP kaydıyla eşleşir (registry testi kilitler)
         // B4 (2026-08-15 code review): only tools with a real dispatch are
-        // advertised. db.inspect / web.* remain registered-but-unimplemented —
-        // advertising them burned a step and an LLM call per attempt. B1'
-        // wired task.query + memory.search, so those two are back.
-        `- {"type":"use_tool","tool":"<one of: fs.read | fs.search | fs.edit | fs.write | terminal.run | git.diff | git.commit | git.branch | git.merge | task.query | memory.search>","input":{...},"reason":"<=500 chars"} — terminal.run executes shell commands in YOUR task workspace (a clone of the project repo) and streams to the Founder-visible terminal; task.query reads this company's task board; memory.search looks up what the company already learned`,
+        // advertised — advertising a dead tool burned a step and an LLM call
+        // per attempt. B1' wired task.query + memory.search; B3' wired
+        // db.inspect, but that one only works where the project actually
+        // declares a database, so it is advertised per task rather than
+        // globally. web.* stay unimplemented and stay out.
+        `- {"type":"use_tool","tool":"<one of: fs.read | fs.search | fs.edit | fs.write | terminal.run | git.diff | git.commit | git.branch | git.merge | task.query | memory.search${hasProjectDatabase ? " | db.inspect" : ""}>","input":{...},"reason":"<=500 chars"} — terminal.run executes shell commands in YOUR task workspace (a clone of the project repo) and streams to the Founder-visible terminal; task.query reads this company's task board; memory.search looks up what the company already learned`,
+        ...(hasProjectDatabase
+          ? [
+              `  db.inspect {query, environment?, maxRows?} runs ONE read-only SQL statement against this project's database — a READ ONLY transaction, so any write is refused by the database itself.`,
+            ]
+          : []),
         `  EDITING RULE (hard): to change an EXISTING file use fs.edit {path, oldText, newText, replaceAll?} — an exact-snippet replacement. fs.write OVERWRITES THE WHOLE FILE and is ONLY for brand-new files; using it on an existing file destroys everything you did not re-type. Copy oldText verbatim from a prior fs.read (whitespace included); add surrounding lines if the snippet is not unique.`,
         `- {"type":"send_message","channelId":"<uuid>","kind":"text|help_request|review_request|escalation|status","body":"...","mentions":[],"refs":[]}`,
         `- {"type":"create_task","kind":"initiative|epic|task|subtask","parentTaskId":"<uuid>","title":"<=200","objective":"...","successCriteria":["..."],"priority":"P0|P1|P2|P3","estimatedEffort":1-13,"risk":"low|medium|high|critical"}`,

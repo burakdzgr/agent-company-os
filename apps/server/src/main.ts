@@ -46,6 +46,8 @@ async function main(): Promise<void> {
     guardedDb,
     sandboxManagerUrl: config.sandbox.managerUrl,
     internalApiToken: config.security.internalApiToken,
+    // B3': db.inspect must never be aimed at the platform DB (every company's rows)
+    platformDatabaseUrl: config.database.url,
   });
 
   // message delivery signalling (11 §4.4, T33): best-effort Temporal client —

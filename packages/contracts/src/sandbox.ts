@@ -48,6 +48,14 @@ export const ExecRequestSchema = z.object({
   /** With sessionId: await the result (frames still stream live) instead of
    *  the fire-and-forget 202 ack (T41 — tools want frames AND the result). */
   waitForResult: z.boolean().default(false),
+  /**
+   * Y3: payload written to the process's stdin instead of being baked into
+   * `command`. Linux caps a single argv entry at MAX_ARG_STRLEN (128 KB), and
+   * base64 inflates by a third — so file writes above ~96 KB died with an
+   * unreadable `E2BIG` even though the tool schemas promise 2 MB. stdin has no
+   * such limit. Encoded, so no byte sequence can break out of the transport.
+   */
+  stdinBase64: z.string().max(8_000_000).optional(),
   timeoutMs: z.number().int().min(1).max(3_600_000).default(120_000),
 });
 export type ExecRequest = z.infer<typeof ExecRequestSchema>;

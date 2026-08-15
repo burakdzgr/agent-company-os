@@ -270,6 +270,38 @@ export const gitMerge: ToolDefinition = {
   rateLimit: { perAgentPerMin: 3, perCompanyPerMin: 15 },
 };
 
+/**
+ * Y2 (2026-08-15 code review): the old check was a single `^(select|with|
+ * show|explain)` prefix test, which Postgres happily walks around —
+ * `WITH x AS (INSERT INTO t VALUES (1) RETURNING *) SELECT * FROM x` is a
+ * data-modifying CTE that starts with WITH, and `EXPLAIN ANALYZE DELETE …`
+ * actually RUNS the delete. The tool is R0 / sideEffectFree, i.e. it passes
+ * the autonomy matrix with the least supervision, so a bypass here is a
+ * silent write with no approval trail.
+ *
+ * This stays only the SECOND line of defence — dispatch runs the statement in
+ * a `READ ONLY` transaction with a `statement_timeout`, which is what actually
+ * makes a write impossible. Rejecting early just gives the agent a readable
+ * error instead of a Postgres one.
+ */
+function isReadOnlyStatement(raw: string): boolean {
+  // strip -- line comments and /* block comments */ so they cannot hide verbs
+  const q = raw
+    .replace(/--[^\n]*/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .trim();
+  if (!/^\s*(select|with|show|explain|table|values)\b/i.test(q)) return false;
+  // EXPLAIN ANALYZE executes the plan for real — only a plain EXPLAIN is safe
+  if (/^\s*explain\b/i.test(q) && /\banalyze\b/i.test(q)) return false;
+  // any writing verb anywhere (CTE bodies included) disqualifies the statement
+  if (/\b(insert|update|delete|merge|truncate|drop|alter|create|grant|revoke|copy|vacuum|call|do|refresh)\b/i.test(q)) {
+    return false;
+  }
+  // multiple statements: only a single trailing semicolon is tolerated
+  if (/;\s*\S/.test(q)) return false;
+  return true;
+}
+
 /** db.inspect — R0 READ-ONLY SQL against project databases; non-SELECT is
  *  rejected and a statement_timeout is enforced at dispatch. */
 export const dbInspect: ToolDefinition = {
@@ -282,8 +314,9 @@ export const dbInspect: ToolDefinition = {
       .string()
       .min(1)
       .max(16_384)
-      .refine((q) => /^\s*(select|with|show|explain)\b/i.test(q), {
-        message: "db.inspect accepts read-only statements only",
+      .refine(isReadOnlyStatement, {
+        message:
+          "db.inspect accepts a single read-only statement (no writing verb anywhere, no EXPLAIN ANALYZE)",
       }),
     environment: z.string().max(64).default("local"),
     maxRows: z.number().int().positive().max(1000).default(100),

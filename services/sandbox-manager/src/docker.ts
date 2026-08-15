@@ -138,17 +138,36 @@ export class DockerSandbox {
     const cmd = ["timeout", "-s", "KILL", String(timeoutSec), ...req.command];
     const tty = session !== undefined;
 
+    // Y3: a payload on stdin instead of inside argv. Linux caps one argv entry
+    // at MAX_ARG_STRLEN (128 KB) and base64 inflates by a third, so writing a
+    // file larger than ~96 KB used to die with a bare `E2BIG`. stdin is a
+    // stream — no cap — and a PTY exec cannot use it (the TTY owns the fd), so
+    // stdin is only attached on the buffered path.
+    const withStdin = req.stdinBase64 !== undefined && !tty;
+
     const exec = await container.exec({
       Cmd: cmd,
       AttachStdout: true,
       AttachStderr: true,
+      ...(withStdin && { AttachStdin: true }),
       Tty: tty,
       ...(req.cwd && { WorkingDir: req.cwd }),
       Env: Object.entries(req.env).map(([k, v]) => `${k}=${v}`),
     });
 
     const started = this.deps.nowMs();
-    const stream = await exec.start({ Tty: tty, hijack: true });
+    const stream = await exec.start({
+      Tty: tty,
+      hijack: true,
+      ...(withStdin && { stdin: true }),
+    });
+
+    if (withStdin) {
+      // decode here so the container receives raw bytes and the command needs
+      // no `base64 -d`; ending the stream is what sends EOF to the reader
+      stream.write(Buffer.from(req.stdinBase64!, "base64"));
+      stream.end();
+    }
 
     let stdout = "";
     let stderr = "";
@@ -172,7 +191,16 @@ export class DockerSandbox {
       stream.on("error", reject);
     });
 
-    const inspect = await exec.inspect();
+    // Half-closing stdin ends the hijacked socket on OUR side, so `end` can
+    // fire while the process is still running and `ExitCode` is still null
+    // (it surfaced as a bare `exit -1`). Wait for Docker to agree the exec is
+    // finished before reading the code. Costs one inspect on the normal path.
+    let inspect = await exec.inspect();
+    const inspectDeadline = this.deps.nowMs() + req.timeoutMs + 5_000;
+    while (inspect.Running && this.deps.nowMs() < inspectDeadline) {
+      await new Promise((r) => setTimeout(r, 25));
+      inspect = await exec.inspect();
+    }
     const exitCode = inspect.ExitCode ?? -1;
     // busybox `timeout -s KILL` → 137 (128+SIGKILL); coreutils → 124
     const timedOut = exitCode === 137 || exitCode === 124;

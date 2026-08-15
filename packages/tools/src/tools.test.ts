@@ -61,6 +61,38 @@ describe("tool registry (17 §2)", () => {
     ).not.toThrow();
   });
 
+  // Y2: the prefix test alone let three different writes through. R0 +
+  // sideEffectFree means these would have run with the least supervision the
+  // autonomy matrix has, so each one is a silent write with no approval trail.
+  it("db.inspect closes the Y2 bypasses (writing CTE, EXPLAIN ANALYZE, stacked statements)", () => {
+    const rejects = [
+      // data-modifying CTE — starts with WITH, passed the old prefix test
+      "WITH x AS (INSERT INTO users VALUES (1) RETURNING *) SELECT * FROM x",
+      // EXPLAIN ANALYZE actually executes the plan
+      "EXPLAIN ANALYZE DELETE FROM users",
+      "explain (analyze true) update users set admin = true",
+      // a second statement smuggled behind the semicolon
+      "SELECT 1; DROP TABLE users",
+      // the verb hidden behind a comment
+      "SELECT 1 -- harmless\n; TRUNCATE users",
+      "/* select */ UPDATE users SET admin = true",
+    ];
+    for (const query of rejects) {
+      expect(() => dbInspect.input.parse({ query }), query).toThrow();
+    }
+
+    // …while genuinely read-only shapes keep working
+    for (const query of [
+      "SELECT id, email FROM users WHERE created_at > now() - interval '1 day'",
+      "with recent as (select * from orders limit 10) select count(*) from recent",
+      "EXPLAIN SELECT * FROM users",
+      "SHOW statement_timeout",
+      "select 1;",
+    ]) {
+      expect(() => dbInspect.input.parse({ query }), query).not.toThrow();
+    }
+  });
+
   it("risk-class rate-limit defaults apply unless the tool overrides (17 §6)", () => {
     expect(rateLimitFor(fsRead)).toEqual(DEFAULT_RATE_LIMITS.R0);
     expect(rateLimitFor(terminalRun)).toEqual({ perAgentPerMin: 20, perCompanyPerMin: 200 });

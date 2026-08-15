@@ -23,7 +23,14 @@ import {
   type SandboxPort,
 } from "@acos/db";
 import { and, eq } from "drizzle-orm";
-import { agents, companies, tasks, workspaces as workspacesTable } from "@acos/db/schema";
+import { Pool } from "pg";
+import {
+  agents,
+  companies,
+  environments,
+  tasks,
+  workspaces as workspacesTable,
+} from "@acos/db/schema";
 import type { MergeBranchResponse } from "@acos/contracts";
 import type { IsolationLevel } from "@acos/domain";
 import type {
@@ -40,9 +47,84 @@ export interface SandboxDispatchOptions {
   internalApiToken: string;
   /** Workspace image when the project carries no override (15 §3.1). */
   defaultImage?: string;
+  /**
+   * B3' — the ACOS platform database URL. `db.inspect` targets PROJECT
+   * databases (17 §3.1); pointing it at the platform DB would hand an agent
+   * every company's rows in one query, so the URL is compared and refused.
+   */
+  platformDatabaseUrl?: string | undefined;
 }
 
 class DispatchError extends Error {}
+
+/**
+ * B3' — project-database pools for `db.inspect`, one per URL, opened lazily
+ * and kept small: an agent asking three questions in a row should not pay
+ * three handshakes, and a project nobody inspects should not hold sockets.
+ */
+const inspectPools = new Map<string, Pool>();
+
+function inspectPool(url: string): Pool {
+  let pool = inspectPools.get(url);
+  if (!pool) {
+    pool = new Pool({ connectionString: url, max: 2, idleTimeoutMillis: 30_000 });
+    pool.on("error", () => {}); // an idle client dropped by the project DB is not our failure
+    inspectPools.set(url, pool);
+  }
+  return pool;
+}
+
+/** Same host+port+database ⇒ same database, whatever the credentials are. */
+function sameDatabase(a: string, b: string): boolean {
+  try {
+    const left = new URL(a);
+    const right = new URL(b);
+    return (
+      left.hostname === right.hostname &&
+      (left.port || "5432") === (right.port || "5432") &&
+      left.pathname === right.pathname
+    );
+  } catch {
+    return a === b; // unparseable: fall back to an exact match rather than allowing
+  }
+}
+
+/**
+ * The real guarantee behind db.inspect's R0 classification: the statement runs
+ * inside a `READ ONLY` transaction with a `statement_timeout`, so a write that
+ * slipped past the schema check fails at the database ("cannot execute INSERT
+ * in a read-only transaction") instead of succeeding quietly, and a runaway
+ * scan cannot pin the project's database.
+ */
+async function runReadOnlyQuery(
+  url: string,
+  query: string,
+  opts: { maxRows: number; timeoutMs: number },
+): Promise<{ columns: string[]; rows: unknown[][]; rowCount: number; truncated: boolean }> {
+  const client = await inspectPool(url).connect();
+  try {
+    await client.query("BEGIN READ ONLY");
+    // SET LOCAL dies with the transaction — no leakage into a pooled session
+    await client.query(`SET LOCAL statement_timeout = ${Math.max(1_000, opts.timeoutMs)}`);
+    // one extra row is what tells us the result was cut short
+    const res = await client.query({ text: query, rowMode: "array" });
+    const all = res.rows as unknown[][];
+    const truncated = all.length > opts.maxRows;
+    return {
+      columns: res.fields.map((f) => f.name),
+      rows: all.slice(0, opts.maxRows),
+      rowCount: truncated ? opts.maxRows : all.length,
+      truncated,
+    };
+  } catch (err) {
+    // the agent gets the database's own words — "cannot execute DELETE in a
+    // read-only transaction" is exactly the feedback that stops the retry loop
+    throw new DispatchError(`db.inspect failed: ${(err as Error).message}`);
+  } finally {
+    await client.query("ROLLBACK").catch(() => {});
+    client.release();
+  }
+}
 
 /** Minimal typed client for sandbox-manager's internal API (T37/T38). */
 class SandboxHttp {
@@ -193,7 +275,13 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
   async function execScript(
     workspaceId: string,
     script: string,
-    opts: { timeoutMs: number; env?: Record<string, string>; sessionId?: string } = {
+    opts: {
+      timeoutMs: number;
+      env?: Record<string, string>;
+      sessionId?: string;
+      /** Y3: file payloads ride stdin, never argv (see writeFile below). */
+      stdinBase64?: string;
+    } = {
       timeoutMs: 60_000,
     },
   ): Promise<ExecResult> {
@@ -203,7 +291,47 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
       timeoutMs: opts.timeoutMs,
       ...(opts.env && { env: opts.env }),
       ...(opts.sessionId && { sessionId: opts.sessionId }),
+      ...(opts.stdinBase64 !== undefined && { stdinBase64: opts.stdinBase64 }),
     });
+  }
+
+  /**
+   * Y3 — the one way this module puts bytes into a workspace file.
+   *
+   * The content used to travel inside the shell command as a base64 argument.
+   * Linux caps a single argv entry at MAX_ARG_STRLEN (128 KB) and base64 adds
+   * a third, so anything over ~96 KB failed with a raw `E2BIG` in stderr —
+   * while `fs.write` advertises 2 MB and `fs.edit` rewrites the WHOLE file,
+   * meaning a three-line change in a 100 KB file also blew up. The agent had
+   * no way to read that error, so it retried the same doomed call.
+   *
+   * Now the bytes go over stdin (`cat > file`), which has no size limit, and
+   * the command line stays short and constant.
+   */
+  async function writeFile(
+    workspaceId: string,
+    path: string,
+    content: Buffer,
+  ): Promise<ExecResult> {
+    const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
+    // NOTE: a stdin exec must not be asked for stdout. Half-closing stdin
+    // tears down the whole hijacked Docker connection, so anything the command
+    // prints afterwards is lost — `echo existed=$existed` came back empty and
+    // fs.write reported `created: false` for a file it had just created. The
+    // exit code survives (it is read back via exec inspect), so this command
+    // reports success or failure ONLY through its exit status; everything the
+    // caller needs to know is probed separately.
+    const script = `mkdir -p ${shq(dir)} && cat > ${shq(path)}`;
+    return execScript(workspaceId, script, {
+      timeoutMs: 60_000,
+      stdinBase64: content.toString("base64"),
+    });
+  }
+
+  /** Cheap existence probe — the half of `fs.write` that needs an answer. */
+  async function pathExists(workspaceId: string, path: string): Promise<boolean> {
+    const probe = await execScript(workspaceId, `[ -e ${shq(path)} ] && echo YES || echo NO`);
+    return probe.stdout.includes("YES");
   }
 
   return {
@@ -334,6 +462,62 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
         };
       }
 
+      // B3' (Y2) — db.inspect. 17 §3.1: "READ-ONLY SQL against project DBs;
+      // gateway rejects non-SELECT + enforces statement_timeout".
+      //
+      // The schema-layer check in @acos/tools is the second line of defence,
+      // not the first: Postgres will happily run a writing CTE or an
+      // `EXPLAIN ANALYZE DELETE` behind a SELECT-looking prefix. What makes a
+      // write actually impossible is the transaction below — READ ONLY plus a
+      // statement timeout, on a connection to the PROJECT's own database.
+      if (tool.name === "db.inspect") {
+        if (!taskId) throw new DispatchError("db.inspect needs a task context (project scope)");
+        const [task] = await db
+          .select({ projectId: tasks.projectId })
+          .from(tasks)
+          .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)));
+        if (!task?.projectId) throw new DispatchError("db.inspect needs a project task");
+        const envName = String(args.environment ?? "local");
+        const [env] = await db
+          .select({ config: environments.config })
+          .from(environments)
+          .where(
+            and(
+              eq(environments.companyId, ctx.companyId),
+              eq(environments.projectId, task.projectId),
+              eq(environments.name, envName),
+            ),
+          );
+        const config = (env?.config ?? {}) as Record<string, unknown>;
+        const url = config.databaseUrl ?? config.database_url;
+        if (typeof url !== "string" || url.length === 0) {
+          throw new DispatchError(
+            `no database configured for environment "${envName}" — set environments.config.databaseUrl (ideally a READ-ONLY role) before using db.inspect`,
+          );
+        }
+        // tenant leak guard: the platform DB holds every company's rows
+        if (options.platformDatabaseUrl && sameDatabase(url, options.platformDatabaseUrl)) {
+          throw new DispatchError(
+            "db.inspect refuses the ACOS platform database — it is not a project database",
+          );
+        }
+        const maxRows = (args.maxRows as number) ?? 100;
+        const result = await runReadOnlyQuery(url, String(args.query), {
+          maxRows,
+          timeoutMs: tool.timeoutMs,
+        });
+        return {
+          output: {
+            columns: result.columns,
+            rows: result.rows,
+            rowCount: result.rowCount,
+            truncated: result.truncated,
+            provenance: "workspace",
+          },
+          resultSummary: `${result.rowCount} row(s)${result.truncated ? ` (truncated at ${maxRows})` : ""}`,
+        };
+      }
+
       if (tool.name === "memory.search") {
         let projectId: string | null = null;
         if (taskId) {
@@ -444,26 +628,24 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
           // reddedilir — model uzun dosyayı yeniden üretirken çıktı token
           // tavanına çarpıp gerisini sessizce siliyordu. Düzenleme fs.edit'ten
           // geçer; bilinçli yeniden yazım overwrite:true ile mümkün.
-          if (args.overwrite !== true) {
-            const exists = await execScript(ws.id, `[ -e ${shq(path)} ] && echo YES || echo NO`);
-            if (exists.stdout.includes("YES")) {
-              throw new DispatchError(
-                `fs.write REFUSED: ${path} already exists. Use fs.edit {path, oldText, newText} for surgical changes (whole-file rewrites silently truncate long files). Pass overwrite:true only for a deliberate full rewrite.`,
-              );
-            }
+          const existedBefore = await pathExists(ws.id, path);
+          if (args.overwrite !== true && existedBefore) {
+            throw new DispatchError(
+              `fs.write REFUSED: ${path} already exists. Use fs.edit {path, oldText, newText} for surgical changes (whole-file rewrites silently truncate long files). Pass overwrite:true only for a deliberate full rewrite.`,
+            );
           }
           const content = String(args.content);
-          const encoded =
+          const bytes =
             args.encoding === "base64"
-              ? content
-              : Buffer.from(content, "utf8").toString("base64");
-          const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ".";
-          const result = await execScript(
-            ws.id,
-            `mkdir -p ${shq(dir)} && [ -e ${shq(path)} ] && existed=1 || existed=0; printf '%s' ${shq(encoded)} | base64 -d > ${shq(path)} && echo "existed=$existed"`,
-          );
+              ? Buffer.from(content, "base64")
+              : Buffer.from(content, "utf8");
+          const result = await writeFile(ws.id, path, bytes);
           if (result.exitCode !== 0) {
-            throw new DispatchError(`fs.write failed: ${result.stderr.trim()}`);
+            // an empty stderr with a non-zero exit is unactionable for the
+            // agent — always carry the exit code too
+            throw new DispatchError(
+              `fs.write failed (exit ${result.exitCode}): ${result.stderr.trim() || result.stdout.trim() || "no output"}`,
+            );
           }
           // T38 soft lock on the touched path — warn-not-block (15 §3.8)
           const lock = await workspaces.acquireLock(ctx, {
@@ -473,8 +655,8 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
           });
           return {
             output: {
-              byteSize: Buffer.from(encoded, "base64").length,
-              created: result.stdout.includes("existed=0"),
+              byteSize: bytes.length,
+              created: !existedBefore,
               lockConflicts: lock.conflicts.map((c) => ({
                 taskId: c.taskId ?? "",
                 pathPrefix: c.pathPrefix,
@@ -512,11 +694,7 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
           const updated = replaceAll
             ? current.split(oldText).join(newText)
             : current.replace(oldText, newText);
-          const encodedNew = Buffer.from(updated, "utf8").toString("base64");
-          const write = await execScript(
-            ws.id,
-            `printf '%s' ${shq(encodedNew)} | base64 -d > ${shq(path)}`,
-          );
+          const write = await writeFile(ws.id, path, Buffer.from(updated, "utf8"));
           if (write.exitCode !== 0) {
             throw new DispatchError(`fs.edit failed: ${write.stderr.trim()}`);
           }

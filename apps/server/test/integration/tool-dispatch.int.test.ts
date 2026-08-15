@@ -187,7 +187,7 @@ beforeAll(async () => {
     .returning();
   taskId = task!.id;
 
-  for (const tool of ["fs.write", "terminal.run"]) {
+  for (const tool of ["fs.write", "fs.edit", "terminal.run"]) {
     await db.insert(toolPermissions).values({
       companyId,
       toolName: tool,
@@ -283,6 +283,62 @@ describe.skipIf(!runnable)("gateway → dispatch → real workspace (T40 accepta
       .from(terminalSessions)
       .where(eq(terminalSessions.id, output.terminalSessionId));
     expect(sessions[0]!.status).toBe("closed");
+  }, 600_000);
+
+  // Y3 (B4'): the payload used to travel as a base64 ARGV entry, and Linux
+  // caps one argv entry at MAX_ARG_STRLEN = 128 KB. Base64 inflates by a
+  // third, so ~96 KB of source was the real ceiling — while fs.write's schema
+  // promises 2 MB and fs.edit rewrites the whole file, so a three-line change
+  // in a 100 KB file blew up too. The failure surfaced as a bare `E2BIG` in
+  // stderr, which the agent could not act on, so it retried the same call.
+  // Bytes now ride stdin, which has no such limit.
+  it("fs.write handles a file far past the 128 KB argv ceiling (Y3)", async () => {
+    // 300 KB of distinguishable text — ~400 KB once base64'd, i.e. more than
+    // triple the old ceiling
+    const line = "const x = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';\n";
+    // a unique first line so the fs.edit below has an unambiguous anchor
+    const big = `const UNIQUE_ANCHOR = 'edit-me';\n${line.repeat(Math.ceil(300_000 / line.length))}`;
+    const res = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "fs.write",
+      input: { path: "src/big.ts", content: big },
+      taskId,
+    });
+    expect(res.status, `dispatch error: ${res.error ?? res.reason ?? "none"}`).toBe("succeeded");
+    expect((res.output as { byteSize: number }).byteSize).toBe(Buffer.byteLength(big, "utf8"));
+
+    // the bytes really landed — checked in the container, not from our own echo
+    const check = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "terminal.run",
+      input: { command: "wc -c < src/big.ts", timeoutSec: 60 },
+      taskId,
+    });
+    const out = check.output as { exitCode: number; stdoutTail: string };
+    expect(out.exitCode).toBe(0);
+    expect(out.stdoutTail.trim()).toBe(String(Buffer.byteLength(big, "utf8")));
+
+    // and fs.edit — which rewrites the WHOLE file — survives at that size
+    const edited = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "fs.edit",
+      input: {
+        path: "src/big.ts",
+        oldText: "const UNIQUE_ANCHOR = 'edit-me';",
+        newText: "const marker = 'edited-at-scale';",
+      },
+      taskId,
+    });
+    expect(edited.status, `dispatch error: ${edited.error ?? edited.reason ?? "none"}`).toBe(
+      "succeeded",
+    );
+    const grep = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "terminal.run",
+      input: { command: "grep -c edited-at-scale src/big.ts", timeoutSec: 60 },
+      taskId,
+    });
+    expect((grep.output as { stdoutTail: string }).stdoutTail.trim()).toBe("1");
   }, 600_000);
 
   it("a failing command comes back as a RESULT (exit != 0), still succeeded + audited", async () => {
