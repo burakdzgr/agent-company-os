@@ -448,6 +448,47 @@ describe.skipIf(!runnable)("projectIntakeWorkflow (T42, demo steps 6–7)", () =
     }, "CTO initiative + EM epic + dev tasks from the cascade");
   }, 600_000);
 
+  // B4 (14 §3.1): repo'suz bir proje fikri de rapor almalı. Önceden bu yolda
+  // HİÇ artefakt üretilmiyordu — CEO'ya çıplak bir hedef cümlesi gidiyor,
+  // içeri alınan bir projeye ise on beş bölüm veriliyordu.
+  it("repo'suz proje fikri de 16 bölümlük rapor alır ve CEO'ya yönlenir", async () => {
+    const project = await projectsService.create(ctx, {
+      name: "Greenfield Idea",
+      objective: "Küçük işletmeler için abonelik takip aracı",
+      createdByUserId: founderUserId,
+    });
+
+    const result = (await client.workflow.execute("projectIntakeWorkflow", {
+      taskQueue: TASK_QUEUES.intake,
+      workflowId: `intake.${project.id}`,
+      args: [{ companyId, projectId: project.id, source: { kind: "empty" } }],
+    })) as { reportArtifactId: string | null; goalTaskId: string };
+
+    // rapor GERÇEKTEN üretildi
+    expect(result.reportArtifactId, "repo'suz projede rapor üretilmedi").not.toBeNull();
+    const [artifact] = await db
+      .select()
+      .from(artifacts)
+      .where(eq(artifacts.id, result.reportArtifactId!));
+    const md = artifact!.contentMd!;
+    INTAKE_REPORT_SECTIONS.forEach((heading, i) => expect(md).toContain(`## ${i + 1}. ${heading}`));
+
+    // depo bölümleri "analiz yok" demiyor, "henüz depo yok" diyor
+    expect(md).toContain("no repository yet");
+    // …ve rapor hedefi taşıyor
+    expect(md).toContain("Küçük işletmeler için abonelik takip aracı");
+
+    // proje aktif + rapor projeye bağlı + GOAL CEO'ya yönlendi
+    const [after] = await db.select().from(projects).where(eq(projects.id, project.id));
+    expect(after!.status).toBe("active");
+    expect(after!.intakeReportArtifactId).toBe(result.reportArtifactId);
+    const [goal] = await db.select().from(tasks).where(eq(tasks.id, result.goalTaskId));
+    expect(goal!.kind).toBe("goal");
+    expect((goal!.context as { artifactIds?: string[] }).artifactIds).toEqual([
+      result.reportArtifactId,
+    ]);
+  }, 600_000);
+
   it("HOSTILE fixture: degraded sections, redacted secrets — report + routing still happen", async () => {
     const project = await projectsService.create(ctx, {
       name: "Hostile Import",

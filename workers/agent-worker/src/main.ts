@@ -323,6 +323,10 @@ async function run(): Promise<void> {
     workflowsPath: require.resolve("./workflows/intake/index.js"),
     activities: createIntakeControlActivities({
       guardedDb,
+      // B4 (14 §3.1 stage 3): the interpretive pass over the analyzer output.
+      // Absent router ⇒ the deterministic report still ships (P6).
+      router,
+      routingFor,
       // routed GOAL → CEO agentTaskWorkflow (09 §4, same port as T36)
       startAgentWorkflow: async ({ companyId, agentId, taskId }) => {
         await startAgentTaskWorkflow(temporalClient, "agentTaskWorkflow", {

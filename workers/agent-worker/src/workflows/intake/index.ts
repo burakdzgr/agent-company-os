@@ -135,23 +135,26 @@ export async function projectIntakeWorkflow(
       .catch(() => {});
   }
 
-  // ---- stages 3+5: report (imported only, P6) + routing ----
-  let reportArtifactId: string | null = null;
-  let summary = "greenfield project — no intake analysis";
-  if (ingest.worktreeVolume) {
-    const saved = await control.saveIntakeReportActivity({
-      companyId: input.companyId,
-      projectId: input.projectId,
-      projectName: project.name,
-      objective: project.objective,
-      constraints: project.constraints,
-      sourceRef: input.source.kind === "git_url" ? input.source.url : null,
-      ingest,
-      analyzers,
-    });
-    reportArtifactId = saved.artifactId;
-    summary = saved.summary;
-  }
+  // ---- stages 3+5: report + routing ----
+  // B4: a project with NO repository used to get no report at all — the CEO
+  // was routed a bare objective while an imported project got fifteen
+  // sections. An idea deserves the same treatment: the repo-derived sections
+  // say "no repository yet" and the interpretive pass writes the rest from
+  // the objective.
+  const greenfield = !ingest.worktreeVolume;
+  const saved = await control.saveIntakeReportActivity({
+    companyId: input.companyId,
+    projectId: input.projectId,
+    projectName: project.name,
+    objective: project.objective,
+    constraints: project.constraints,
+    sourceRef: input.source.kind === "git_url" ? input.source.url : null,
+    ingest,
+    analyzers,
+    ...(greenfield && { greenfield: true }),
+  });
+  const reportArtifactId: string | null = saved.artifactId;
+  const summary = saved.summary;
   // memory seeding (14 §3.1 stage 4) lands with T44's consolidation pipeline
 
   const routed = await control.routeIntakeActivity({
