@@ -89,3 +89,28 @@ Bu satırlar `CODE-REVIEW-2026-08-15.md` + `CODEREVIEWHAFIZA.md` kesişiminden d
 | Seed grant yolu | ✅ | 2026-08-15 | `ensureSeed` mevcut kurulumda erken dönüyor ve araç grant listesini hiç çağırmıyordu: yeni bağlanan her araç `NO_PERMISSION_GRANT` ile düşüyor, gateway hatası gibi görünüyordu. |
 
 **Açık kalanlar:** O12–O15, M4 (episodik adım hafızası — INV-15/INV-11 gözetilerek değerlendirilecek), `web.search` için arama API anahtarı yapılandırması, `db.inspect` için proje veritabanı tanımı (`environments.config.databaseUrl`).
+
+## AGENT-BRIEF rev 2 — 2026-08-15 (üçüncü tur)
+
+Brifing yeniden numaralandı; aşağıdakiler o numaralandırmaya göre. A1–A3, B1–B2, C1–C5 ve E'nin beş kalemi önceki turlarda bitmişti (yukarıdaki tablolar).
+
+| Madde | Durum | Tarih | Not |
+|---|---|---|---|
+| **A4** `dependencyResolved` köprüsü (07 §3, 09 §9) | ✅ | 2026-08-15 | Emit vardı, workflow handler'ı vardı, **gönderen yoktu** — repoda tek bir `signal("dependencyResolved", …)` çağrısı bile bulunmuyordu. DAG'ın "A bitince B başlasın" vaadi pratikte "B kendi zaman aşımı dolunca fark eder"e dönüşmüştü. Kendi cursor'ı olan `workflow-signals` durable'ı + köprü; workflow handler'ı artık tekrar teslimatı dedupe ediyor (çözülen bağımlılıklar bir KÜME). |
+| **A5** konteyner roll-up (07 §2) | ✅ | 2026-08-15 | "Derived-but-persisted … child-completion triggers" tarif edilmiş, tetikleyici yazılmamıştı: `to === "DONE"` dalında çocuk kontrolü yoktu, CEO hedefi delege edip hemen kapatabiliyordu. Çocuklar terminal olunca ebeveyn türetiliyor; konteyneri elle kapatmak reddediliyor. Konteynerler iş görevi makinesini yürümüyor (kimse bir hedefi kod incelemesinden geçirmez) — bu yol yalnız goal/initiative için açık, bir `task` DONE'a asla review/QA olmadan ulaşamaz. |
+| **A6** stuck-task-sweep (09 §9, 07 §8) | ✅ | 2026-08-15 | İş yalnız üç yoldan ilerliyordu; WAITING'e park edilen görevi geri alan mekanizma yoktu. Sweep süresi dolanı BLOCKED'a alıp yöneticiye eskalasyon üretiyor, sahibinin döngüsü ölmüşse yeniden başlatıyor. **Doküman içi çelişki:** §8 prosası "→ BLOCKED" diyor ama §5'in kanonik tablosunda o kenar yok (WAITING gönüllü, BLOCKED zorunlu); kanonik tablo bağlayıcı olduğu için hedefe iki meşru adımda gidiliyor. |
+| **A7** TEK KANIT KOŞUSU | ✅ | 2026-08-15 | Tek senaryo, yedi faz, üç kanıt: hedef → decompose → iki alt görev (aralarında DAG kenarı) → gerçek inceleme/QA/merge → roll-up ile girişim+hedef → hafıza zinciri → /ws; ardından bütçe ihlali → devre kesici → restore; son olarak sweep. Sahte olan tek şey sandbox'ın HTTP sınırı ve Temporal'ın "start" semantiği. |
+| **B3** prompt caching (26 §3) | ✅ | 2026-08-15 | Brifingin "sıra zaten doğru" premisi yanlıştı: katalog DEĞİŞKEN user mesajının sonundaydı ve sistem mesajı her adımda değişen markers'ı taşıyordu — cache'lenecek sabit önek hiç yoktu. Mesajlar artık konuya göre değil KARARLILIĞA göre bölünüyor; `LlmMessage.cacheable` → Anthropic `cacheControl` (1h). Asıl test önekin iki farklı adımda birebir aynı kaldığı. |
+| **B4** intake sentez katmanı (14 §3.1/§3.2) | ✅ | 2026-08-15 | Beş bölüm sabit `_analysis unavailable_` idi: Founder JSON dökümü alıyor, okumasını almıyordu. Yorumlayıcı geçiş eklendi (analizör çıktısı modele DATA olarak veriliyor, P3); model yoksa/çıktı bozuksa deterministik metne düşülüyor (P6). **Repo'suz proje** artık rapor alıyor — önceden bu yolda hiç artefakt üretilmiyordu. |
+| **D1** teslimat kaydı (14 §5) | ✅ *(MVP dilimi)* | 2026-08-15 | Tablo ve `project.deployment.*` olayları vardı, yazan yoktu. DeploymentsService + olaylar + onay kapısı. **Brifingin "dış git remote push + deploy hedefi" isteği uygulanmadı:** 14 §5 bunu açıkça sınırlıyor — "MVP scope: sandbox-kind environments only; external environments are Phase 3". Sınır kodda uygulandı, yorum olarak bırakılmadı. REST yüzeyi yok (29 §6.5 guard'ı `/deployments` yolunu yasaklıyor). |
+| **D4** proje-bazlı egress (27 §12) | ✅ | 2026-08-15 | squid.conf'un kendi yorumu bunu öngörüyordu ("generated include"), üretici yazılmamıştı: ajanlar yalnız paket registry'lerine çıkabiliyordu. `projects.settings` (migration 0016) + include üreticisi + salt-okunur mount + doğrulayan reload. Asıl risk konfigürasyon enjeksiyonuydu (satır sonu içeren "alan adı" allowlist'i açabilirdi) — desen fail-closed. Canlıda kanıtlandı. |
+| **E** kalanı | ✅ ◑ | 2026-08-15 | `guard_stopped` oturumu artık "completed" sayılmıyor (teslimat yoksa oturum başarılı değildir); `subjectFilters[1]` ölü kodu kaldırıldı; MVP_TOOLS yorumu düzeltildi. **Dispatch hatasında olay yayılması YAPILMADI:** 10 §10'un tablosunda `tool.invocation.failed` yok ve katalog testi kaydı dokümanla birebir eşleştiriyor. Gözlemlenebilirlik bugün `tool_invocations` satırı + ajan adımının `observation` alanından sağlanıyor; olayı zaman çizelgesine taşımak doküman kararı ister. |
+
+### D2 / D3 — uygulanmadı (gerekçe)
+
+Brifingin **D2 (entegrasyon modülü, ADR-017)** ve **D3 (pazarlama aktüasyonu)** maddeleri, mimari dokümanların **Phase 2** olarak ayırdığı yüzeylerdir:
+
+- `30-PHASE-2.md`: *"Per ADR-017, integrations are adapters in the `integrations` module … the first adapter is Instagram Graph API"* — entegrasyon ve sosyal yayın oradadır.
+- `apps/server/test/scope.test.ts` (29 §6.5, T50) bunu **CI'da aktif olarak engelliyor**: `/campaigns`, `/marketing`, `/content`, `/deployments`, `/assets`, `/experiments` yollarından biri OpenAPI'ye girerse test kırılıyor. Guard'ın kendi ifadesi: *"schema-only subsystems … tables exist, no API surface"*.
+
+Yani bu iki maddeyi yazmak, projenin kendi kapsam guard'ını ihlal etmek olurdu. Faz D'nin MVP'de dayanağı olan iki dilimi (D1'in sandbox teslimat kaydı, D4'ün egress include'u) uygulandı; D2/D3 bir **faz kararı** olarak Founder'a bırakıldı.
