@@ -23,7 +23,19 @@ import {
 
 export const SESSION_COOKIE = "acos_session";
 export const CSRF_COOKIE = "acos_csrf";
-export const SESSION_COOKIE_OPTIONS = { path: "/", httpOnly: true, sameSite: "lax" as const };
+/**
+ * O8: the session cookie carries the Founder's identity, so outside
+ * development it must never travel over plain HTTP. `secure` is on whenever
+ * the process is not running in development — the prod overlay terminates TLS
+ * at Caddy (27 §3), and a cookie without this flag is replayable by anyone on
+ * the path. Left off in development so http://localhost still works.
+ */
+export const SESSION_COOKIE_OPTIONS = {
+  path: "/",
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+};
 const SESSION_IDLE_HOURS = 24;
 const SESSION_ABSOLUTE_DAYS = 30;
 const LOGIN_MAX_FAILURES = 5;

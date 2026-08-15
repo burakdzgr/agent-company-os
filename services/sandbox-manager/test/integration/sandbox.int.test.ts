@@ -75,6 +75,11 @@ describe.skipIf(!dockerUp)("DockerSandbox round-trip (T37)", () => {
     expect(info.HostConfig.SecurityOpt).toContain("no-new-privileges");
     expect(info.HostConfig.ReadonlyRootfs).toBe(true);
     expect(info.HostConfig.NetworkMode).toBe(WORKSPACE_NETWORK);
+    // O10: agent code must not run as root. The rest of the stack already
+    // assumed uid 1000 (provisionWorktree chowns the worktree to it), but the
+    // container spec did not say so — so workspaces ran as root over a
+    // volume owned by 1000.
+    expect(info.Config.User).toBe("1000:1000");
 
     // exec a command → real exit code + stdout
     const result = await sandbox.exec(workspaceId, {

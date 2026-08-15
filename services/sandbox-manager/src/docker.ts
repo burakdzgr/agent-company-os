@@ -93,6 +93,14 @@ export class DockerSandbox {
         Image: image,
         Cmd: KEEPALIVE,
         Tty: false,
+        // O10: agent code runs UNPRIVILEGED inside the workspace. The rest of
+        // the stack already assumed this — provisionWorktree hands the
+        // worktree over with `chown -R 1000:1000 /work` and calls the image
+        // "unprivileged (uid 1000, S8)" — but the container spec never said
+        // so, so every workspace ran as root on top of a volume owned by
+        // 1000. CapDrop ALL + no-new-privileges + a read-only rootfs limited
+        // the blast radius; this closes the gap they were compensating for.
+        User: "1000:1000",
         ...(workMount && { WorkingDir: "/work" }),
         Env: Object.entries(env).map(([k, v]) => `${k}=${v}`),
         Labels: {

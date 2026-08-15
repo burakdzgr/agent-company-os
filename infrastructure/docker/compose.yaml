@@ -274,6 +274,11 @@ services:
     image: acos/egress-proxy
     build:
       context: egress-proxy
+    environment:
+      # O11: the ACL subnet comes from the SAME variable as the network below,
+      # so the two cannot drift apart (they did, and squid then denied every
+      # workspace request without anything looking wrong).
+      WORKSPACE_SUBNET: ${WORKSPACE_SUBNET:-172.30.0.0/16}
     networks:
       - default
       - acos-workspaces

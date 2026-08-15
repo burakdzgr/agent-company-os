@@ -24,6 +24,20 @@ async function main(): Promise<void> {
     }
   }
 
+  // O9: AUTH_AUTOLOGIN turns the login prompt off entirely — anyone who can
+  // reach /api/v1 is served as the Founder. That is the intended single-user
+  // mode (2026-08-13), but it must never be the quiet default on an exposed
+  // install, so boot says it out loud.
+  if (config.security.autologinFounder) {
+    const message =
+      "AUTH_AUTOLOGIN is ON — every request to /api/v1 is served as the Founder, with no password. " +
+      "This is single-user mode. Set AUTH_AUTOLOGIN=false before exposing this install to a network.";
+    console.warn(`⚠  ${message}`);
+    if (process.env.NODE_ENV === "production") {
+      console.warn("⚠  …and NODE_ENV=production: the server is unauthenticated in a production build.");
+    }
+  }
+
   const app = await buildApp({
     db: createDb(pool),
     guardedDb,
