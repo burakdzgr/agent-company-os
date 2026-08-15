@@ -22,7 +22,7 @@ import {
   type GuardedDb,
   type SandboxPort,
 } from "@acos/db";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { Pool } from "pg";
 import {
   agents,
@@ -236,6 +236,12 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
       ensureRepo: (projectId) => http.ensureRepo(projectId),
       provisionWorktree: (input) => http.provisionWorktree(input),
       createContainer: async ({ workspaceId, volumeName }) => {
+        // Y5 note: isolation.ts calls `analysis` "ro source", which read as a
+        // contradiction with the writable mount here. It is not one any more —
+        // C2 escalates the task's single workspace to `coding` before any
+        // write tool runs, so an `analysis` container never receives one. The
+        // mount stays writable because the SAME volume is reused across the
+        // escalation; remounting read-only would only move the failure.
         const ws = await http.createWorkspace({
           workspaceId,
           isolation,
@@ -366,12 +372,17 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
           .from(tasks)
           .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)));
         if (!task?.projectId) throw new DispatchError("git.merge needs a project task");
+        // C2/Y5: a task used to be able to own several workspace rows over the
+        // same volume, and this query took whichever came back first. One
+        // workspace per task now, and the ordering makes the pick explicit for
+        // tasks whose rows predate that fix.
         const [workspaceRow] = await db
           .select()
           .from(workspacesTable)
           .where(
             and(eq(workspacesTable.companyId, ctx.companyId), eq(workspacesTable.taskId, taskId)),
-          );
+          )
+          .orderBy(asc(workspacesTable.createdAt));
         const branch = (args.branch as string) || workspaceRow?.branch || "";
         if (!branch) throw new DispatchError("git.merge: no task branch found");
         const [agent] = await db

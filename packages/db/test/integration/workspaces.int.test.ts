@@ -185,6 +185,68 @@ describe("WorkspaceService provisioning (T38)", () => {
     expect(port.calls).toHaveLength(0); // no second clone/container
   });
 
+  // C2/Y5: the lookup used to be keyed on (taskId, isolationLevel) while the
+  // volume name comes from the task alone — so fs.read (analysis) and
+  // fs.write (coding) built TWO workspaces over the SAME worktree volume, and
+  // callers querying by taskId picked an arbitrary one. Since `analysis` runs
+  // with network:none, work could silently land in the wrong container.
+  it("a stronger level upgrades the SAME workspace instead of opening a second one", async () => {
+    const [t84] = await system
+      .insert(tasks)
+      .values({
+        companyId: ctx.companyId,
+        projectId,
+        number: 84,
+        kind: "task",
+        title: "Read then write",
+        objective: "x",
+        status: "IN_PROGRESS",
+      })
+      .returning();
+
+    // fs.read → analysis
+    const analysisPort = fakePort();
+    const first = await service.provision(
+      ctx,
+      { taskId: t84!.id, isolationLevel: "analysis" },
+      analysisPort,
+    );
+    expect(first.created).toBe(true);
+    expect(first.workspace.isolationLevel).toBe("analysis");
+
+    // fs.write → coding: same row, same volume, container recreated
+    const codingPort = fakePort();
+    const second = await service.provision(
+      ctx,
+      { taskId: t84!.id, isolationLevel: "coding" },
+      codingPort,
+    );
+    expect(second.workspace.id).toBe(first.workspace.id);
+    expect(second.workspace.isolationLevel).toBe("coding");
+    expect(second.workspace.volumePath).toBe(first.workspace.volumePath);
+    expect(second.created).toBe(false);
+    // the worktree is NOT cloned a second time; only the container is replaced
+    expect(codingPort.calls.filter((c) => c.startsWith("worktree:"))).toHaveLength(0);
+    expect(codingPort.calls.filter((c) => c.startsWith("container:"))).toHaveLength(1);
+
+    // and the task really owns ONE workspace
+    const rows = await system
+      .select()
+      .from(workspaces)
+      .where(and(eq(workspaces.companyId, ctx.companyId), eq(workspaces.taskId, t84!.id)));
+    expect(rows).toHaveLength(1);
+
+    // going back DOWN (terminal.run at coding, then another fs.read) must not
+    // weaken the container the agent is already working in
+    const backDown = await service.provision(
+      ctx,
+      { taskId: t84!.id, isolationLevel: "analysis" },
+      fakePort(),
+    );
+    expect(backDown.workspace.isolationLevel).toBe("coding");
+    expect(backDown.workspace.id).toBe(first.workspace.id);
+  });
+
   it("a port failure lands the row in failed with workspace.failed", async () => {
     const [t83] = await system
       .insert(tasks)

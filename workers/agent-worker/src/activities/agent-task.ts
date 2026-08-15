@@ -192,6 +192,9 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           sql`${workspacesTable.status} IN ('ready','in_use','idle')`,
         ),
       )
+      // C2/Y5: deterministic pick — a task owns one workspace now, but rows
+      // created before that fix can still be duplicated
+      .orderBy(asc(workspacesTable.createdAt))
       .limit(1);
     if (!live) return;
     try {

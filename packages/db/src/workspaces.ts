@@ -12,7 +12,7 @@
 // - `base_commit` / `last_activity_at` have no canonical columns; the base
 //   commit is returned to the caller (and lives in git itself), activity
 //   tracking arrives with the reaper (T40+).
-import { and, eq, ne, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, ne, notInArray, or, sql } from "drizzle-orm";
 import {
   ISOLATION_LEVELS,
   taskBranchName,
@@ -38,6 +38,15 @@ export type TerminalSessionRow = typeof terminalSessions.$inferSelect;
 export type RepositoryRow = typeof repositories.$inferSelect;
 
 const SYSTEM_ACTOR: EventActor = { kind: "system", id: null };
+
+/**
+ * C2 — the isolation ladder a single task workspace can climb. Ordered
+ * weakest → strongest; a tool asking for a stronger level upgrades the
+ * existing workspace instead of creating a second one over the same volume.
+ * Levels outside this list (deploy/browser/media) are separate environments,
+ * not steps on the ladder.
+ */
+const ESCALATION_LADDER = ["analysis", "coding", "testing"] as const;
 
 /** Statuses the partial unique index treats as "live" (one live workspace
  *  per (task, isolation level)). */
@@ -195,6 +204,23 @@ export class WorkspaceService {
     }
     const projectId = task.projectId;
 
+    // C2/Y5 — ONE workspace per task, level escalated on demand.
+    //
+    // The lookup used to be keyed on (taskId, isolationLevel) while the volume
+    // name is derived from the task alone. So `fs.read` (analysis) and
+    // `fs.write` (coding) produced TWO workspace rows and TWO containers
+    // mounting the SAME worktree volume, with `provisionWorktree` called twice
+    // for it. Callers that query by taskId (`git.merge`, `checkpointBranch`)
+    // then picked an arbitrary one — and `analysis` runs with `network: none`,
+    // so a `terminal.run` that landed there saw `npm install` die for no
+    // visible reason.
+    //
+    // A task now has a single workspace whose isolation is raised to the
+    // highest level any tool has asked for (analysis < coding < testing);
+    // raising it recreates the container over the same volume. Levels outside
+    // that ladder (deploy/browser/media) are unrelated environments, so they
+    // keep their own row.
+    const onLadder = ESCALATION_LADDER.indexOf(level as (typeof ESCALATION_LADDER)[number]);
     const [live] = await this.db
       .select()
       .from(workspaces)
@@ -202,12 +228,24 @@ export class WorkspaceService {
         and(
           eq(workspaces.companyId, ctx.companyId),
           eq(workspaces.taskId, input.taskId),
-          eq(workspaces.isolationLevel, level),
+          ...(onLadder < 0 ? [eq(workspaces.isolationLevel, level)] : []),
           notInArray(workspaces.status, ["merged", "discarded", "failed", "destroyed"]),
         ),
       )
+      // deterministic: the task's first live workspace, never an arbitrary row
+      .orderBy(asc(workspaces.createdAt))
       .limit(1);
-    if (live) return { workspace: live, baseCommit: null, created: false };
+    if (live) {
+      const liveRank = ESCALATION_LADDER.indexOf(
+        live.isolationLevel as (typeof ESCALATION_LADDER)[number],
+      );
+      // already at or above the requested level (or off-ladder) — reuse as-is
+      if (onLadder < 0 || liveRank < 0 || onLadder <= liveRank) {
+        return { workspace: live, baseCommit: null, created: false };
+      }
+      const escalated = await this.escalateIsolation(ctx, live, level, port, actor);
+      return { workspace: escalated, baseCommit: null, created: false };
+    }
 
     const branch = taskBranchName(task.number, task.title);
     const volumeName = worktreeVolumeName(task.number, task.id);
@@ -302,6 +340,63 @@ export class WorkspaceService {
     });
 
     return { workspace: ready, baseCommit, created: true };
+  }
+
+  /**
+   * C2 — raise a live workspace to a stronger isolation level in place: the
+   * container is recreated at the new level over the SAME worktree volume, so
+   * the agent's uncommitted work survives. The row keeps its id, its branch
+   * and its status; only the level and the container change. A failure here
+   * leaves the old container alone rather than stranding the task.
+   */
+  private async escalateIsolation(
+    ctx: CompanyContext,
+    live: WorkspaceRow,
+    level: IsolationLevel,
+    port: SandboxPort,
+    actor: EventActor,
+  ): Promise<WorkspaceRow> {
+    let containerId: string;
+    try {
+      await port.destroyContainer(live.id);
+      const container = await port.createContainer({
+        workspaceId: live.id,
+        isolation: level,
+        image: live.image,
+        volumeName: live.volumePath ?? "",
+      });
+      containerId = container.containerId;
+    } catch (err) {
+      throw new WorkspaceError(
+        "WORKSPACE_PROVISION_FAILED",
+        `isolation escalation ${live.isolationLevel} → ${level} failed: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx
+        .update(workspaces)
+        .set({ isolationLevel: level, containerId })
+        .where(and(eq(workspaces.companyId, ctx.companyId), eq(workspaces.id, live.id)))
+        .returning();
+      // a new container over the same volume IS a provisioning event — the
+      // Founder's workspace timeline should show the level change
+      await emitDomainEvent(tx, ctx, {
+        type: "workspace.provisioned",
+        actor,
+        taskId: live.taskId,
+        projectId: live.projectId,
+        agentId: live.agentId,
+        payload: {
+          workspaceId: live.id,
+          taskId: live.taskId,
+          image: live.image,
+          isolationLevel: level,
+        },
+      });
+      return row!;
+    });
   }
 
   async get(ctx: CompanyContext, workspaceId: string): Promise<WorkspaceRow> {
