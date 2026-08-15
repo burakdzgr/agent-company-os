@@ -554,9 +554,22 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
             .catch(() => {}); // already merged on a replay — fine
         }
         await reviewsService.recordMerge(ctx, taskId, result.mergeCommit);
-        await taskState
-          .transition(ctx, taskId, "DONE", { kind: "system" })
-          .catch(() => {}); // task not in QA (e.g. approval-gated) — the engine decides
+        // O3/Faz E: bu çağrı her hatayı yutuyordu. Beklenen tek durum
+        // görevin QA'da OLMAMASI (onay kapılı akışta motor kapatır) — onu
+        // sessizce geçmek doğru. Ama merge OLDU, dal main'de; başka bir
+        // sebeple DONE'a geçilemiyorsa bu, kimsenin görmediği bir yarım
+        // teslimattır. Beklenmeyen hata artık çağırana dönüyor.
+        try {
+          await taskState.transition(ctx, taskId, "DONE", { kind: "system" });
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          const expected = /illegal transition|may not perform|container/i.test(reason);
+          if (!expected) {
+            throw new DispatchError(
+              `merge succeeded (${result.mergeCommit.slice(0, 8)}) but the task could not be closed: ${reason}`,
+            );
+          }
+        }
         return {
           output: {
             merged: true,

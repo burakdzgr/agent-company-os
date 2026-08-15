@@ -474,6 +474,19 @@ export function MemoryView() {
                     <tr>
                       <td className="p-4 text-ink-400" colSpan={7} data-testid="memory-empty">
                         Eşleşen anı yok — şirket görevler tamamlandıkça öğrenir.
+                        {/*
+                          §6 dürüstlüğü: scripted mod bir geliştirme aracıdır,
+                          kanıt değil. O modda konsolidasyon bilinçli olarak
+                          hiçbir anı üretmez (uydurma "Consolidated: …"
+                          satırları 2026-08-15'te kaldırıldı), yani boş bir
+                          panel orada BEKLENEN durumdur. Founder'ın "sistem
+                          bozuk mu?" diye düşünmemesi için sebebi burada
+                          yazıyor.
+                        */}
+                        <span className="mt-1 block text-xs">
+                          Anlamlı hafıza canlı model gerektirir: scripted modda (LLM_MODE=scripted)
+                          konsolidasyon bilerek anı üretmez.
+                        </span>
                       </td>
                     </tr>
                   )}
