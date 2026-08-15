@@ -342,10 +342,14 @@ export class ToolGateway {
         ),
       );
     const unitIds = unitRows.map((r) => r.unitId).filter((u): u is string => !!u);
-    const subjectFilters = [
-      and(eq(toolPermissions.subjectKind, "agent"), eq(toolPermissions.subjectId, agent.id)),
-      eq(toolPermissions.subjectId, agent.positionId), // subject_kind check below
-    ];
+    // Faz E: `subjectFilters[1]` ölü koddu — position dalı aşağıda kendi
+    // subject_kind kontrolüyle zaten kuruluyor, buradaki ikinci girdi hiç
+    // okunmuyordu. Yanlış okunduğunda "position grant'i subject_kind'sız
+    // eşleşiyor" gibi görünüyordu ki öyle değil.
+    const agentSubjectFilter = and(
+      eq(toolPermissions.subjectKind, "agent"),
+      eq(toolPermissions.subjectId, agent.id),
+    );
     const grantRows = await this.db
       .select()
       .from(toolPermissions)
@@ -355,7 +359,7 @@ export class ToolGateway {
           isNull(toolPermissions.revokedAt),
           or(isNull(toolPermissions.expiresAt), gt(toolPermissions.expiresAt, this.now())),
           or(
-            subjectFilters[0],
+            agentSubjectFilter,
             and(
               eq(toolPermissions.subjectKind, "position"),
               eq(toolPermissions.subjectId, agent.positionId),
@@ -673,6 +677,14 @@ export class ToolGateway {
           .where(
             and(eq(toolInvocations.companyId, ctx.companyId), eq(toolInvocations.id, invocationId)),
           );
+        // Faz E notu: bu dal olay YAYMAZ ve bu bilinçlidir. 10 §10'un olay
+        // tablosunda `tool.invocation.failed` yok ve katalog testi kaydı
+        // dokümanla BİREBİR eşleştiriyor; yeni bir olay tipi uydurmak
+        // dokümanla çelişki olurdu (§1.1). Başarısız çağrının kaydı, aynı
+        // dokümanın R0/R1 için de öngördüğü yerde: `tool_invocations`
+        // satırında (status=failed, error). Founder yüzeyi bunu oradan
+        // okumalı; zaman çizelgesine olay olarak taşımak doküman kararı
+        // ister.
       });
       await this.recordIdempotent(ctx, req, requestHash, failed);
       return failed;

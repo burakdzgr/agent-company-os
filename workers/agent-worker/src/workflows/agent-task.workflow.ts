@@ -532,7 +532,11 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
     if (!continuing) {
       await activities.closeAgentSessionActivity({
         ...ref,
-        status: outcome === "abandoned" ? "failed" : "completed",
+        // Faz E: `guard_stopped` de "completed" sayılıyordu — bir güvenlik
+        // guard'ı (bütçe, döngü, adım tavanı) tarafından hiçbir şey teslim
+        // etmeden kesilen koşu, Founder'ın oturum listesinde başarılı bir
+        // koşudan ayırt edilemiyordu. Teslimat yoksa oturum başarılı değildir.
+        status: outcome === "abandoned" || outcome === "guard_stopped" ? "failed" : "completed",
       });
     }
   }

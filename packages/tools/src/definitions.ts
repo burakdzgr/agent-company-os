@@ -457,7 +457,11 @@ export const memorySearch: ToolDefinition = {
   timeoutMs: 10_000,
 };
 
-/** The 13 MVP tools (35 §9 T39 list, verbatim). */
+/**
+ * The MVP tool registry (35 §9 T39 list). 13 in the original list; `fs.edit`
+ * joined on 2026-08-15 after a whole-file rewrite silently truncated a long
+ * file, so the count is 14 — the registry test locks the exact set.
+ */
 export const MVP_TOOLS: readonly ToolDefinition[] = [
   fsRead,
   fsWrite,
