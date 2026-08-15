@@ -24,6 +24,10 @@ import {
 } from "@acos/db";
 import { and, asc, eq } from "drizzle-orm";
 import { Pool } from "pg";
+// undici's own fetch, not the global one: the dispatcher option and the
+// global's Node-bundled types come from different undici versions, and the
+// mismatch is a type error rather than a runtime one.
+import { ProxyAgent, fetch as proxiedFetch } from "undici";
 import {
   agents,
   companies,
@@ -53,9 +57,128 @@ export interface SandboxDispatchOptions {
    * every company's rows in one query, so the URL is compared and refused.
    */
   platformDatabaseUrl?: string | undefined;
+  /** B2' — the egress allowlist proxy every network tool must go through. */
+  egressProxyUrl?: string | undefined;
+  /** B2' — search API endpoint override; the key rides the credential seam. */
+  searchApiUrl?: string | undefined;
 }
 
 class DispatchError extends Error {}
+
+/** Brave Search — an HTTP API with a free tier; overridable per install. */
+const DEFAULT_SEARCH_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
+
+/** One proxy dispatcher per proxy URL — connections are pooled, not per call. */
+const proxyAgents = new Map<string, ProxyAgent>();
+function proxyAgent(url: string): ProxyAgent {
+  let agent = proxyAgents.get(url);
+  if (!agent) {
+    agent = new ProxyAgent(url);
+    proxyAgents.set(url, agent);
+  }
+  return agent;
+}
+
+/**
+ * B2' — every outbound request from a tool goes through the egress allowlist
+ * proxy (27 §12, S8), never straight out of the server process. The gateway's
+ * `domainAllowlist` grant is the per-agent rule; squid's ACL is the
+ * infrastructure-wide one, and a host that satisfies neither is refused
+ * without this process ever opening a socket to it.
+ */
+async function fetchThroughProxy(
+  url: string,
+  opts: { method: string; maxBytes: number; timeoutMs: number; proxyUrl: string },
+): Promise<{ status: number; contentType: string; body: string; truncated: boolean }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+  try {
+    const res = await proxiedFetch(url, {
+      method: opts.method,
+      dispatcher: proxyAgent(opts.proxyUrl),
+      signal: controller.signal,
+      redirect: "follow",
+    });
+    const contentType = res.headers.get("content-type") ?? "";
+    if (opts.method === "HEAD" || res.body === null) {
+      return { status: res.status, contentType, body: "", truncated: false };
+    }
+    // read with a hard byte ceiling: a hostile or merely huge page must not be
+    // able to blow up the server's memory or the agent's context
+    const reader = res.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    let truncated = false;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        size += value.byteLength;
+        if (size > opts.maxBytes) {
+          chunks.push(value.slice(0, value.byteLength - (size - opts.maxBytes)));
+          truncated = true;
+          await reader.cancel().catch(() => {});
+          break;
+        }
+        chunks.push(value);
+      }
+    }
+    return {
+      status: res.status,
+      contentType,
+      body: Buffer.concat(chunks).toString("utf8"),
+      truncated,
+    };
+  } catch (err) {
+    // squid answers a blocked host with 403; a refused CONNECT lands here
+    throw new DispatchError(
+      `web.fetch failed (through the egress proxy): ${(err as Error).message}`,
+    );
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Search adapter — same proxy path; the key never leaves this process. */
+async function searchTheWeb(
+  query: string,
+  opts: {
+    maxResults: number;
+    apiKey: string;
+    endpoint: string;
+    timeoutMs: number;
+    proxyUrl: string;
+  },
+): Promise<Array<{ title: string; url: string; snippet: string }>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
+  try {
+    const target = new URL(opts.endpoint);
+    target.searchParams.set("q", query);
+    target.searchParams.set("count", String(opts.maxResults));
+    const res = await proxiedFetch(target, {
+      headers: { accept: "application/json", "x-subscription-token": opts.apiKey },
+      dispatcher: proxyAgent(opts.proxyUrl),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      throw new DispatchError(`search API returned ${res.status}`);
+    }
+    const payload = (await res.json()) as {
+      web?: { results?: Array<{ title?: string; url?: string; description?: string }> };
+    };
+    return (payload.web?.results ?? []).slice(0, opts.maxResults).map((r) => ({
+      title: r.title ?? "",
+      url: r.url ?? "",
+      snippet: r.description ?? "",
+    }));
+  } catch (err) {
+    if (err instanceof DispatchError) throw err;
+    throw new DispatchError(`web.search failed: ${(err as Error).message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * B3' — project-database pools for `db.inspect`, one per URL, opened lazily
@@ -354,7 +477,7 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
       );
     },
 
-    async dispatch({ ctx: rawCtx, tool, input, agentId, taskId }) {
+    async dispatch({ ctx: rawCtx, tool, input, agentId, taskId, credentials }) {
       const ctx = companyContext(rawCtx.companyId);
       const args = input as Record<string, unknown>;
 
@@ -470,6 +593,64 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
             provenance: "platform",
           },
           resultSummary: `${Math.min(rows.length, limit)} of ${rows.length} task(s)`,
+        };
+      }
+
+      // B2' — web.fetch (17 §3.1: "via egress proxy; response wrapped with
+      // provenance markers (S5)"). The response is UNTRUSTED external text:
+      // `provenance: "web"` is what makes the agent loop wrap it in the S5
+      // fence before it can reach a Working Set, so it is never optional.
+      if (tool.name === "web.fetch") {
+        if (!options.egressProxyUrl) {
+          throw new DispatchError(
+            "web.fetch needs the egress allowlist proxy — EGRESS_PROXY_URL is not configured",
+          );
+        }
+        const maxBytes = (args.maxBytes as number) ?? 1_048_576;
+        const method = (args.method as string) ?? "GET";
+        const result = await fetchThroughProxy(String(args.url), {
+          method,
+          maxBytes,
+          timeoutMs: tool.timeoutMs,
+          proxyUrl: options.egressProxyUrl,
+        });
+        return {
+          output: {
+            status: result.status,
+            contentType: result.contentType,
+            body: result.body,
+            truncated: result.truncated,
+            provenance: "web",
+          },
+          resultSummary: `${method} ${result.status} · ${result.contentType || "unknown type"}${
+            result.truncated ? ` · truncated at ${maxBytes}B` : ""
+          }`,
+        };
+      }
+
+      // B2' — web.search: the "configured search API adapter" of 17 §3.1. The
+      // credential arrives from the gateway (S2: never from agent input), and
+      // with no key configured the tool says so instead of pretending.
+      if (tool.name === "web.search") {
+        const apiKey = credentials["search.api_key"];
+        if (!apiKey) {
+          throw new DispatchError(
+            "web.search has no configured search API key (credential search.api_key) — ask the Founder to configure one",
+          );
+        }
+        if (!options.egressProxyUrl) {
+          throw new DispatchError("web.search needs the egress proxy — EGRESS_PROXY_URL is not set");
+        }
+        const results = await searchTheWeb(String(args.query), {
+          maxResults: (args.maxResults as number) ?? 8,
+          apiKey,
+          endpoint: options.searchApiUrl ?? DEFAULT_SEARCH_ENDPOINT,
+          timeoutMs: tool.timeoutMs,
+          proxyUrl: options.egressProxyUrl,
+        });
+        return {
+          output: { results, provenance: "web" },
+          resultSummary: `${results.length} result(s) for "${String(args.query).slice(0, 60)}"`,
         };
       }
 

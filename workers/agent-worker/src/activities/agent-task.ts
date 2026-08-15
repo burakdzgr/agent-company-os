@@ -614,11 +614,11 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         // araç adları packages/tools MVP kaydıyla eşleşir (registry testi kilitler)
         // B4 (2026-08-15 code review): only tools with a real dispatch are
         // advertised — advertising a dead tool burned a step and an LLM call
-        // per attempt. B1' wired task.query + memory.search; B3' wired
-        // db.inspect, but that one only works where the project actually
-        // declares a database, so it is advertised per task rather than
-        // globally. web.* stay unimplemented and stay out.
-        `- {"type":"use_tool","tool":"<one of: fs.read | fs.search | fs.edit | fs.write | terminal.run | git.diff | git.commit | git.branch | git.merge | task.query | memory.search${hasProjectDatabase ? " | db.inspect" : ""}>","input":{...},"reason":"<=500 chars"} — terminal.run executes shell commands in YOUR task workspace (a clone of the project repo) and streams to the Founder-visible terminal; task.query reads this company's task board; memory.search looks up what the company already learned`,
+        // per attempt. B1' wired task.query + memory.search, B2' web.fetch,
+        // B3' db.inspect. db.inspect only works where the project declares a
+        // database, so it is advertised per task. web.search stays out until
+        // a search API key is configured (without one it can only fail).
+        `- {"type":"use_tool","tool":"<one of: fs.read | fs.search | fs.edit | fs.write | terminal.run | git.diff | git.commit | git.branch | git.merge | task.query | memory.search | web.fetch${hasProjectDatabase ? " | db.inspect" : ""}>","input":{...},"reason":"<=500 chars"} — terminal.run executes shell commands in YOUR task workspace (a clone of the project repo) and streams to the Founder-visible terminal; task.query reads this company's task board; memory.search looks up what the company already learned; web.fetch {url} reads a page through the egress allowlist (package registries and docs hosts)`,
         ...(hasProjectDatabase
           ? [
               `  db.inspect {query, environment?, maxRows?} runs ONE read-only SQL statement against this project's database — a READ ONLY transaction, so any write is refused by the database itself.`,

@@ -395,9 +395,17 @@ async function seedOrgAndAgents(db: GuardedDb, companyId: string): Promise<void>
 // mühendislik birim slug'larının güncel kayıtlarına grant basar (idempotent).
 const SEED_GRANT_UNIT_SLUGS = ["engineering", "backend", "frontend", "devops", "qa", "security"];
 // B4 (2026-08-15): grant listesi dispatch'i olan araçları izler. task.query ve
-// memory.search B1' ile bağlandı, geri geldiler; db.inspect ve web.* hâlâ
-// uygulamasız olduğu için listede yok.
-const SEED_GRANT_TOOLS = ["fs.*", "git.*", "terminal.run", "task.query", "memory.search"];
+// memory.search B1' ile, web.fetch B2' ile bağlandı. db.inspect grant'i proje
+// bazlı verilir (veritabanı tanımı olmayan projede işe yaramaz); web.search
+// arama API anahtarı yapılandırılana kadar karanlıkta.
+const SEED_GRANT_TOOLS = [
+  "fs.*",
+  "git.*",
+  "terminal.run",
+  "task.query",
+  "memory.search",
+  "web.fetch",
+];
 
 /**
  * Engineering-wide tool grants (T41; 17 §4.1 org_unit subject): the coding

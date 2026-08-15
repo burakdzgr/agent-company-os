@@ -63,6 +63,7 @@ let CEO = "";
 let PAUSED = "";
 let RACER = "";
 let SETTLER = "";
+let CONSTRAINED = "";
 let positionId = "";
 let unitId = "";
 let taskTightBudget = "";
@@ -242,6 +243,9 @@ beforeAll(async () => {
   // grant constraints of the suite above cannot perturb them.
   RACER = await hire("Rana Racer", 5, 3);
   SETTLER = await hire("Suat Settler", 6, 3);
+  // C1 fixtures likewise: constraint bypasses must be measured against a
+  // clean grant set, not against whatever the suite above already granted.
+  CONSTRAINED = await hire("Kaan Constrained", 7, 3);
   for (const agentId of [DEV, LEAD, CEO]) {
     await db.insert(orgEdges).values({ companyId, fromAgentId: agentId, kind: "member_of", toUnitId: unitId });
   }
@@ -412,6 +416,71 @@ describe("authorize suite (17 §4; accept: allow / deny×2 / require_approval)",
       input: { branch: "task/81-fix-login" },
     });
     expect(task.decision).toBe("allow");
+  });
+
+  // C1 (Y4) — the three ways a grant constraint could be walked around. Each
+  // is a fail-OPEN bug: the gateway believed it had constrained the agent, so
+  // nothing downstream looked twice.
+  it("C1: grant constraints cannot be walked around (prefix boundary, anchoring, malformed URL)", async () => {
+    // (a) `src` must not authorise `srcret/` — a prefix is a PATH boundary,
+    // not a string prefix. The old check was a bare startsWith.
+    await grant("fs.write", "agent", CONSTRAINED, { pathPrefixes: ["src"] });
+    const sibling = await gateway.invoke(ctx, {
+      agentId: CONSTRAINED,
+      toolName: "fs.write",
+      input: { path: "srcret/keys.txt", content: "x" },
+    });
+    expect(sibling.decision).toBe("deny");
+    expect(sibling.reason).toContain("path_not_in_prefixes");
+
+    // …and the same grant still allows the directory it names
+    const inside = await gateway.invoke(ctx, {
+      agentId: CONSTRAINED,
+      toolName: "fs.write",
+      input: { path: "src/app.ts", content: "x" },
+    });
+    expect(inside.decision).toBe("allow");
+
+    // traversal that normalises back out of the prefix is denied too
+    const traversal = await gateway.invoke(ctx, {
+      agentId: CONSTRAINED,
+      toolName: "fs.write",
+      input: { path: "src/../etc/passwd", content: "x" },
+    });
+    expect(traversal.decision).toBe("deny");
+
+    // (b) an unanchored pattern is a FULL match: `main` must not also
+    // authorise `not-main-really`
+    await grant("git.branch", "agent", CONSTRAINED, { branchPattern: "main" });
+    const lookalike = await gateway.invoke(ctx, {
+      agentId: CONSTRAINED,
+      toolName: "git.branch",
+      input: { branch: "not-main-really" },
+    });
+    expect(lookalike.decision).toBe("deny");
+    expect(lookalike.reason).toContain("branch_not_allowed:not-main-really");
+
+    // (c) a malformed URL is a fail-CLOSED deny, not an unhandled 500.
+    // In practice the input schema rejects it first (INVALID_INPUT) and the
+    // constraint layer's own try/catch is the belt to that braces — what
+    // matters is that neither layer lets it through or throws.
+    await grant("web.fetch", "agent", CONSTRAINED, { domainAllowlist: ["registry.npmjs.org"] });
+    const broken = await gateway.invoke(ctx, {
+      agentId: CONSTRAINED,
+      toolName: "web.fetch",
+      input: { url: "http://[::bad::url]/x" },
+    });
+    expect(broken.decision).toBe("deny");
+    expect(broken.reason).toMatch(/invalid_url|INVALID_INPUT/);
+
+    // and a host outside the allowlist is denied by host, not by substring
+    const foreign = await gateway.invoke(ctx, {
+      agentId: CONSTRAINED,
+      toolName: "web.fetch",
+      input: { url: "https://registry.npmjs.org.evil.example/x" },
+    });
+    expect(foreign.decision).toBe("deny");
+    expect(foreign.reason).toContain("domain_not_allowed");
   });
 
   it("spend caps: default deny; onCapExceeded=escalate degrades into approval (17 §4.2 ex. 2)", async () => {

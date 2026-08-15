@@ -48,6 +48,9 @@ async function main(): Promise<void> {
     internalApiToken: config.security.internalApiToken,
     // B3': db.inspect must never be aimed at the platform DB (every company's rows)
     platformDatabaseUrl: config.database.url,
+    // B2': network tools leave only through the egress allowlist (27 §12, S8)
+    egressProxyUrl: config.sandbox.egressProxyUrl,
+    ...(process.env.SEARCH_API_URL && { searchApiUrl: process.env.SEARCH_API_URL }),
   });
 
   // message delivery signalling (11 §4.4, T33): best-effort Temporal client —
