@@ -101,7 +101,11 @@ export function NodeTooltip({ node }: { node: GalaxyNode | null }) {
       >
         <div style={{ fontWeight: 600, marginBottom: 4 }}>{node.title}</div>
         <div style={{ color: "#8b98a5" }}>
-          <span style={{ color: SCOPE_COLOR[scope] }}>{scope}</span> · {node.type} · {node.status}
+          {/* kapsam sahibi (proje/ajan adı) — "kimin anısı" sorusunun cevabı */}
+          <span style={{ color: SCOPE_COLOR[scope] }}>
+            {node.scopeLabel ? `${scope}: ${node.scopeLabel}` : scope}
+          </span>{" "}
+          · {node.type} · {node.status}
         </div>
         <div style={{ color: "#8b98a5" }}>
           önem {node.importance.toFixed(2)} · güven {node.confidence.toFixed(2)}

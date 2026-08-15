@@ -16,6 +16,10 @@ export interface GalaxyNodeInput {
   title: string;
   type: string;
   scope: string;
+  /** Kapsamın sahibi: proje id'si / ajan id'si / null (company). */
+  scopeRef: string | null;
+  /** Proje ya da ajan adı — tooltip ve kol göstergesi için. */
+  scopeLabel: string | null;
   importance: number;
   confidence: number;
   status: string;
@@ -55,8 +59,15 @@ const SHELL: Record<MemoryScope, { inner: number; outer: number; thickness: numb
   agent: { inner: 13, outer: 20, thickness: 0.8 },
 };
 
-/** Kolların sayısı: sarmal his için sabit; proje kimliği taşınmadığından
- *  kol seçimi düğüm kimliğinden türetiliyor (bkz. ADR-021 "Bilinen sınır"). */
+/**
+ * Kol sayısı — sarmal his için sabit.
+ *
+ * Kol seçimi düğümün KAPSAM SAHİBİNDEN türetilir (proje id'si / ajan id'si):
+ * aynı projenin bütün anıları aynı kolda toplanır, farklı projeler ayrı
+ * kollara düşer. İlk sürümde graph yanıtı `scopeRef` taşımadığı için kol
+ * düğüm kimliğinden geliyordu ve iki farklı projenin anıları karışıyordu;
+ * alan sunucuya eklendi (ADR-021 kısıtı kapandı).
+ */
 const ARMS = 4;
 
 export function scopeOf(raw: string): MemoryScope {
@@ -72,7 +83,8 @@ export function placeNode(node: GalaxyNodeInput): GalaxyNode {
   const scope = scopeOf(node.scope);
   const shell = SHELL[scope];
 
-  const arm = hash % ARMS;
+  // kol = kapsam sahibi (proje/ajan); sahipsizse düğümün kendisi
+  const arm = hashId(node.scopeRef ?? node.id) % ARMS;
   const radial = unit(hash, 1);
   const radius = shell.inner + radial * (shell.outer - shell.inner);
   // kol tabanı + sarmal bükülme + kol içi dağılım

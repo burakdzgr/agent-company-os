@@ -75,6 +75,14 @@ export const MemoryGraphResponseSchema = z.object({
       title: z.string(),
       type: z.string(),
       scope: z.string(),
+      /**
+       * Kapsamın sahibi: `project` için proje id'si, `agent` için ajan id'si,
+       * `company` için null. Galaksi görünümü (ADR-021) kolları buna göre
+       * ayırır — yoksa iki farklı projenin anıları aynı kolda karışırdı.
+       */
+      scopeRef: z.uuid().nullable(),
+      /** Aynı şeyin insan okur hâli (proje/ajan adı); bilinmiyorsa null. */
+      scopeLabel: z.string().nullable(),
       importance: z.number(),
       confidence: z.number(),
       status: z.string(),

@@ -18,8 +18,8 @@ stars being born.
 Constraints that shaped this:
 
 - `apps/web` is React 19 + Vite (ADR-005). No renderer of its own — this is purely additive.
-- The data model and API are **untouched**: the scene consumes the existing
-  `GET /companies/:id/memories/graph` payload (ADR-003/ADR-007 unaffected).
+- The data model is **untouched** (ADR-003/ADR-007 unaffected). The API gained two projection
+  fields on the existing graph endpoint — see "Payload addition" below; no migration, no new route.
 - 500 nodes at 60fps is the stated acceptance bar.
 - The visualization is a *presentation* layer: it must never be able to break the Observatory.
 
@@ -71,13 +71,21 @@ Consequences of the design, and why each way:
 - **Server-computed positions.** Preferred in the original brief and still the better long-term
   answer for per-project arms, but it means a payload change — out of scope here (see below).
 
-## Known limitation
+## Payload addition (closed a limitation of the first cut)
 
-The graph payload carries `scope` but not `scopeRef`, so **arms are derived from the node id, not
-from the project**. Two memories of different projects can therefore share an arm. Making each
-project its own arm requires adding `scopeRef` to `MemoryGraphResponse` — a backend change that
-this scope explicitly excluded. Recorded here so the next person does not read the arms as
-project boundaries.
+The first implementation derived arms from the **node id**, because the graph payload carried
+`scope` but not its owner — so two memories of different projects could land in the same arm and
+the arms meant nothing. The Founder authorised the backend change, so
+`MemoryGraphResponse.nodes[]` gained two fields:
+
+- `scopeRef` — the project id (`project`), the agent id (`agent`), or `null` (`company`)
+- `scopeLabel` — the human name of that owner, resolved server-side with two batched lookups
+  (a per-node query would be 500 round trips)
+
+Arms are now keyed on `scopeRef`: **every memory of a project shares one arm, different projects
+get different arms**, and the tooltip can answer "whose memory is this" (`agent: Aylin Vural`).
+No new endpoint, no schema migration — the columns already existed on `memories`; only the
+response projection was missing.
 
 ## Consequences
 

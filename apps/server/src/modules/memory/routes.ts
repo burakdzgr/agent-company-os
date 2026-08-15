@@ -23,7 +23,14 @@ import {
   type CompanyContext,
   type GuardedDb,
 } from "@acos/db";
-import { agents, memories, memoryEvidence, memoryRelations, memoryVersions } from "@acos/db/schema";
+import {
+  agents,
+  memories,
+  memoryEvidence,
+  memoryRelations,
+  memoryVersions,
+  projects,
+} from "@acos/db/schema";
 import { ApiError } from "../../app.js";
 import type { CompanyService } from "../companies/service.js";
 
@@ -158,6 +165,37 @@ export async function registerMemoryRoutes(
       const capped = rows.length > GRAPH_CAP;
       const nodes = rows.slice(0, GRAPH_CAP);
       const ids = new Set(nodes.map((n) => n.id));
+
+      // ADR-021: kapsam sahibinin ADI. Galaksi kolları proje bazlı ayrılıyor
+      // ve tooltip "kimin anısı" diyebiliyor. İki küçük toplu sorgu — düğüm
+      // başına sorgu (N+1) 500 düğümde 500 gidiş-dönüş olurdu.
+      const projectIds = [
+        ...new Set(
+          nodes.filter((n) => n.scope === "project" && n.scopeRef).map((n) => n.scopeRef!),
+        ),
+      ];
+      const agentIds = [
+        ...new Set(
+          nodes.filter((n) => n.scope === "agent" && n.scopeRef).map((n) => n.scopeRef!),
+        ),
+      ];
+      const labels = new Map<string, string>();
+      if (projectIds.length > 0) {
+        for (const row of await db
+          .select({ id: projects.id, name: projects.name })
+          .from(projects)
+          .where(and(eq(projects.companyId, ctx.companyId), inArray(projects.id, projectIds)))) {
+          labels.set(row.id, row.name);
+        }
+      }
+      if (agentIds.length > 0) {
+        for (const row of await db
+          .select({ id: agents.id, name: agents.name })
+          .from(agents)
+          .where(and(eq(agents.companyId, ctx.companyId), inArray(agents.id, agentIds)))) {
+          labels.set(row.id, row.name);
+        }
+      }
       const relationRows = await db
         .select()
         .from(memoryRelations)
@@ -169,6 +207,8 @@ export async function registerMemoryRoutes(
           title: n.title,
           type: n.type,
           scope: n.scope,
+          scopeRef: n.scopeRef,
+          scopeLabel: n.scopeRef ? (labels.get(n.scopeRef) ?? null) : null,
           importance: n.importance,
           confidence: n.confidence,
           status: n.status,
