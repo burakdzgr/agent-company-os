@@ -207,6 +207,11 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
   // yakalayamaz. Ardışık düşünme adımları sayılır; 3+ olunca working set'e
   // sert bir yönlendirme marker'ı girer.
   let contemplationStreak = 0;
+  // 2026-08-15: okuma-döngüsü kırıcı — canlı model 50 adımı fs.read/fs.search
+  // ile eritebiliyor (TASK-21 vakası: 50/50 salt-okuma, sıfır yazma).
+  // Ardışık salt-okuma araç çağrıları sayılır; 8+ olunca sert marker girer.
+  const READ_ONLY_TOOLS = new Set(["fs.read", "fs.search", "task.query", "memory.search", "git.diff", "web.fetch", "web.search", "db.inspect"]);
+  let readStreak = 0;
   let localSteps = 0;
   let continuing = false;
   let outcome: AgentTaskOutcome["outcome"] = "guard_stopped";
@@ -297,6 +302,11 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
       if (contemplationStreak >= 3) {
         signalMarkers.push(
           `[guard:plan_loop] ${contemplationStreak} consecutive planning steps with NO effect. You MUST now emit a MUTATING action (create_task / delegate_task / use_tool / update_task_status / complete_task). Do NOT reply with think or record_decision.`,
+        );
+      }
+      if (readStreak >= 8) {
+        signalMarkers.push(
+          `[guard:read_loop] ${readStreak} consecutive READ-ONLY tool calls (step budget: ${stepNo}/${STEP_HARD_CAP}). STOP exploring. You already know enough — this step MUST be fs.write (produce the deliverable), git.commit, or complete_task.`,
         );
       }
 
@@ -425,6 +435,12 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
         action.type === "think" || action.type === "record_decision"
           ? contemplationStreak + 1
           : 0;
+      readStreak =
+        action.type === "use_tool" && READ_ONLY_TOOLS.has(action.tool)
+          ? readStreak + 1
+          : action.type === "think" || action.type === "record_decision"
+            ? readStreak // düşünme adımı okuma serisini bozmaz da beslemez de
+            : 0;
       const observation = await activities.executeActionActivity({ ...ref, stepId, action });
       await activities.persistStepActivity({
         ...ref,
