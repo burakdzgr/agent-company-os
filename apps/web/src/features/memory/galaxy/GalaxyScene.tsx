@@ -18,6 +18,7 @@ import { EdgeLines } from "./EdgeLines.js";
 import { FilterPanel } from "./FilterPanel.js";
 import { NodeCloud } from "./NodeCloud.js";
 import { NodeLabels, NodeTooltip } from "./NodeLabels.js";
+import { Starfield } from "./Starfield.js";
 import { DEFAULT_FILTERS, useGalaxyData, type GalaxyFilters } from "./useGalaxyData.js";
 import type { GalaxyNode } from "./layout.js";
 
@@ -92,8 +93,12 @@ export function GalaxyScene({
           onPointerMissed={() => select(null)} // boşluğa tıkla → galaksiye dön
         >
           <color attach="background" args={["#05060a"]} />
-          <ambientLight intensity={0.35} />
-          <pointLight position={[0, 8, 0]} intensity={40} distance={60} color="#8fb8ff" />
+          {/*
+            Işık YOK: düğümler ışıksız (basic) malzemeyle kendi renklerini
+            yayıyor — yıldız mantığı. Işıklandırılmış malzeme denendi ve
+            beyaz emissive kapsam renklerini yıkadı (hepsi gri çıktı).
+          */}
+          <Starfield />
 
           <SpinningGalaxy>
             <EdgeLines nodes={nodes} edges={edges} />

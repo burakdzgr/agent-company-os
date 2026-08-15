@@ -19,8 +19,15 @@ export interface OrbitLike {
   update(): void;
 }
 
-/** Galaksinin tamamını gören açılış konumu. */
-export const HOME_POSITION: [number, number, number] = [0, 14, 30];
+/**
+ * Galaksinin tamamını gören açılış konumu.
+ *
+ * Mesafe keyfi değil, en dış kabuktan türetildi: agent kabuğu 20 yarıçapa
+ * kadar uzanıyor (layout SHELL), 55° fov'da 30 birimden bakınca dıştaki
+ * düğümler kadrajın dışında kalıyordu. 36 birim + daha alçak bakış açısı
+ * diski marjla çerçeveler; kullanıcı yine de OrbitControls ile yakınlaşabilir.
+ */
+export const HOME_POSITION: [number, number, number] = [0, 11, 36];
 
 export function CameraRig({
   target,

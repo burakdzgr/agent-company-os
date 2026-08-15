@@ -102,8 +102,9 @@ export function placeNode(node: GalaxyNodeInput): GalaxyNode {
       Math.sin(finalAngle) * radius,
     ],
     phase: unit(hash, 5) * Math.PI * 2,
-    // önem büyüklüğe gider; taban yarıçap küçük anıların da görünmesini sağlar
-    radius: 0.16 + 0.34 * clamp01(node.importance),
+    // Önem büyüklüğe gider; taban yarıçap küçük anıların da görünmesini
+    // sağlar. Şirket kapsamı biraz daha iri: çekirdek uzaktan da okunsun.
+    radius: (scope === "company" ? 0.3 : 0.22) + 0.42 * clamp01(node.importance),
   };
 }
 

@@ -87,6 +87,25 @@ get different arms**, and the tooltip can answer "whose memory is this" (`agent:
 No new endpoint, no schema migration — the columns already existed on `memories`; only the
 response projection was missing.
 
+## Visual QA (what the screenshot caught that the tests could not)
+
+The e2e test asserts behaviour — canvas mounted, real node count, live filtering — deliberately, not
+pixels, because pixel comparison depends on the GPU driver. That left a class of defect the suite
+could never see, and it happened twice, so the test now also attaches a `galaxy.png` artifact for
+human review.
+
+Both defects had the same root cause and it is worth recording: with `vertexColors` enabled, three
+computes `vColor = color * instanceColor`. If the geometry has **no `color` attribute**, WebGL
+supplies `(0,0,0)` for it and the product collapses to black — instance colours are silently
+discarded. On a lit material with a white `emissive` this rendered as **grey** spheres; on the
+unlit material it rendered as **black** ones. Every scope colour and every confidence brightness
+was being thrown away, and nothing in the behavioural suite could notice. The fix is a white base
+`color` attribute on the sphere geometry, which makes the multiplication a no-op so the colour comes
+purely from the instance buffer.
+
+Camera framing was tuned from the layout rather than by eye: the `agent` shell reaches radius 20, so
+the home position sits at 36 units, not 30, or the outer orbit falls outside the frustum.
+
 ## Consequences
 
 - `apps/web` gains ~5 runtime dependencies and a larger vendor chunk (three is ~600 KB gzipped).

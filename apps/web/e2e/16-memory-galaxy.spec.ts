@@ -41,4 +41,14 @@ test("hafıza galaksisi: canvas + gerçek düğümler + canlı filtre + seçim",
   await expect
     .poll(async () => Number((await count.innerText()).split("/")[0]!.trim()), { timeout: 10_000 })
     .toBeLessThanOrEqual(visible);
+
+  // U16 kalıbı: görsel QA ekran görüntüsü test artefaktı olarak eklenir —
+  // sahnenin GERÇEKTEN çizdiğini (boş siyah kare olmadığını) gözle
+  // doğrulamanın tek yolu bu; piksel karşılaştırması GPU sürücüsüne bağlı
+  // olacağı için assert edilmiyor, artefakt olarak bırakılıyor.
+  await page.getByTestId("galaxy-filter-scope").selectOption("");
+  await page.waitForTimeout(1500); // dönüş + dalga birkaç kare ilerlesin
+  const shot = test.info().outputPath("galaxy.png");
+  await graph.screenshot({ path: shot });
+  await test.info().attach("galaxy", { path: shot, contentType: "image/png" });
 });

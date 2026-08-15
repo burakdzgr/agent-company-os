@@ -37,6 +37,27 @@ export function NodeCloud({
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const color = useMemo(() => new THREE.Color(), []);
+
+  /**
+   * Küre + BEYAZ vertex-color özniteliği.
+   *
+   * Bu öznitelik olmadan sahne yanlış çiziliyordu ve nedeni sinsi: instance
+   * rengi shader'da `vColor = color * instanceColor` olarak hesaplanıyor.
+   * `vertexColors` açıkken geometride `color` özniteliği YOKSA WebGL onu
+   * (0,0,0) veriyor — çarpım sıfırlanıyor. Sonuç ilk denemede siyah küreler
+   * (ışıklı malzemede beyaz emissive üstüne binince GRİ küreler) oldu; ne
+   * kapsam rengi ne confidence parlaklığı görünüyordu. Beyaz taban öznitelik
+   * çarpımı nötrler, renk yalnızca instance tamponundan gelir.
+   */
+  const geometry = useMemo(() => {
+    const geo = new THREE.SphereGeometry(1, 16, 16);
+    const vertexCount = geo.attributes.position!.count;
+    geo.setAttribute(
+      "color",
+      new THREE.BufferAttribute(new Float32Array(vertexCount * 3).fill(1), 3),
+    );
+    return geo;
+  }, []);
   /** Yeni düğümlerin pop başlangıç zamanı (saniye). */
   const popStart = useRef(new Map<string, number>());
   const elapsed = useRef(0);
@@ -53,8 +74,10 @@ export function NodeCloud({
     if (!mesh) return;
     nodes.forEach((node, i) => {
       color.set(SCOPE_COLOR[scopeOf(node.scope)]);
-      // düşük güven = soluk yıldız; taban 0.45 ki hiç kaybolmasın
-      color.multiplyScalar(0.45 + 0.55 * clamp01(node.confidence));
+      // Confidence = parlaklık. 1.0'ın ÜSTÜNE çıkıyoruz (0.9→1.9): tone
+      // mapping kapalı olduğu için bu fazlalık Bloom eşiğini aşar ve yüksek
+      // güvenli anılar hâlelenir — 12 §8'in "güven görünür olsun" isteği.
+      color.multiplyScalar(0.9 + 1.0 * clamp01(node.confidence));
       mesh.setColorAt(i, color);
     });
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -99,6 +122,7 @@ export function NodeCloud({
       ref={meshRef}
       // key: düğüm SAYISI değişince instancedMesh yeniden kurulmalı
       key={nodes.length}
+      geometry={geometry}
       args={[undefined, undefined, nodes.length]}
       onPointerMove={(event) => {
         event.stopPropagation();
@@ -113,15 +137,20 @@ export function NodeCloud({
         if (node) onSelect(node.id);
       }}
     >
-      <sphereGeometry args={[1, 16, 16]} />
-      {/* emissive = bloom'un yakaladığı şey; renk instance tamponundan gelir */}
-      <meshStandardMaterial
-        vertexColors
-        emissive="#ffffff"
-        emissiveIntensity={0.35}
-        roughness={0.45}
-        metalness={0.1}
-      />
+      {/*
+        Yıldızlar IŞIK ALMAZ, ışık YAYAR — bu yüzden ışıklandırılan
+        (standard) değil, ışıksız (basic) malzeme.
+
+        İlk sürümde `meshStandardMaterial` + beyaz `emissive` vardı ve sonuç
+        ekranda GRİ TOPLAR oluyordu: beyaz emissive her instance'a aynı
+        şekilde eklendiği için kapsam renklerini yıkıyordu. Basic malzemede
+        piksel doğrudan instance rengidir — kapsam rengi ve confidence
+        parlaklığı olduğu gibi görünür.
+
+        `toneMapped={false}`: renk tone-mapping'e girmez, yani 1.0'ın üstüne
+        çıkabilir ve Bloom eşiğini aşar — parıltı buradan gelir.
+      */}
+      <meshBasicMaterial vertexColors toneMapped={false} />
     </instancedMesh>
   );
 }
