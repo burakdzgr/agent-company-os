@@ -5,10 +5,23 @@
 // (Kuvvet tabanlı yerleşim her hesapta farklı sonuç verirdi ve galaksi her
 // yenilemede yeniden karılırdı.)
 //
-// Üç kabuk — 12 §2'nin kapsam hiyerarşisinin görsel karşılığı:
+// Şekil: KÜRE, disk değil.
+//
+// İlk sürüm yassı sarmal bir diskti. Yatay bir gezegen gibi görünüyordu ve
+// bilgi grafiği o değil: bir bilgi ağı her yöne bağlanır, tek bir düzleme
+// oturmaz. Küresel yerleşim hem daha dürüst hem de kameranın hangi açıdan
+// bakarsa baksın yapıyı göstermesini sağlıyor (diskte kenardan bakınca her
+// şey üst üste biniyordu).
+//
+// Üç küresel kabuk — 12 §2'nin kapsam hiyerarşisinin görsel karşılığı:
 //   company → merkez çekirdek (yoğun, parlak)
-//   project → çekirdeğin etrafında kollar
-//   agent   → dış yörünge yıldızları
+//   project → orta kabuk
+//   agent   → dış kabuk
+//
+// Kabuk İÇİNDE konum kapsam sahibine göre KÜMELENİR: aynı projenin bütün
+// anıları kürenin aynı bölgesinde toplanır, farklı projeler ayrı bölgelere
+// düşer. Sarmal koldaki fikrin küresel karşılığı bu — "kimin anısı" sorusu
+// yine bakınca cevaplanabiliyor.
 export type MemoryScope = "company" | "project" | "agent";
 
 export interface GalaxyNodeInput {
@@ -50,65 +63,69 @@ function unit(hash: number, n: number): number {
   return (mixed % 100000) / 100000;
 }
 
-const SHELL: Record<MemoryScope, { inner: number; outer: number; thickness: number }> = {
-  // çekirdek: küçük yarıçap, hafif kalınlık → yoğun görünür
-  company: { inner: 0, outer: 3.2, thickness: 1.6 },
-  // kollar: orta bant
-  project: { inner: 5.5, outer: 11, thickness: 1.1 },
-  // dış yörünge: geniş ve ince → "yıldız tozu"
-  agent: { inner: 13, outer: 20, thickness: 0.8 },
+const SHELL: Record<MemoryScope, { inner: number; outer: number }> = {
+  // çekirdek: küçük küre, yoğun
+  company: { inner: 0, outer: 4 },
+  // orta kabuk
+  project: { inner: 7, outer: 12.5 },
+  // dış kabuk
+  agent: { inner: 13.5, outer: 18 },
 };
 
-/**
- * Kol sayısı — sarmal his için sabit.
- *
- * Kol seçimi düğümün KAPSAM SAHİBİNDEN türetilir (proje id'si / ajan id'si):
- * aynı projenin bütün anıları aynı kolda toplanır, farklı projeler ayrı
- * kollara düşer. İlk sürümde graph yanıtı `scopeRef` taşımadığı için kol
- * düğüm kimliğinden geliyordu ve iki farklı projenin anıları karışıyordu;
- * alan sunucuya eklendi (ADR-021 kısıtı kapandı).
- */
-export const ARMS = 4;
+/** Alanın (dekoratif küre bulutunun) dış sınırı — düğümler hep içinde kalır. */
+export const FIELD_RADIUS = 19;
 
 /**
- * Sarmal bükülmesi (radyan / birim yarıçap).
+ * Bir kümenin açısal yarıçapı (radyan).
  *
- * Dekoratif toz bulutu (GalaxyDust) BU sabiti paylaşmak zorunda: kollar aynı
- * denklemden çizilmezse anılar tozun içinde değil, üstünde yüzer ve sahne
- * "galaksi" değil "toz + toplar" gibi görünür.
+ * Küçük tutuluyor: kümeler dağılırsa küre düzgün bir top olur ve "hangi
+ * anı kimin" bilgisi görsel olarak kaybolur. Fazla küçük olursa da anılar
+ * üst üste biner — 0.42 ikisi arasında ölçüldü.
  */
-export const ARM_TWIST = 0.18;
+const CLUSTER_SPREAD = 0.42;
 
 export function scopeOf(raw: string): MemoryScope {
   return raw === "company" || raw === "project" || raw === "agent" ? raw : "agent";
 }
 
 /**
- * Bir düğümün galaksi içindeki yeri. Sarmal kollar: açı = kol tabanı + yarıçapla
- * artan bir bükülme, böylece dıştaki düğümler geriye doğru süpürülmüş görünür.
+ * Bir düğümün küredeki yeri.
+ *
+ * Yön kapsam sahibinden (küme), uzaklık kapsamdan (kabuk) gelir. İkisi de
+ * hash'ten türediği için sonuç deterministik: aynı anı her yenilemede aynı
+ * noktada durur, yeni anı gelince diğerleri kımıldamaz.
  */
 export function placeNode(node: GalaxyNodeInput): GalaxyNode {
   const hash = hashId(node.id);
   const scope = scopeOf(node.scope);
   const shell = SHELL[scope];
 
-  // kol = kapsam sahibi (proje/ajan); sahipsizse düğümün kendisi
-  const arm = hashId(node.scopeRef ?? node.id) % ARMS;
-  const radial = unit(hash, 1);
-  const radius = shell.inner + radial * (shell.outer - shell.inner);
-  // kol tabanı + sarmal bükülme + kol içi dağılım
-  const spread = (unit(hash, 2) - 0.5) * 0.5;
-  const angle = (arm / ARMS) * Math.PI * 2 + radius * ARM_TWIST + spread;
-  // çekirdekte kol yok: küre gibi dağılsın
-  const finalAngle = scope === "company" ? unit(hash, 3) * Math.PI * 2 : angle;
-  const height = (unit(hash, 4) - 0.5) * shell.thickness;
+  // 1) Küme yönü: kapsam sahibinden (proje/ajan id'si). Sahipsiz (company)
+  //    anılar düğümün kendi kimliğini kullanır — çekirdek küme yapmaz, küre
+  //    içinde düzgün dağılır.
+  const ownerHash = hashId(node.scopeRef ?? node.id);
+  const baseTheta = unit(ownerHash, 1) * Math.PI * 2;
+  // cos(phi)'yi düzgün seçmek küre üzerinde DÜZGÜN dağılım verir; doğrudan
+  // phi seçmek kutuplarda yığılmaya yol açardı.
+  const baseCosPhi = unit(ownerHash, 2) * 2 - 1;
+
+  // 2) Küme içi dağılım
+  const theta = baseTheta + (unit(hash, 1) - 0.5) * CLUSTER_SPREAD * 2;
+  const cosPhi = Math.min(
+    1,
+    Math.max(-1, baseCosPhi + (unit(hash, 2) - 0.5) * CLUSTER_SPREAD),
+  );
+  const sinPhi = Math.sqrt(1 - cosPhi * cosPhi);
+
+  // 3) Kabuk içinde uzaklık
+  const radius = shell.inner + unit(hash, 3) * (shell.outer - shell.inner);
 
   return {
     ...node,
     position: [
-      Math.cos(finalAngle) * radius,
-      height,
-      Math.sin(finalAngle) * radius,
+      radius * sinPhi * Math.cos(theta),
+      radius * cosPhi,
+      radius * sinPhi * Math.sin(theta),
     ],
     phase: unit(hash, 5) * Math.PI * 2,
     // Önem büyüklüğe gider; taban yarıçap küçük anıların da görünmesini

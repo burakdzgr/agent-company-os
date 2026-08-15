@@ -87,6 +87,35 @@ get different arms**, and the tooltip can answer "whose memory is this" (`agent:
 No new endpoint, no schema migration — the columns already existed on `memories`; only the
 response projection was missing.
 
+## Shape: sphere, not disc (revision 2)
+
+The first shape was a flat spiral disc. It read as a horizontal planet — and a knowledge graph is
+not that: relations run in every direction, they do not lie in a plane. Viewed edge-on the disc also
+collapsed on itself, so the camera angle decided whether structure was visible at all.
+
+The layout is now three **spherical shells** — `company` core, `project` mid, `agent` outer — with
+position *within* a shell clustered by `scopeRef`. That preserves what the spiral arms encoded (all
+of a project's memories sit together, different projects sit apart) in a form that survives every
+camera angle. `ARMS` / `ARM_TWIST` are gone; `FIELD_RADIUS` replaces them as the single shared
+dimension.
+
+Three consequences worth recording:
+
+- **`GalaxyDust` → `KnowledgeField`.** A spherical cloud (uniform in *volume*, so `r ∝ ∛u`), a
+  brighter surface shell, and a filament mesh. The filaments connect each hub to its **nearest**
+  hubs; an earlier version linked random pairs and produced a spiky star rather than a web, because
+  every strand crossed the whole sphere. They remain **decoration and carry no relational meaning** —
+  they are drawn dim and never touch a memory node, while real `memory_relations` stay bright and
+  colour-coded in `EdgeLines`. The distinction is deliberate: dim strands are texture, bright
+  coloured lines are data.
+- **`ClusterGlows` is data, not decoration.** One additive sprite per `scopeRef`, at that cluster's
+  centroid, scaled by `√(node count)` — a project's halo grows as its memory grows. Capped at the 8
+  largest clusters because each sprite is a draw call.
+- **Camera distance is derived, not fixed.** The same scene renders in a ~1100px page and a ~260px
+  panel. A fixed distance framed the page correctly and overflowed the panel badly, because the fov
+  is *vertical*: a narrow box has a much smaller horizontal field. `homeDistance(fov, aspect)` solves
+  for whichever half-angle is narrower.
+
 ## Both surfaces, one scene (revision)
 
 The first cut wired the galaxy into the Observatory route (`MemoryView`) only. The Command Center's

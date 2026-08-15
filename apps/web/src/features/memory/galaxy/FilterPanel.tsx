@@ -104,7 +104,11 @@ export function FilterPanel({
                 display: "inline-block",
               }}
             />
-            {scope === "company" ? "çekirdek" : scope === "project" ? "kollar" : "dış yörünge"}
+            {/* Şekil sarmal kollardan küresel kabuklara geçince eski etiketler
+                ("kollar", "dış yörünge") yalan söylemeye başladı. Renk zaten
+                kapsamı gösteriyor; efsane de artık kapsamın kendi adını
+                yazıyor. */}
+            {scope === "company" ? "şirket" : scope === "project" ? "proje" : "ajan"}
           </span>
         ))}
       </div>

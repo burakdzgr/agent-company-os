@@ -318,42 +318,49 @@ export function MemoryPanel() {
         </span>
       </div>
       {/*
-        Graf sekmesi = 3D galaksi (ADR-021). WebGL yoksa eski 2D brain-field
-        şeridine düşülür ve SEBEBİ ekranda yazar — sessiz geri düşüş, hangi
-        yolda olduğumuzu tahmin etmek zorunda bıraktığı için kaldırıldı.
+        Graf sekmesi = SADECE 3D küre (ADR-021). Liste altta değil, kendi
+        sekmesinde: grafın üstünde bir şerit olarak durduğunda ne graf ne
+        liste okunuyordu ve Founder grafı büyük görmek istiyor. "Graf"
+        sekmesinin işi grafı göstermek; anı listesi "Liste"/"Zaman"da.
+
+        WebGL yoksa eski 2D brain-field'a düşülür ve SEBEBİ ekranda yazar —
+        sessiz geri düşüş, hangi yolda olduğumuzu tahmin etmek zorunda
+        bıraktığı için kaldırıldı.
       */}
-      {tab === "graf" &&
-        (webgl.ok ? (
+      {tab === "graf" ? (
+        webgl.ok ? (
           <GalaxyScene companyId={companyId} onSelect={() => {}} variant="panel" />
         ) : (
-          <>
+          <div className="min-h-0 flex-1 overflow-auto">
             {graph.data && <BrainGraph graph={graph.data} />}
-            <div className="shrink-0 border-b border-acos-line px-2.5 py-1 text-[9px] text-acos-fg2">
-              3D galaksi devre dışı — {webgl.reason}
+            <div className="px-2.5 py-1 text-[9px] text-acos-fg2">
+              3D görünüm devre dışı — {webgl.reason}
             </div>
-          </>
-        ))}
-      <div className="min-h-0 flex-1 overflow-auto">
-        {list.isLoading && <div className="p-3 text-[10px] text-acos-fg2">Yükleniyor…</div>}
-        {!list.isLoading && items.length === 0 && (
-          <div className="p-3 text-[10px] text-acos-fg2">
-            Henüz anı yok — ajanlar öğrendikçe burada belirir.
           </div>
-        )}
-        {(tab === "zaman" ? byTime : items).map((memory, i, arr) => (
-          <div key={memory.id}>
-            {tab === "zaman" &&
-              (i === 0 ||
-                new Date(arr[i - 1]!.createdAt).toDateString() !==
-                  new Date(memory.createdAt).toDateString()) && (
-                <div className="bg-acos-bg2/60 px-2.5 py-0.5 text-[8.5px] uppercase tracking-wide text-acos-fg2">
-                  {new Date(memory.createdAt).toLocaleDateString()}
-                </div>
-              )}
-            <MemoryRow memory={memory} fresh={fresh.has(memory.id)} />
-          </div>
-        ))}
-      </div>
+        )
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto">
+          {list.isLoading && <div className="p-3 text-[10px] text-acos-fg2">Yükleniyor…</div>}
+          {!list.isLoading && items.length === 0 && (
+            <div className="p-3 text-[10px] text-acos-fg2">
+              Henüz anı yok — ajanlar öğrendikçe burada belirir.
+            </div>
+          )}
+          {(tab === "zaman" ? byTime : items).map((memory, i, arr) => (
+            <div key={memory.id}>
+              {tab === "zaman" &&
+                (i === 0 ||
+                  new Date(arr[i - 1]!.createdAt).toDateString() !==
+                    new Date(memory.createdAt).toDateString()) && (
+                  <div className="bg-acos-bg2/60 px-2.5 py-0.5 text-[8.5px] uppercase tracking-wide text-acos-fg2">
+                    {new Date(memory.createdAt).toLocaleDateString()}
+                  </div>
+                )}
+              <MemoryRow memory={memory} fresh={fresh.has(memory.id)} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

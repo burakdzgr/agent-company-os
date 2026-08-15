@@ -7,7 +7,7 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import type { GalaxyNode } from "./layout.js";
+import { FIELD_RADIUS, type GalaxyNode } from "./layout.js";
 
 /**
  * OrbitControls'ün BU dosyanın ihtiyaç duyduğu yüzeyi. Tam tipi `three-stdlib`
@@ -20,18 +20,34 @@ export interface OrbitLike {
 }
 
 /**
- * Galaksinin tamamını gören açılış konumu.
+ * Açılış BAKIŞ YÖNÜ (birim vektör değil, yalnız yön taşır).
  *
- * Mesafe keyfi değil, en dış kabuktan türetildi: agent kabuğu 20 yarıçapa
- * kadar uzanıyor (layout SHELL), 55° fov'da 30 birimden bakınca dıştaki
- * düğümler kadrajın dışında kalıyordu.
- *
- * Yükseklik de ölçüldü: 11 birimden bakınca (≈17° eğim) disk neredeyse
- * kenardan görünüyor ve sarmal kollar üst üste binip kayboluyordu. 21 birim
- * ≈35° eğim verir — kollar okunur, disk hâlâ disk gibi durur (tam tepeden
- * bakmak derinliği öldürürdü). Uzaklık ~37 birim: dış kabuk (20) marjla sığar.
+ * Uzaklık burada sabitlenemez: aynı sahne hem 1100px genişliğindeki Gözlemevi
+ * sayfasında hem ~260px'lik Command Center panelinde çiziliyor. Sabit uzaklık
+ * (44 birim) sayfada doğru, panelde felaketti — kamera fov'u DİKEY olduğu
+ * için dar bir kutuda yatay görüş açısı çok daha küçük kalıyor ve küre
+ * kadrajın iki yanından taşıyordu. Uzaklık `homeDistance()` ile en-boy
+ * oranından hesaplanıyor.
  */
-export const HOME_POSITION: [number, number, number] = [0, 21, 30];
+const HOME_DIRECTION = new THREE.Vector3(0, 0.18, 1).normalize();
+
+/** Küre kadraja otursun diye bırakılan pay. */
+const FIT_MARGIN = 1.18;
+
+/**
+ * Yarıçapı `FIELD_RADIUS` olan küreyi tam gören uzaklık.
+ *
+ * Dikey yarı-açı fov/2; yatay yarı-açı `atan(tan(fov/2) · en-boy)`. Küre
+ * ikisine de sığmalı, o yüzden DAR olan belirler.
+ */
+export function homeDistance(fovDegrees: number, aspect: number): number {
+  const vertical = (fovDegrees * Math.PI) / 360;
+  const horizontal = Math.atan(Math.tan(vertical) * aspect);
+  return (FIELD_RADIUS * FIT_MARGIN) / Math.sin(Math.min(vertical, horizontal));
+}
+
+/** Geniş ekran varsayımıyla ilk kare için başlangıç konumu. */
+export const HOME_POSITION: [number, number, number] = [0, 8, 44];
 
 export function CameraRig({
   target,
@@ -41,13 +57,16 @@ export function CameraRig({
   target: GalaxyNode | null;
   controls: React.RefObject<OrbitLike | null>;
 }) {
-  const { camera } = useThree();
+  const { camera, size } = useThree();
   const desiredPosition = useRef(new THREE.Vector3(...HOME_POSITION));
   const desiredTarget = useRef(new THREE.Vector3(0, 0, 0));
+  const aspect = size.height > 0 ? size.width / size.height : 1;
 
   useEffect(() => {
     if (!target) {
-      desiredPosition.current.set(...HOME_POSITION);
+      // panel dar, sayfa geniş → uzaklık her ikisinde de yeniden hesaplanır
+      const fov = camera instanceof THREE.PerspectiveCamera ? camera.fov : 55;
+      desiredPosition.current.copy(HOME_DIRECTION).multiplyScalar(homeDistance(fov, aspect));
       desiredTarget.current.set(0, 0, 0);
       return;
     }
@@ -58,7 +77,9 @@ export function CameraRig({
     const distance = outward.length() || 1;
     outward.multiplyScalar((distance + 4.5) / distance);
     desiredPosition.current.set(outward.x, outward.y + 1.5, outward.z);
-  }, [target]);
+    // aspect/camera bağımlılıkta: panel yeniden boyutlanınca ev konumu
+    // yeniden hesaplanmalı, yoksa kadraj bir önceki genişlikte donup kalır
+  }, [target, aspect, camera]);
 
   useFrame((_state, delta) => {
     // delta'ya bağlı yumuşatma: kare hızından bağımsız aynı his

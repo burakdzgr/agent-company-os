@@ -10,11 +10,19 @@
 // anıyı temsil etmez, tıklanmaz (raycast kapalı).
 import { useMemo } from "react";
 import * as THREE from "three";
+import { buildStarTexture } from "./KnowledgeField.js";
 
 const STAR_COUNT = 900;
-/** Galaksinin dışında bir küre kabuğu — düğümlerle karışmasın. */
-const INNER = 60;
-const OUTER = 150;
+/**
+ * Alanın dışında bir küre kabuğu — düğümlerle karışmasın.
+ *
+ * İç yarıçap kameranın ev uzaklığından (~45) BÜYÜK olmalı. 60'ta kalınca
+ * yakın yıldızlar kameranın birkaç birim önüne düşüyor, `sizeAttenuation`
+ * onları büyütüyor ve ekranda kocaman gri kareler beliriyordu — ekran
+ * görüntüsünde sol üstteki kutu buydu.
+ */
+const INNER = 110;
+const OUTER = 280;
 
 export function Starfield() {
   const geometry = useMemo(() => {
@@ -46,9 +54,20 @@ export function Starfield() {
     return geo;
   }, []);
 
+  // yuvarlak damga: dokusuz `pointsMaterial` her noktayı KARE çizer
+  const star = useMemo(() => buildStarTexture(), []);
+
   return (
     <points geometry={geometry} raycast={() => null} frustumCulled={false}>
-      <pointsMaterial size={0.7} sizeAttenuation vertexColors transparent opacity={0.75} />
+      <pointsMaterial
+        map={star}
+        size={1.6}
+        sizeAttenuation
+        vertexColors
+        transparent
+        opacity={0.75}
+        depthWrite={false}
+      />
     </points>
   );
 }

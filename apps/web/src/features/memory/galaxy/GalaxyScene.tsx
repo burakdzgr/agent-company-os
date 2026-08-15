@@ -15,7 +15,8 @@ import type * as THREE from "three";
 import { Card } from "@acos/ui";
 import { CameraRig, HOME_POSITION, type OrbitLike } from "./CameraRig.js";
 import { EdgeLines } from "./EdgeLines.js";
-import { GalaxyDust } from "./GalaxyDust.js";
+import { ClusterGlows } from "./ClusterGlows.js";
+import { KnowledgeField } from "./KnowledgeField.js";
 import { FilterPanel } from "./FilterPanel.js";
 import { NodeCloud } from "./NodeCloud.js";
 import { NodeLabels, NodeTooltip } from "./NodeLabels.js";
@@ -86,7 +87,8 @@ export function webglAvailable(): boolean {
  */
 export type GalaxyVariant = "page" | "panel";
 
-const PANEL_HEIGHT = 230;
+/** Panelde sahne listenin üstündeki bir şerit değil, panelin TAMAMIDIR. */
+const PANEL_HEIGHT = "100%";
 const PAGE_HEIGHT = 560;
 
 export function GalaxyScene({
@@ -138,8 +140,9 @@ export function GalaxyScene({
         <Starfield />
 
         <SpinningGalaxy>
-          {/* toz ÖNCE: yapıyı o çizer, anılar onun içinde parlar */}
-          <GalaxyDust />
+          {/* alan ÖNCE: küreyi o çizer, anılar onun içinde parlar */}
+          <KnowledgeField />
+          <ClusterGlows nodes={nodes} />
           <EdgeLines nodes={nodes} edges={edges} />
           <NodeCloud
             nodes={nodes}
@@ -177,10 +180,7 @@ export function GalaxyScene({
 
   if (compact) {
     return (
-      <div
-        className="relative shrink-0 border-b border-acos-line"
-        data-testid="memory-brain-graph"
-      >
+      <div className="relative min-h-0 flex-1" data-testid="memory-brain-graph">
         {scene}
       </div>
     );

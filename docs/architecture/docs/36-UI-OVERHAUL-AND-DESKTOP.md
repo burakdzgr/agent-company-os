@@ -118,13 +118,15 @@ reachable (open as panels/tabs). Exactly mirrors `docs/ui/acos-final.html`:
   derived_from purple / supersedes grey); hover → provenance (scope owner/type/conf). Backed by the
   Observatory endpoints (T48). Below: live-updating memory list (new memories fade in on
   `memory.created`). Views: Graf / Liste / Zaman.
-  - **Renderer (revised — ADR-021).** The graph is the **3D spiral galaxy**, in this panel exactly as
-    on the full Observatory page: same scene, `variant="panel"` (no filter overlay, no labels, 230px
-    strip). The original spec here was a 2D canvas "brain-field", and it shipped that way while the
-    galaxy went only to the Observatory route — the Founder works in the Command Center panel, so the
-    galaxy was invisible in practice. The defect was two surfaces rendering the same domain object
-    differently, not the styling. The 2D strip survives **only** as the no-WebGL fallback, and that
-    fallback now prints its reason on screen instead of degrading silently.
+  - **Renderer (revised — ADR-021).** The graph is the **3D knowledge sphere**, in this panel exactly
+    as on the full Observatory page: same scene, `variant="panel"` (no filter overlay, no labels).
+    The original spec here was a 2D canvas "brain-field", and it shipped that way while the 3D view
+    went only to the Observatory route — the Founder works in the Command Center panel, so it was
+    invisible in practice. The defect was two surfaces rendering the same domain object differently,
+    not the styling. The 2D strip survives **only** as the no-WebGL fallback, and that fallback now
+    prints its reason on screen instead of degrading silently.
+  - **The Graf tab shows the graph and nothing else** — it fills the panel; the memory list lives in
+    the Liste / Zaman tabs. Stacking a graph strip above a list left neither readable.
 - **Skiller**: two tabs. **Beceriler** = per-agent skill matrix with evidence-based levels (T47).
   **Terfi Adayı** = emergent skill candidates (see U12) with reason + evidence chips + "↑ Terfi Et"
   → Founder promotion; on approve the candidate becomes the agent's real skill.
