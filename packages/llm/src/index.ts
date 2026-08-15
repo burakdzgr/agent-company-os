@@ -11,6 +11,7 @@ export {
   LlmUsageSchema,
   ProviderPricingSchema,
   computeCostCents,
+  resolveProviderPricing,
   type LlmPurpose,
   type BindingPurpose,
   type LlmMessage,
@@ -24,9 +25,17 @@ export {
   type ModelProfileInput,
   type ResolvedTarget,
   type ProviderPricing,
+  type ProviderPricingTable,
+  type ProviderPricingEntry,
   type LlmCallLogEntry,
   type LlmCallLogger,
 } from "./types.js";
+export {
+  ANTHROPIC_PRICING,
+  OPENAI_PRICING,
+  SCRIPTED_PRICING,
+  pricingDefaultsFor,
+} from "./pricing-defaults.js";
 export {
   AgentActionSchema,
   TaskResultSchema,

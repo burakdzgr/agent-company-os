@@ -14,11 +14,15 @@ import { createDb, createGuardedDb, type CompanyContext, type GuardedDb } from "
 import { modelProviders } from "@acos/db/schema";
 import {
   ModelRouter,
+  SCRIPTED_PRICING,
   createAnthropicAdapter,
   createOllamaAdapter,
   createOpenAiAdapter,
   createOpenRouterAdapter,
+  pricingDefaultsFor,
+  type LlmCallLogEntry,
   type ProviderAdapter,
+  type ProviderPricingEntry,
   type RoutingContext,
 } from "@acos/llm";
 import { createScriptedAdapter, loadScript } from "@acos/llm/testing";
@@ -33,6 +37,46 @@ const require = createRequire(import.meta.url);
 interface RouterDeps {
   router: ModelRouter;
   routingFor: (ctx: CompanyContext, agentId: string) => Promise<RoutingContext>;
+}
+
+/**
+ * Router-level accounting log (ADR-015: EVERY attempt is recorded, success and
+ * failure). The llm_calls row is written by callModelActivity, but only for
+ * calls that returned — failed attempts and fallback hops reach nothing else,
+ * so dropping them here (this used to be `() => {}`) lost them entirely.
+ * B1 (2026-08-15 code review).
+ */
+function logLlmCall(entry: LlmCallLogEntry): void {
+  console.log(
+    JSON.stringify({
+      msg: "llm call",
+      providerId: entry.providerId,
+      model: entry.model,
+      purpose: entry.purpose,
+      status: entry.status,
+      ...(entry.errorKind && { errorKind: entry.errorKind }),
+      tokensIn: entry.usage.inputTokens,
+      tokensOut: entry.usage.outputTokens,
+      tokensCached: entry.usage.cachedInputTokens,
+      costCents: entry.costCents,
+      latencyMs: entry.latencyMs,
+      ...(entry.agentId && { agentId: entry.agentId }),
+      ...(entry.taskId && { taskId: entry.taskId }),
+      ...(entry.sessionId && { sessionId: entry.sessionId }),
+    }),
+  );
+  // An unpriced model bills 0 and would silently starve the budget guard
+  // (INV-19) — surface it instead of inventing a rate.
+  const billable = entry.usage.inputTokens + entry.usage.outputTokens > 0;
+  if (entry.status === "ok" && billable && entry.costCents === 0) {
+    console.log(
+      JSON.stringify({
+        msg: "llm call priced at 0 — no pricing entry for this model",
+        providerId: entry.providerId,
+        model: entry.model,
+      }),
+    );
+  }
 }
 
 /** Scripted mode (32 §6): fake adapter behind a real model_providers row so
@@ -55,7 +99,8 @@ async function buildScriptedRouter(pool: Pool): Promise<RouterDeps> {
   return {
     router: new ModelRouter({
       providers: new Map([[provider.id, adapter]]),
-      logCall: () => {},
+      pricing: new Map([[provider.id, SCRIPTED_PRICING]]),
+      logCall: logLlmCall,
     }),
     routingFor: async () => ({
       bindings: [],
@@ -74,6 +119,8 @@ async function buildLiveRouter(pool: Pool, guardedDb: GuardedDb, config: Config)
   const db = createDb(pool);
   const rows = await db.select().from(modelProviders).where(eq(modelProviders.enabled, true));
   const providers = new Map<string, ProviderAdapter>();
+  // Pricing per provider row, keyed the way the router looks it up (26 §3.1).
+  const pricing = new Map<string, ProviderPricingEntry>();
   for (const row of rows) {
     let adapter: ProviderAdapter | null = null;
     if (row.kind === "anthropic" && config.llm.anthropicApiKey) {
@@ -86,9 +133,11 @@ async function buildLiveRouter(pool: Pool, guardedDb: GuardedDb, config: Config)
       adapter = { ...createOllamaAdapter({ baseUrl: config.llm.ollamaBaseUrl }), providerId: row.id };
     }
     if (adapter) providers.set(row.id, adapter);
+    const rates = pricingDefaultsFor(row.kind);
+    if (rates) pricing.set(row.id, rates);
   }
   return {
-    router: new ModelRouter({ providers, logCall: () => {} }),
+    router: new ModelRouter({ providers, pricing, logCall: logLlmCall }),
     routingFor: createDbRoutingLoader(guardedDb),
   };
 }

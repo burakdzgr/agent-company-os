@@ -74,6 +74,10 @@ export const LLM_ERROR_KINDS = [
   "auth", // 401/403 — configuration problem, no fallback masking
   "bad_request", // 4xx — our fault, never fall back
   "no_target", // resolution produced no usable provider+model
+  // Y7 (2026-08-15): HTTP 200 with empty content — a safety refusal. Not
+  // retryable and not a fallback case; the caller must handle it explicitly
+  // instead of parsing "" as malformed JSON and burning its repair budget.
+  "refused",
 ] as const;
 export type LlmErrorKind = (typeof LLM_ERROR_KINDS)[number];
 
@@ -131,6 +135,46 @@ export const ProviderPricingSchema = z.object({
   cachedInputPerMTokCents: z.number().min(0).default(0),
 });
 export type ProviderPricing = z.infer<typeof ProviderPricingSchema>;
+
+/**
+ * Model-keyed pricing for ONE provider row (26 §3.1 — the shape
+ * `model_providers.pricing` stores). A provider row serves many models at very
+ * different rates (opus 500 vs haiku 100 per Mtok input), so a single flat rate
+ * per provider misprices by up to 5x — see `default` below.
+ *
+ * B1 (2026-08-15 code review): the router used to key pricing by providerId
+ * alone, which could not express 26 §3.1 at all.
+ */
+export interface ProviderPricingTable {
+  models: Readonly<Record<string, ProviderPricing>>;
+  /**
+   * Provider-wide rate for models with no entry. Absent ⇒ the model is
+   * unpriced and costs 0 — deliberately, so an unknown model shows up as a
+   * visible zero rather than a silently invented price.
+   */
+  default?: ProviderPricing | undefined;
+}
+
+/** A pricing map value: model-keyed table (26 §3.1) or a legacy flat rate. */
+export type ProviderPricingEntry = ProviderPricing | ProviderPricingTable;
+
+function isPricingTable(entry: ProviderPricingEntry): entry is ProviderPricingTable {
+  return "models" in entry;
+}
+
+/**
+ * (providerId, model) → rate. Model entry first, then the provider-wide
+ * `default`; a flat entry stays provider-wide (backward compatible).
+ * Returns null when nothing prices this model ⇒ cost 0.
+ */
+export function resolveProviderPricing(
+  entry: ProviderPricingEntry | undefined,
+  model: string,
+): ProviderPricing | null {
+  if (!entry) return null;
+  if (!isPricingTable(entry)) return entry;
+  return entry.models[model] ?? entry.default ?? null;
+}
 
 export function computeCostCents(usage: LlmUsage, pricing: ProviderPricing | null): number {
   if (!pricing) return 0;

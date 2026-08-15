@@ -7,6 +7,7 @@ import {
   FALLBACK_ELIGIBLE,
   LlmError,
   computeCostCents,
+  resolveProviderPricing,
   type AgentBindingInput,
   type CompleteRequest,
   type CompleteResult,
@@ -15,7 +16,7 @@ import {
   type LlmCallLogger,
   type LlmUsage,
   type ModelProfileInput,
-  type ProviderPricing,
+  type ProviderPricingEntry,
   type ResolvedTarget,
 } from "./types.js";
 import { resolveTargets } from "./resolution.js";
@@ -38,8 +39,12 @@ export interface ProviderAdapter {
 
 export interface RouterOptions {
   providers: ReadonlyMap<string, ProviderAdapter>;
-  /** model_providers.pricing per providerId (26 §3.1); absent ⇒ cost 0. */
-  pricing?: ReadonlyMap<string, ProviderPricing> | undefined;
+  /**
+   * model_providers.pricing per providerId (26 §3.1); absent ⇒ cost 0.
+   * Values are model-keyed tables; a bare {@link ProviderPricing} is still
+   * accepted and applies provider-wide.
+   */
+  pricing?: ReadonlyMap<string, ProviderPricingEntry> | undefined;
   logCall: LlmCallLogger;
   /** router-wide hard ceiling on output tokens per call. */
   defaultMaxTokens?: number | undefined;
@@ -85,7 +90,7 @@ export class ModelRouter {
         const latencyMs = (this.options.now ?? Date.now)() - startedAt;
         const costCents = computeCostCents(
           output.usage,
-          this.options.pricing?.get(target.providerId) ?? null,
+          resolveProviderPricing(this.options.pricing?.get(target.providerId), target.model),
         );
         await this.options.logCall({
           providerId: target.providerId,
@@ -156,7 +161,7 @@ export class ModelRouter {
         const latencyMs = (this.options.now ?? Date.now)() - startedAt;
         const costCents = computeCostCents(
           output.usage,
-          this.options.pricing?.get(target.providerId) ?? null,
+          resolveProviderPricing(this.options.pricing?.get(target.providerId), target.model),
         );
         await this.options.logCall({
           providerId: target.providerId,

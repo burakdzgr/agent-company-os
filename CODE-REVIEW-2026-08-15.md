@@ -1,5 +1,20 @@
 # ACOS — Kod İnceleme Raporu
 
+> **UYGULAMA DURUMU (2026-08-15, commit `fa89840` sonrası)**
+>
+> | Bulgu | Durum | Not |
+> |---|---|---|
+> | **B2** prepare bağlantısı | ✅ uygulandı | `app.ts` sarmalayıcısına `prepare` köprüsü eklendi |
+> | **B5** gözlem kırpma | ✅ uygulandı | Alan-farkındalıklı bütçe (son adım 24k, önceki 12k char), yük alanları ayrı bölümde, kırpma açıkça bildiriliyor, pencere 5→8. **Canlı doğrulama:** aynı ajan 38–39. adımda `fs.edit NO_MATCH` alırken, düzeltme canlıya çıkınca 40. adımda **başarılı düzenleme** yaptı |
+> | **B3** timeout ayrıştırma | ✅ uygulandı | Tool dispatch ayrı proxy (45 dk, retry 1) + gateway `in_flight` yan etkili araçlarda fail-closed |
+> | **Y7** temperature/refusal | ✅ uygulandı | `acceptsTemperature()` filtresi + yeni `refused` LlmError |
+> | **B4** hayalet araçlar | ◑ kısmi | Katalogdan ve seed grant'ından çıkarıldı (adım+jeton yakımı durdu). `memory.search`/`task.query` dispatch'i **açık iş** |
+> | **B1** router pricing | ⚠️ **rapordaki premis yanlıştı** | `model_providers.pricing` sütunu **yok** (grep + migration journal ile doğrulandı). Ayrıca doc 26 §3.1 **model-bazlı** fiyat istiyor, router ise sağlayıcı-bazlı anahtarlıyordu — yani düzeltme yalnız "wiring" değil, port şeklinin dokümana getirilmesi. Şema değişikliği olmayan yol seçildi: `packages/llm/src/pricing-defaults.ts` + model-farkındalı lookup. Bulgunun **sonucu** (her LLM çağrısı 0¢, `recordCost` hiç çağrılmıyor, INV-19 ölü) doğrulandı ve daha da kötü çıktı: `cost_entries` satırı hiç yazılmıyor |
+> | **Y1** request_help/record_decision | ⏳ açık | Doğrulandı: `executeActionActivity` switch'inde case yok |
+> | Y2–Y6, O1–O15 | ⏳ açık | Faz 3–4 |
+>
+> **Rapor kalitesi notu:** B1 dışındaki tüm bulgular kaynak okunarak birebir doğrulandı; B5 canlı davranışla da kanıtlandı. B1'in teşhisi doğru, dayandığı şema varsayımı yanlıştı — bulguyu uygularken doğrulama zinciri bunu yakaladı.
+
 **Tarih:** 2026-08-15
 **Kapsam:** Tüm repo (589 dosya, ~64k satır TS) — `main` @ `e7a28ed` + çalışma ağacındaki `fs.edit` değişikliği
 **Okuyucu:** Bu raporu okuyup düzeltmeleri yazacak proje agent'ı

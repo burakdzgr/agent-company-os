@@ -1006,6 +1006,67 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         }
         case "think":
           return { ok: true, thought: true };
+        /**
+         * Y1 (2026-08-15 kod incelemesi): iki aksiyon kataloğa yazılıydı ama
+         * dispatch'te yoktu — `default`'a düşüp "not yet wired" hatası
+         * veriyordu. INV-16 yardım isteme yolunu ŞART koşuyor; record_decision
+         * ise plan-döngüsü sayacına giriyordu, yani ajan reddedilen bir
+         * aksiyonu tekrarlayıp guard'ı tetikliyordu.
+         */
+        case "request_help": {
+          // yardım isteği = yönetici/uzman hattına yapılandırılmış mesaj
+          const thread = await guardedDb.transaction((tx) =>
+            channelService.provisionInTx(tx, ctx, {
+              kind: "task_thread",
+              taskId: input.taskId,
+              memberAgentIds: [input.agentId],
+            }),
+          );
+          const plan = await messageService.send(ctx, {
+            channelId: thread.id,
+            senderAgentId: input.agentId,
+            kind: "help_request",
+            body: `[${action.audience}] ${action.topic}\n\n${action.body}`,
+            refs: [{ kind: "task", id: input.taskId }],
+            ...(action.targetAgentId && { mentions: [action.targetAgentId] }),
+            idempotencyKey: uuidv5("help", input.stepId),
+          });
+          if (deps.signalPort) {
+            await deliverMessage(guardedDb, ctx, plan, deps.signalPort);
+          }
+          return {
+            ok: true,
+            helpRequested: true,
+            messageId: plan.message.id,
+            recipients: plan.recipients.length,
+          };
+        }
+        case "record_decision": {
+          // karar kaydı = ADR benzeri artefakt (07 §10 artifact yolu)
+          const [artifact] = await guardedDb
+            .insert(artifactsTable)
+            .values({
+              companyId: ctx.companyId,
+              taskId: input.taskId,
+              kind: "decision",
+              title: action.title.slice(0, 200),
+              contentMd: [
+                `# ${action.title}`,
+                "",
+                `## Karar`,
+                action.decision,
+                "",
+                `## Değerlendirilen alternatifler`,
+                ...action.alternatives.map((a) => `- ${a}`),
+                "",
+                `## Sonuçlar`,
+                action.consequences,
+              ].join("\n"),
+              createdByAgentId: input.agentId,
+            })
+            .returning({ id: artifactsTable.id });
+          return { ok: true, decisionRecorded: true, artifactId: artifact?.id ?? null };
+        }
         case "complete_task": {
           // 07 §10 + 16-durum makinesi: sahibin "bitti"si görevi yetkili
           // olduğu kadar İLERLETİR — result kaydedilir, iş REVIEW'a taşınır
@@ -1053,11 +1114,17 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         }
         case "abandon":
           return { ok: true, abandoned: true, reason: action.reason };
-        default:
-          // send_message / create_task / delegate_task / escalate / wait_for
-          // etc. arrive with T33+ — surface a structured refusal the agent
-          // sees next step instead of crashing the loop
-          return { ok: false, error: `action ${action.type} not yet wired (T33+)` };
+        default: {
+          // Y1 (2026-08-15): the 13 AgentAction types are now ALL wired, so
+          // this branch is unreachable — kept as an exhaustiveness guard that
+          // fails loudly if a new action type is added to the schema without
+          // a dispatch case (rather than silently returning "not yet wired").
+          const unreachable: never = action;
+          return {
+            ok: false,
+            error: `unhandled action kind: ${JSON.stringify(unreachable).slice(0, 120)}`,
+          };
+        }
       }
     },
 
