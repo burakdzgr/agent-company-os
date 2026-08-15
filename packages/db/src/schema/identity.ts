@@ -5,6 +5,7 @@ import {
   check,
   index,
   inet,
+  jsonb,
   pgTable,
   real,
   text,
@@ -95,6 +96,17 @@ export const modelProviders = pgTable(
     baseUrl: text("base_url"),
     apiKeyEnc: bytea("api_key_enc"),
     enabled: boolean("enabled").notNull().default(true),
+    /**
+     * A1 (26 §3.1): platform-level, model-keyed price list, editable in
+     * Settings → Providers. Shape:
+     *   { "models": { "<model>": { in_per_mtok_cents, out_per_mtok_cents,
+     *                              cached_in_per_mtok_cents } },
+     *     "updated_at": "...", "source": "seed" | "manual" }
+     * Empty `{}` falls back to `pricingDefaultsFor(kind)` so existing rows
+     * keep today's behaviour. Historical `llm_calls.cost_cents` is never
+     * re-priced (26 §3.1).
+     */
+    pricing: jsonb("pricing").notNull().default({}),
   },
   (t) => [
     uniqueIndex("model_providers_name_uq").on(t.name),

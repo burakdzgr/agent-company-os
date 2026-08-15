@@ -75,6 +75,13 @@ export {
   type CostEntryInput,
   type BudgetStatus,
 } from "./costs.js";
+// A1 (26 §3.1): platform price list reader — model_providers.pricing
+export {
+  loadProviderPricing,
+  parseStoredPricing,
+  type ProviderRate,
+  type ProviderPricingTable,
+} from "./pricing.js";
 export {
   DelegationService,
   WIP_LIMIT_BY_ROLE,

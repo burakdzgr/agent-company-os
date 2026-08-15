@@ -92,6 +92,20 @@
       "when": 1786845000000,
       "tag": "0013_memory_retrievals",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786790162414,
+      "tag": "0013_memory_retrievals",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786845060000,
+      "tag": "0014_model_provider_pricing",
+      "breakpoints": true
     }
   ]
 }

@@ -10,7 +10,13 @@ import { Pool } from "pg";
 import { eq } from "drizzle-orm";
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { loadConfigOrExit, TASK_QUEUES, type Config } from "@acos/config";
-import { createDb, createGuardedDb, type CompanyContext, type GuardedDb } from "@acos/db";
+import {
+  createDb,
+  createGuardedDb,
+  loadProviderPricing,
+  type CompanyContext,
+  type GuardedDb,
+} from "@acos/db";
 import { modelProviders } from "@acos/db/schema";
 import {
   ModelRouter,
@@ -135,6 +141,12 @@ async function buildLiveRouter(pool: Pool, guardedDb: GuardedDb, config: Config)
     if (adapter) providers.set(row.id, adapter);
     const rates = pricingDefaultsFor(row.kind);
     if (rates) pricing.set(row.id, rates);
+  }
+  // A1 (26 §3.1): the DB column wins when an operator has priced a provider in
+  // Settings → Providers; compile-time defaults stay the fallback for rows that
+  // still carry the empty `{}` default.
+  for (const [providerId, table] of await loadProviderPricing(guardedDb)) {
+    pricing.set(providerId, table);
   }
   return {
     router: new ModelRouter({ providers, pricing, logCall: logLlmCall }),

@@ -3,8 +3,10 @@
 // and the 8 agents extend this in T18/T19.
 import { randomBytes } from "node:crypto";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { companyContext, type CompanyContext, type GuardedDb } from "@acos/db";
+import { companyContext, CostService, type CompanyContext, type GuardedDb } from "@acos/db";
+import { pricingDefaultsFor } from "@acos/llm";
 import {
+  budgets,
   companies,
   modelProfiles,
   modelProviders,
@@ -43,6 +45,7 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
     // live routing rows apply to EXISTING installs too (idempotent) — the
     // nightly live-LLM lane boots the same seed with a provider key present
     await ensureLiveModelRouting(db, existingCompany.id);
+    await ensureCompanyDailyBudget(db, existingCompany.id);
     return { created: false, companyId: existingCompany.id, founderUserId: existingUser.id };
   }
 
@@ -76,6 +79,7 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
 
   await seedOrgAndAgents(db, companyId);
   await ensureLiveModelRouting(db, companyId);
+  await ensureCompanyDailyBudget(db, companyId);
 
   return {
     created: true,
@@ -86,6 +90,52 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
 }
 
 /**
+ * Default company daily spend cap, in cents. Overridable at seed time with
+ * `SEED_DAILY_BUDGET_CENTS`; editable afterwards in Settings → Costs (26 §9).
+ */
+const DEFAULT_DAILY_BUDGET_CENTS = 50_000;
+
+/**
+ * A3 (2026-08-15 code review; 26 §4 + §5.3): every company gets a
+ * company-scope daily HARD budget row.
+ *
+ * Two things depend on the row existing. 26 §5.3 makes it the circuit
+ * breaker's trigger — "a daily company-level hard budget breach emits
+ * `budget.exceeded {scope: company}`; the policy engine consumer then pauses
+ * all non-critical agents" — which can never fire without one. And the Tool
+ * Gateway's tightest-budget lookup falls back to `Number.MAX_SAFE_INTEGER`
+ * when no budget governs a call, i.e. unlimited spend, defeating 26 §5.2's
+ * pre-execution check.
+ *
+ * Additive and idempotent: written only when absent, so a Founder-edited
+ * limit (or a deliberate deletion) survives every later boot.
+ */
+async function ensureCompanyDailyBudget(db: GuardedDb, companyId: string): Promise<void> {
+  const ctx = companyContext(companyId);
+  const [existing] = await db
+    .select({ id: budgets.id })
+    .from(budgets)
+    .where(
+      and(
+        eq(budgets.companyId, companyId),
+        eq(budgets.scopeKind, "company"),
+        eq(budgets.period, "daily"),
+      ),
+    )
+    .limit(1);
+  if (existing) return;
+  const limitCents = Number(process.env.SEED_DAILY_BUDGET_CENTS ?? DEFAULT_DAILY_BUDGET_CENTS);
+  if (!Number.isFinite(limitCents) || limitCents <= 0) return; // budgets_limit_check
+  // through CostService so the `budget.created` event lands on the timeline
+  await new CostService(db).setBudget(ctx, {
+    scopeKind: "company",
+    period: "daily",
+    limitCents,
+    kind: "hard",
+  });
+}
+
+/**
  * Live-LLM routing rows (T50; 29 §8.3 nightly lane): when a provider key is
  * present and the stack is NOT scripted, ensure the anthropic
  * model_providers row + the seed company's model_profiles (reasoning /
@@ -93,6 +143,25 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
  * degrades per 12 §5.4/§7.5c (NULL embeddings + skipped semantic lane) until
  * an embedding provider is configured. Idempotent; a no-op without the key.
  */
+/**
+ * A1 (26 §3.1): compile-time defaults → the JSONB document shape the column
+ * stores (snake_case, model-keyed). One translation point; `loadProviderPricing`
+ * translates back on read.
+ */
+function seedPricingDocument(kind: "anthropic" | "openai"): Record<string, unknown> {
+  const table = pricingDefaultsFor(kind);
+  if (!table) return {};
+  const models: Record<string, Record<string, number>> = {};
+  for (const [model, rate] of Object.entries(table.models)) {
+    models[model] = {
+      in_per_mtok_cents: rate.inputPerMTokCents,
+      out_per_mtok_cents: rate.outputPerMTokCents,
+      cached_in_per_mtok_cents: rate.cachedInputPerMTokCents,
+    };
+  }
+  return { models, updated_at: new Date().toISOString().slice(0, 10), source: "seed" };
+}
+
 async function ensureLiveModelRouting(db: GuardedDb, companyId: string): Promise<void> {
   if (!process.env.ANTHROPIC_API_KEY || process.env.LLM_MODE === "scripted") return;
   const [existingProvider] = await db
@@ -109,6 +178,15 @@ async function ensureLiveModelRouting(db: GuardedDb, companyId: string): Promise
         .returning({ id: modelProviders.id })
     )[0]?.id;
   if (!providerId) return; // lost a boot race — the winner seeded it
+
+  // A1 (26 §3.1): seed the price list into `model_providers.pricing` in the
+  // document shape so Settings → Providers can edit it at runtime. Only
+  // written while the column still holds its empty default — an operator's
+  // edits are never overwritten on boot.
+  await db
+    .update(modelProviders)
+    .set({ pricing: seedPricingDocument("anthropic") })
+    .where(and(eq(modelProviders.id, providerId), sql`${modelProviders.pricing} = '{}'::jsonb`));
 
   const LIVE_MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5";
   const FAST_MODEL = process.env.ANTHROPIC_FAST_MODEL ?? "claude-haiku-4-5-20251001";
