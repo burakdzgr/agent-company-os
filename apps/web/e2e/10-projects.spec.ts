@@ -38,9 +38,16 @@ test("greenfield project: 3-field create → intake → active; GOAL cascades on
   await expect(detail).toContainText("/data/repos/", { timeout: 30_000 });
   await expect(detail).toContainText("greenfield");
 
-  // report tab: greenfield has no intake report — the empty state says so
+  // report tab: B4 (2026-08-15) — repo'suz proje de artık intake raporu alıyor.
+  // Önceden bu yolda HİÇ artefakt üretilmiyordu ve burada "rapor yok" rozeti
+  // beklenirdi; CEO'ya çıplak bir hedef cümlesi gidiyordu. Şimdi depo
+  // bölümleri "henüz depo yok" diyor, yorumlayıcı bölümler hedeften yazılıyor.
   await page.getByTestId("project-tab-report").click();
-  await expect(page.getByTestId("report-missing")).toBeVisible();
+  await expect(page.getByTestId("report-missing")).toHaveCount(0);
+  const report = page.getByTestId("intake-report");
+  await expect(report).toContainText("Project Intake Report", { timeout: 30_000 });
+  await expect(report).toContainText("no repository yet");
+  await expect(report).toContainText("Analyze this project and implement feature X");
 
   // the routed GOAL cascaded through the scripted org onto the board
   await page.getByTestId("nav-tasks").click();
