@@ -76,6 +76,17 @@ defineEvent({
   version: 1,
   payload: z.object({ invocationId: u, toolName: s, riskClass }),
 });
+/**
+ * İzin verilmiş ama çalışırken patlayan çağrı (2026-08-15, Founder onayıyla
+ * 10 §10.1'e eklendi). Öncesinde `requested`/`denied`/`completed` vardı;
+ * dispatch'in hata verdiği hâlin karşılığı yoktu, dolayısıyla ajan aynı
+ * hatayı tekrarlarken zaman çizelgesinde hiçbir şey görünmüyordu.
+ */
+defineEvent({
+  type: "tool.invocation.failed",
+  version: 1,
+  payload: z.object({ toolName: s, riskClass, error: s }),
+});
 defineEvent({
   type: "tool.permission.granted",
   version: 1,

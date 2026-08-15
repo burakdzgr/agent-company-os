@@ -101,6 +101,13 @@ export {
 } from "./approvals.js";
 // D1 (14 §5): teslimat kaydı + project.deployment.* olayları
 export { DeploymentsService, DeploymentError } from "./deployments.js";
+// D3 (30 §): publish_jobs kuyruğu — zamanla, sahiplen, yayınla/başarısız ol
+export {
+  PublishingService,
+  PublishError,
+  MAX_PUBLISH_ATTEMPTS,
+  type ClaimedJob,
+} from "./publishing.js";
 // A6 (09 §9): stuck-task-sweep — ASSIGNED-too-long / WAITING-past-SLA
 export {
   sweepStuckTasks,

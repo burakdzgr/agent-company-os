@@ -1,6 +1,7 @@
 // T14 acceptance: every catalog entry has a schema + ≥1 fixture parsing
-// green; registry keys match doc 10 §10's table exactly (190 durable + 1
-// ephemeral — U12 added agent.skill.candidate.proposed, 36 §10).
+// green; registry keys match doc 10 §10's table exactly (191 durable + 1
+// ephemeral — U12 added agent.skill.candidate.proposed, 36 §10;
+// 2026-08-15 added tool.invocation.failed, Founder onayıyla 10 §10.1'e).
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -131,8 +132,8 @@ describe("event catalog ↔ doc 10 §10 (CI consistency check)", () => {
     expect(knownEventTypes()).toEqual(typesFromDoc());
   });
 
-  it("counts 190 durable + 1 ephemeral (workspace.terminal.output)", () => {
-    expect(knownDurableEventTypes()).toHaveLength(190);
+  it("counts 191 durable + 1 ephemeral (workspace.terminal.output)", () => {
+    expect(knownDurableEventTypes()).toHaveLength(191);
     expect(knownEphemeralEventTypes()).toEqual(["workspace.terminal.output"]);
   });
 });

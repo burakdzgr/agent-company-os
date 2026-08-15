@@ -677,14 +677,20 @@ export class ToolGateway {
           .where(
             and(eq(toolInvocations.companyId, ctx.companyId), eq(toolInvocations.id, invocationId)),
           );
-        // Faz E notu: bu dal olay YAYMAZ ve bu bilinçlidir. 10 §10'un olay
-        // tablosunda `tool.invocation.failed` yok ve katalog testi kaydı
-        // dokümanla BİREBİR eşleştiriyor; yeni bir olay tipi uydurmak
-        // dokümanla çelişki olurdu (§1.1). Başarısız çağrının kaydı, aynı
-        // dokümanın R0/R1 için de öngördüğü yerde: `tool_invocations`
-        // satırında (status=failed, error). Founder yüzeyi bunu oradan
-        // okumalı; zaman çizelgesine olay olarak taşımak doküman kararı
-        // ister.
+        // İzin verilmiş ama çalışırken patlayan çağrı zaman çizelgesine de
+        // düşer (10 §10.1, 2026-08-15 Founder kararıyla eklendi). Önceden bu
+        // dal sessizdi: Founder yalnız başarıları görüyor, ajan aynı hatayı
+        // tekrarlarken ekranda hiçbir şey olmuyordu.
+        await emitDomainEvent(tx, ctx, {
+          type: "tool.invocation.failed",
+          actor,
+          ...refs,
+          payload: {
+            toolName: def.name,
+            riskClass: effectiveRisk,
+            error: message.slice(0, 500),
+          },
+        });
       });
       await this.recordIdempotent(ctx, req, requestHash, failed);
       return failed;

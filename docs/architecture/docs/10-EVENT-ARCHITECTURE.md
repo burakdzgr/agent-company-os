@@ -376,6 +376,7 @@ Payload lists key fields beyond the envelope's subject refs. All events `v1` unl
 | `tool.invocation.denied` | Tool Gateway | NF (R2+), WS | toolName, riskClass, reason (permission/policy/budget) | D | id; invocation row unique by idempotency key |
 | `tool.invocation.completed` | Tool Gateway (R2+ only; R0/R1 stay in `tool_invocations` audit table without an event) | CA, WS | toolName, riskClass, costCents, resultDigest | D | id |
 | `tool.invocation.requested` | Tool Gateway (R2+ only) | WS | invocationId, toolName, riskClass | D | invocation idempotency key |
+| `tool.invocation.failed` | Tool Gateway (dispatch raised or output schema mismatch — an ALLOWED call that then broke) | NF (R2+), WS | toolName, riskClass, error | D | id; invocation row unique by idempotency key |
 | `tool.permission.granted` / `tool.permission.revoked` | server:policies | NF, WS | subject (agent/position/unit), toolName, constraints | D | id |
 | `tool.rate.throttled` | Tool Gateway rate limiter | NF (on repeat), WS | agentId, toolName, count | D | id |
 | `tool.output.flagged` | Tool Gateway output scanner (S5 taint) | NF (security), policy engine, WS | invocationId, pattern, sourceDigest | D | id |
@@ -426,7 +427,7 @@ Payload lists key fields beyond the envelope's subject refs. All events `v1` unl
 | `campaign.spend.recorded` | ads adapter | CA, WS | campaignRef, amountCents | D | id |
 | `integration.connected` / `integration.call.failed` | integration adapters | NF (blockers, on failure), WS | connectionId, platform / error | D | id |
 
-Catalog count: 190 durable types + 1 ephemeral. Any new event type must land in
+Catalog count: 191 durable types + 1 ephemeral. Any new event type must land in
 `packages/events/src/catalog/` with schema + a row in this table in the same PR (CI check compares
 registry keys against this doc's table). `[WRITER-DECISION]` (doc-registry consistency check).
 

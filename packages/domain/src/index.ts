@@ -118,3 +118,14 @@ export {
   type Approval,
   type CreateApprovalInput,
 } from "./entities/approval.js";
+// D2/D3 (30 §, ADR-017): platform adapter'larının uyduğu saf port
+export {
+  SOCIAL_CAPABILITIES,
+  capabilitiesOf,
+  type SocialCapability,
+  type SocialChannelPort,
+  type SocialPublishInput,
+  type SocialPublishResult,
+  type SocialMetrics,
+  type SocialComment,
+} from "./ports/social-channel.js";
