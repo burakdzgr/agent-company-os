@@ -42,6 +42,27 @@ export interface MemoryActivityDeps {
   embedOverride?: ((text: string) => Promise<{ embedding: number[]; model: string }>) | undefined;
 }
 
+/**
+ * 12 §5.1 window digest. Exported because a single omission here silently
+ * empties the whole memory subsystem, and only a test on the rendered text
+ * can catch it.
+ *
+ * 2026-08-15 live finding: the digest used to render `- [time] type: summary`
+ * with NO id. §5.1 requires every candidate to "cite at least one concrete
+ * evidence ref FROM THE WINDOW", and §5.7 drops a candidate whose refs all
+ * fail to resolve — so a live model, having never been shown a single real
+ * id, invented UUIDs, every ref failed, and EVERY candidate was discarded as
+ * hallucinated evidence. On the live company that read as "consolidation ran,
+ * 7 candidates, 0 persisted" over and over with an empty memory panel. The
+ * scripted path never hit it because the canned fixtures take their refs
+ * straight from `window.events[].id`.
+ */
+export function renderWindowDigest(window: TriggerWindow): string {
+  return window.events
+    .map((e) => `- id=${e.id} [${e.occurredAt}] ${e.type}: ${e.payloadSummary}`)
+    .join("\n");
+}
+
 const CANNED_KIND_TO_TYPE: Record<string, MemoryCandidate["type"]> = {
   procedure: "procedural",
   fact: "semantic",
@@ -132,17 +153,18 @@ export function createMemoryActivities(deps: MemoryActivityDeps) {
 
       const ctx = companyContext(input.companyId);
       const routing = await deps.routingFor(ctx, anchor.agentId ?? "");
-      const digest = window.events
-        .map((e) => `- [${e.occurredAt}] ${e.type}: ${e.payloadSummary}`)
-        .join("\n");
       const prompt =
         `${anchor.headline} ` +
         `Extract 0-8 memory candidates as a JSON array matching the MemoryCandidate contract ` +
         `(type, title, content, summary, entities, suggested_scope agent|project, ` +
         `scope_rationale, importance 0-1, importance_rationale, confidence 0-1, ` +
         `confidence_rationale, evidence_refs [{kind,ref}] citing the window). ` +
+        `Every candidate MUST cite at least one evidence ref of the form ` +
+        `{"kind":"event","ref":"<the id= UUID copied VERBATIM from a Window line>"}. ` +
+        `Only those ids exist; a ref you did not copy from the window is rejected ` +
+        `and the whole candidate is thrown away. ` +
         `Extract only knowledge with future utility; never invent evidence.\n\n` +
-        `Window:\n${digest}`;
+        `Window:\n${renderWindowDigest(window)}`;
       const first = await deps.router.complete(
         { purpose: "fast", messages: [{ role: "user", content: prompt }] },
         routing,
