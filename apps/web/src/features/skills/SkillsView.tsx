@@ -9,7 +9,7 @@ import type { SkillMatrixRow } from "@acos/contracts";
 import { api } from "../../lib/api.js";
 
 const LEVEL_TONE: Record<number, string> = {
-  1: "bg-acos-bg3 text-ink-600",
+  1: "bg-acos-bg3 text-acos-fg1",
   2: "bg-sky-100 text-sky-800",
   3: "bg-emerald-100 text-emerald-800",
   4: "bg-amber-100 text-amber-800",
@@ -45,19 +45,19 @@ export function SkillsView() {
     <div className="flex flex-col gap-4 p-4">
       <div className="flex items-baseline justify-between">
         <h2 className="text-lg font-semibold">Yetenek matrisi</h2>
-        <p className="text-xs text-ink-400">
+        <p className="text-xs text-acos-fg2">
           Seviyeler kanıt izinden deterministik hesaplanır — asla bir model tarafından atanmaz.
         </p>
       </div>
-      {matrix.isLoading && <p className="text-sm text-ink-400">Yükleniyor…</p>}
+      {matrix.isLoading && <p className="text-sm text-acos-fg2">Yükleniyor…</p>}
       {matrix.data && agents.length === 0 && (
-        <Card className="p-6 text-sm text-ink-400" data-testid="skills-empty">
+        <Card className="p-6 text-sm text-acos-fg2" data-testid="skills-empty">
           Henüz yetenek kanıtı yok — etiketli görevler tamamlanıp incelemeler kabul edilince
           seviyeler belirir.
         </Card>
       )}
       {agents.length > 0 && (
-        <Card className="overflow-x-auto p-0">
+        <Card className="overflow-x-auto" padding={false}>
           <table className="w-full text-sm" data-testid="skills-matrix">
             <thead>
               <tr className="border-b bg-acos-bg2 text-left">
@@ -92,7 +92,7 @@ export function SkillsView() {
                             </span>
                           </span>
                         ) : (
-                          <span className="text-ink-400">—</span>
+                          <span className="text-acos-fg2">—</span>
                         )}
                       </td>
                     );
