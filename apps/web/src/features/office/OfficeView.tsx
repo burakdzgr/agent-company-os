@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Button, Card, StatusPill } from "@acos/ui";
+import { Button, Card, cn, OfficeIcon, StatusPill } from "@acos/ui";
 import { api, keys } from "../../lib/api.js";
 import { useOfficeStore } from "../../stores/office.js";
 import { usePresence } from "../../stores/presence.js";
@@ -45,35 +45,69 @@ export function OfficeView() {
     ? snapshot?.agents.find((a) => a.agentId === selectedAgentId)
     : null;
 
+  const agentCount = snapshot?.agents.length ?? 0;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-ink-900">Ofis</h1>
-        <StatusPill tone={status === "open" ? "ok" : "warn"}>ws: {status}</StatusPill>
-        <span className="text-xs text-ink-400" data-testid="office-agent-count">
-          {snapshot?.agents.length ?? 0} ajan ofiste
+      {/* Başlık şeridi — durum + ajan sayacı + debug aksiyonu, tek satır */}
+      <div className="flex flex-wrap items-center gap-3 rounded-card border border-acos-line bg-acos-bg1 px-4 py-3 shadow-sm">
+        <span
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-acos-line bg-acos-bg2 text-acos-fg1"
+          aria-hidden
+        >
+          <OfficeIcon size={18} />
         </span>
-        <div className="ml-auto">
-          <Button variant="ghost" onClick={() => setInspectorOpen((v) => !v)}>
+        <div className="min-w-0">
+          <h1 className="text-[15px] font-semibold leading-tight text-acos-fg0">Ofis</h1>
+          <p className="truncate text-[11px] text-acos-fg2">Canlı sanal ofis — ajan varlığı ve etkileşimleri</p>
+        </div>
+        <StatusPill tone={status === "open" ? "ok" : "warn"}>ws: {status}</StatusPill>
+        <span
+          className="flex items-center gap-1.5 rounded-full border border-acos-line bg-acos-bg2 px-2.5 py-1 text-[11px] text-acos-fg1"
+          data-testid="office-agent-count"
+        >
+          <span
+            className={cn(
+              "h-1.5 w-1.5 rounded-full",
+              agentCount > 0 ? "bg-presence-communicating" : "bg-acos-fg2",
+            )}
+          />
+          {agentCount} ajan ofiste
+        </span>
+        <div className="ml-auto flex items-center gap-2">
+          <Button
+            variant={inspectorOpen ? "secondary" : "ghost"}
+            onClick={() => setInspectorOpen((v) => !v)}
+            data-testid="office-debug-toggle"
+          >
             {inspectorOpen ? "İnceleyiciyi gizle" : "Debug inceleyici"}
           </Button>
         </div>
       </div>
 
-      <Card className="h-[540px] overflow-hidden bg-[#0f1420] p-0">
-        <OfficeCanvas onSelectAgent={setSelectedAgentId} avatarUrls={avatarUrls} />
+      {/* Pixi sahnesi — chrome dışında hiçbir render/animasyon mantığına dokunulmadı */}
+      <Card className="overflow-hidden border-acos-line bg-acos-bg1 shadow-lg" padding={false}>
+        <div className="h-[540px] overflow-hidden bg-[#0f1420]">
+          <OfficeCanvas onSelectAgent={setSelectedAgentId} avatarUrls={avatarUrls} />
+        </div>
       </Card>
 
       {selected && (
-        <Card className="p-4" data-testid="agent-card-popover">
+        <Card
+          className="border-acos-line bg-acos-bg1 shadow-lg"
+          data-testid="agent-card-popover"
+        >
           <div className="flex items-center gap-3">
-            <div>
-              <div className="font-medium text-ink-900">{selected.name}</div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-acos-line bg-acos-bg2 text-sm font-semibold text-acos-fg0">
+              {selected.name.slice(0, 1).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-acos-fg0">{selected.name}</div>
               <StatusPill tone={badges[selected.agentId] === "OFFLINE" ? "neutral" : "ok"}>
                 {badges[selected.agentId] ?? selected.badge}
               </StatusPill>
             </div>
-            <div className="ml-auto flex gap-2">
+            <div className="ml-auto flex shrink-0 gap-2">
               <Link to="/c/$companyId/agents/$agentId" params={{ companyId, agentId: selected.agentId }}>
                 <Button variant="secondary">Ajan Monitöründe aç</Button>
               </Link>
@@ -86,14 +120,24 @@ export function OfficeView() {
       )}
 
       {inspectorOpen && (
-        <Card className="p-4 text-xs" data-testid="office-inspector">
-          <div className="mb-2 font-medium text-ink-700">
-            Her animasyonun nedensel olay id'si var — son uygulanan:{" "}
-            <code data-testid="last-applied-event-id">{engine.lastAppliedEventId ?? "—"}</code>
+        <Card
+          className="border-acos-line bg-acos-bg1 text-xs shadow-sm"
+          data-testid="office-inspector"
+        >
+          <div className="space-y-2">
+            <div className="font-medium text-acos-fg1">
+              Her animasyonun nedensel olay id'si var — son uygulanan:{" "}
+              <code
+                className="rounded border border-acos-line bg-acos-bg2 px-1.5 py-0.5 text-acos-fg0"
+                data-testid="last-applied-event-id"
+              >
+                {engine.lastAppliedEventId ?? "—"}
+              </code>
+            </div>
+            <pre className="max-h-48 overflow-auto rounded-md border border-acos-line bg-acos-bg2 p-2.5 text-acos-fg1">
+              {JSON.stringify(engine.debugRing.slice(-20), null, 2)}
+            </pre>
           </div>
-          <pre className="max-h-48 overflow-auto rounded bg-ink-50 p-2">
-            {JSON.stringify(engine.debugRing.slice(-20), null, 2)}
-          </pre>
         </Card>
       )}
     </div>

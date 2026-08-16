@@ -102,12 +102,12 @@ export function EventRow({
   summary?: string;
 }) {
   return (
-    <div className="flex items-baseline gap-2 border-b border-ink-100 py-1.5 text-sm last:border-0">
-      <time className="shrink-0 tabular-nums text-xs text-ink-400">
+    <div className="flex items-baseline gap-2 border-b border-acos-line/60 py-1.5 text-sm last:border-0">
+      <time className="shrink-0 tabular-nums text-xs text-acos-fg2">
         {new Date(occurredAt).toLocaleTimeString()}
       </time>
-      <code className="shrink-0 rounded bg-ink-100 px-1.5 py-0.5 text-xs text-accent-600">{type}</code>
-      {summary && <span className="truncate text-ink-600">{summary}</span>}
+      <code className="shrink-0 rounded bg-acos-bg2 px-1.5 py-0.5 text-xs text-accent-600">{type}</code>
+      {summary && <span className="truncate text-acos-fg1">{summary}</span>}
     </div>
   );
 }
