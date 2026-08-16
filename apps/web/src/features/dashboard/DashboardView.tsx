@@ -2,7 +2,30 @@
 // Tasks + Memory + Agents + Projects in a responsive grid
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
+import {
+  Card,
+  DashboardIcon,
+  OfficeIcon,
+  TasksIcon,
+  AgentsIcon,
+  MemoryIcon,
+  ProjectsIcon,
+  CommunicationIcon,
+  TerminalsIcon,
+  ApprovalsIcon,
+} from "@acos/ui";
 import { api, keys } from "../../lib/api.js";
+
+const QUICK_LINKS = [
+  { path: "office", Icon: OfficeIcon, label: "Ofis" },
+  { path: "tasks", Icon: TasksIcon, label: "Görevler" },
+  { path: "agents", Icon: AgentsIcon, label: "Ajanlar" },
+  { path: "memory", Icon: MemoryIcon, label: "Hafıza" },
+  { path: "projects", Icon: ProjectsIcon, label: "Projeler" },
+  { path: "communication", Icon: CommunicationIcon, label: "İletişim" },
+  { path: "terminals", Icon: TerminalsIcon, label: "Terminaller" },
+  { path: "approvals", Icon: ApprovalsIcon, label: "Onaylar" },
+] as const;
 
 export function DashboardView() {
   const { companyId } = useParams({ from: "/c/$companyId" });
@@ -24,41 +47,41 @@ export function DashboardView() {
   
   return (
     <div className="h-full overflow-auto bg-acos-bg0 p-4">
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-acos-fg0">🏢 Komuta Merkezi</h1>
-        <p className="text-sm text-acos-fg2">Tüm şirket durumu tek ekranda</p>
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-acos-line bg-acos-bg1 text-acos-fg1">
+          <DashboardIcon size={18} />
+        </span>
+        <div>
+          <h1 className="text-lg font-semibold leading-tight text-acos-fg0">Komuta Merkezi</h1>
+          <p className="text-[11px] text-acos-fg2">Tüm şirket durumu tek ekranda</p>
+        </div>
       </div>
-      
+
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {/* Quick Links Panel */}
-        <div className="col-span-1 rounded-lg border border-acos-line bg-acos-bg1 p-4 lg:col-span-2">
-          <h2 className="mb-3 text-sm font-semibold text-acos-fg1">🏢 HIZLI ERİŞİM</h2>
+        <Card
+          className="col-span-1 border-acos-line bg-acos-bg1 lg:col-span-2"
+          title="Hızlı Erişim"
+        >
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            {[
-              { to: `/c/${companyId}/office`, icon: "🏢", label: "Ofis" },
-              { to: `/c/${companyId}/tasks`, icon: "▦", label: "Görevler" },
-              { to: `/c/${companyId}/agents`, icon: "👤", label: "Ajanlar" },
-              { to: `/c/${companyId}/memory`, icon: "🧠", label: "Hafıza" },
-              { to: `/c/${companyId}/projects`, icon: "📁", label: "Projeler" },
-              { to: `/c/${companyId}/communication`, icon: "💬", label: "İletişim" },
-              { to: `/c/${companyId}/terminals`, icon: "⌨", label: "Terminaller" },
-              { to: `/c/${companyId}/approvals`, icon: "✓", label: "Onaylar" },
-            ].map((link) => (
+            {QUICK_LINKS.map(({ path, Icon, label }) => (
               <Link
-                key={link.to}
-                to={link.to}
-                className="flex flex-col items-center justify-center rounded-lg border border-acos-line bg-acos-bg2 p-4 transition hover:border-dept-engineering hover:bg-acos-bg3"
+                key={path}
+                to={`/c/${companyId}/${path}`}
+                className="group flex flex-col items-center justify-center gap-1.5 rounded-md border border-acos-line bg-acos-bg2 p-4 transition-colors duration-150 hover:border-dept-engineering hover:bg-acos-bg3"
               >
-                <span className="text-2xl">{link.icon}</span>
-                <span className="mt-1 text-xs text-acos-fg1">{link.label}</span>
+                <Icon
+                  size={20}
+                  className="text-acos-fg1 transition-colors duration-150 group-hover:text-dept-engineering"
+                />
+                <span className="text-xs text-acos-fg1 group-hover:text-acos-fg0">{label}</span>
               </Link>
             ))}
           </div>
-        </div>
-        
+        </Card>
+
         {/* Active Agents Panel */}
-        <div className="rounded-lg border border-acos-line bg-acos-bg1 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-acos-fg1">AJANLAR</h2>
+        <Card className="border-acos-line bg-acos-bg1" title="Ajanlar">
           <div className="space-y-2">
             {agents.data?.slice(0, 10).map((agent) => (
               <div key={agent.id} className="flex items-center justify-between text-xs">
@@ -75,11 +98,10 @@ export function DashboardView() {
               </div>
             )) ?? <p className="text-xs text-acos-fg2">Yükleniyor...</p>}
           </div>
-        </div>
-        
+        </Card>
+
         {/* Tasks Panel */}
-        <div className="col-span-1 rounded-lg border border-acos-line bg-acos-bg1 p-4 lg:col-span-2">
-          <h2 className="mb-3 text-sm font-semibold text-acos-fg1">GÖREVLER</h2>
+        <Card className="col-span-1 border-acos-line bg-acos-bg1 lg:col-span-2" title="Görevler">
           <div className="grid grid-cols-4 gap-2 text-xs">
             {["IN_PROGRESS", "REVIEW", "WAITING", "BLOCKED"].map((status) => {
               const count = tasks.data?.filter((t) => t.status === status).length ?? 0;
@@ -104,11 +126,10 @@ export function DashboardView() {
                 </div>
               )) ?? <p className="text-xs text-acos-fg2">Yükleniyor...</p>}
           </div>
-        </div>
-        
+        </Card>
+
         {/* Memory Panel */}
-        <div className="rounded-lg border border-acos-line bg-acos-bg1 p-4">
-          <h2 className="mb-3 text-sm font-semibold text-acos-fg1">HAFIZA</h2>
+        <Card className="border-acos-line bg-acos-bg1" title="Hafıza">
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-acos-fg2">Toplam</span>
@@ -140,7 +161,7 @@ export function DashboardView() {
               </div>
             )) ?? <p className="text-xs text-acos-fg2">Yükleniyor...</p>}
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );
