@@ -171,7 +171,40 @@ function seedPricingDocument(kind: "anthropic" | "openai"): Record<string, unkno
 }
 
 async function ensureLiveModelRouting(db: GuardedDb, companyId: string): Promise<void> {
-  if (!process.env.ANTHROPIC_API_KEY || process.env.LLM_MODE === "scripted") return;
+  if (process.env.LLM_MODE === "scripted") return;
+  
+  // OLLAMA_BASE_URL varsa Ollama provider'ını register et
+  if (process.env.OLLAMA_BASE_URL) {
+    const [existingOllama] = await db
+      .select({ id: modelProviders.id })
+      .from(modelProviders)
+      .where(eq(modelProviders.name, "ollama"));
+    const ollamaProviderId =
+      existingOllama?.id ??
+      (
+        await db
+          .insert(modelProviders)
+          .values({ kind: "ollama", name: "ollama", enabled: true })
+          .onConflictDoNothing()
+          .returning({ id: modelProviders.id })
+      )[0]?.id;
+    if (ollamaProviderId) {
+      // Ollama modelleri (docker-compose'ta çalışan) — mistral, llama2, neural-chat
+      const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? "mistral";
+      for (const [purpose, model] of [
+        ["reasoning", OLLAMA_MODEL],
+        ["coding", OLLAMA_MODEL],
+        ["fast", OLLAMA_MODEL],
+      ] as const) {
+        await db
+          .insert(modelProfiles)
+          .values({ companyId, purpose, providerId: ollamaProviderId, model, priority: 10 })
+          .onConflictDoNothing();
+      }
+    }
+  }
+
+  if (!process.env.ANTHROPIC_API_KEY) return;
   const [existingProvider] = await db
     .select({ id: modelProviders.id })
     .from(modelProviders)
