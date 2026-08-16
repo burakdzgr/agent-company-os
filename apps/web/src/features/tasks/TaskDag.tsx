@@ -102,7 +102,7 @@ export function TaskDag({
   return hasEdges ? (
     <div ref={containerRef} className="h-[480px] w-full" data-testid="task-dag" />
   ) : (
-    <p className="py-10 text-center text-sm text-ink-400" data-testid="task-dag-empty">
+    <p className="py-10 text-center text-sm text-acos-fg2" data-testid="task-dag-empty">
       Henüz bağımlılık yok — görevler birbirini blokladıkça DAG belirir.
     </p>
   );

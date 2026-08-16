@@ -52,17 +52,17 @@ function TaskCard({
 
   return (
     <div
-      className="relative w-full rounded-md border border-ink-200 bg-acos-bg2 shadow-sm hover:shadow"
+      className="relative w-full rounded-md border border-acos-line bg-acos-bg2 shadow-sm hover:shadow"
       data-testid={`task-card-${task.number}`}
     >
       <button onClick={() => onSelect(task)} className="w-full p-2 text-left text-xs">
         <div className="flex items-center gap-1.5">
-          <span className="font-mono text-ink-400">{task.displayNumber}</span>
+          <span className="font-mono text-acos-fg2">{task.displayNumber}</span>
           <StatusPill tone={PRIORITY_TONE[task.priority]}>{task.priority}</StatusPill>
-          <span className="ml-auto uppercase text-[10px] text-ink-300">{task.kind}</span>
+          <span className="ml-auto uppercase text-[10px] text-acos-fg2">{task.kind}</span>
         </div>
-        <p className="mt-1 line-clamp-2 font-medium text-ink-800">{task.title}</p>
-        <p className="mt-0.5 text-[10px] text-ink-400">{task.status}</p>
+        <p className="mt-1 line-clamp-2 font-medium text-acos-fg0">{task.title}</p>
+        <p className="mt-0.5 text-[10px] text-acos-fg2">{task.status}</p>
       </button>
       {closed && (
         <button
@@ -73,7 +73,7 @@ function TaskCard({
               ? "Panoya geri getir"
               : "Panodan kaldır — görev, olayları ve anıları silinmez, arşivde durur"
           }
-          className="absolute right-1 top-1 rounded px-1.5 py-0.5 text-[10px] text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+          className="absolute right-1 top-1 rounded px-1.5 py-0.5 text-[10px] text-acos-fg2 hover:bg-acos-bg3 hover:text-acos-fg1"
           data-testid={`task-archive-${task.number}`}
         >
           {archived ? "↩" : "✕"}
@@ -125,8 +125,8 @@ function TaskDetail({
   return (
     <Dialog open onClose={onClose} title={`${task.displayNumber} · ${task.title}`}>
       <div className="space-y-3 text-sm">
-        <p className="text-ink-600">{task.objective}</p>
-        <div className="flex flex-wrap gap-2 text-xs text-ink-500">
+        <p className="text-acos-fg1">{task.objective}</p>
+        <div className="flex flex-wrap gap-2 text-xs text-acos-fg1">
           <StatusPill tone="accent">{task.status}</StatusPill>
           <span>tür: {task.kind}</span>
           <span>risk: {task.risk}</span>
@@ -156,11 +156,11 @@ function TaskDetail({
               → {to}
             </Button>
           ))}
-          {nextStatuses.length === 0 && <span className="text-xs text-ink-400">uç durum</span>}
+          {nextStatuses.length === 0 && <span className="text-xs text-acos-fg2">uç durum</span>}
         </div>
 
         {(task.status === "PLANNED" || task.status === "ASSIGNED") && (
-          <div className="flex items-end gap-2 border-t border-ink-100 pt-3">
+          <div className="flex items-end gap-2 border-t border-acos-line pt-3">
             <div className="flex-1">
               <Field label="Sahip ata">
                 <Select
@@ -214,19 +214,19 @@ function TaskReviews({ companyId, taskId }: { companyId: string; taskId: string 
     blocked: "warn",
   };
   return (
-    <div className="border-t border-ink-100 pt-3" data-testid="task-reviews">
-      <h4 className="mb-1 text-xs font-semibold uppercase text-ink-400">İncelemeler</h4>
+    <div className="border-t border-acos-line pt-3" data-testid="task-reviews">
+      <h4 className="mb-1 text-xs font-semibold uppercase text-acos-fg2">İncelemeler</h4>
       <div className="space-y-1">
         {items.map((r) => (
-          <div key={r.id} className="rounded bg-ink-50 px-2 py-1.5 text-xs" data-testid="review-row">
+          <div key={r.id} className="rounded bg-acos-bg1 px-2 py-1.5 text-xs" data-testid="review-row">
             <div className="flex items-center gap-2">
               <StatusPill tone={TONE[r.status] ?? "neutral"}>{r.status}</StatusPill>
               <span className="font-medium">{r.kind}</span>
-              <span className="text-ink-400">
+              <span className="text-acos-fg2">
                 {r.authorName ?? "?"} → {r.reviewerName ?? "atanmadı"}
               </span>
               {r.mergedCommit && (
-                <code className="text-ink-400">merge @ {r.mergedCommit.slice(0, 8)}</code>
+                <code className="text-acos-fg2">merge @ {r.mergedCommit.slice(0, 8)}</code>
               )}
               <Button
                 variant="ghost"
@@ -237,10 +237,10 @@ function TaskReviews({ companyId, taskId }: { companyId: string; taskId: string 
                 {diffFor === r.id ? "diff'i gizle" : "diff"}
               </Button>
             </div>
-            {r.verdictMd && <p className="mt-1 text-ink-500">{r.verdictMd}</p>}
+            {r.verdictMd && <p className="mt-1 text-acos-fg1">{r.verdictMd}</p>}
             {diffFor === r.id && (
               <pre
-                className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-ink-100 p-2 font-mono text-[11px]"
+                className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-acos-bg2 p-2 font-mono text-[11px]"
                 data-testid="review-diff"
               >
                 {diff.isLoading ? "diff yükleniyor…" : (diff.data?.diff ?? "(diff yok)")}
@@ -383,11 +383,11 @@ function TreeTab({ tasks, onSelect }: { tasks: Task[]; onSelect: (t: Task) => vo
       <div key={task.id} style={{ paddingLeft: depth * 20 }}>
         <button
           onClick={() => onSelect(task)}
-          className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-ink-50"
+          className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-acos-bg3"
         >
-          <span className="font-mono text-xs text-ink-400">{task.displayNumber}</span>
-          <span className="uppercase text-[10px] text-ink-300">{task.kind}</span>
-          <span className="text-ink-800">{task.title}</span>
+          <span className="font-mono text-xs text-acos-fg2">{task.displayNumber}</span>
+          <span className="uppercase text-[10px] text-acos-fg2">{task.kind}</span>
+          <span className="text-acos-fg0">{task.title}</span>
           <StatusPill tone={task.status === "DONE" ? "ok" : "neutral"}>{task.status}</StatusPill>
         </button>
         {renderLevel(task.id, depth + 1)}
@@ -418,15 +418,15 @@ export function TasksView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-ink-900">Görevler</h1>
-        <div className="flex rounded-md border border-ink-200 p-0.5">
+        <h1 className="text-lg font-semibold text-acos-fg0">Görevler</h1>
+        <div className="flex rounded-md border border-acos-line p-0.5">
           {(["kanban", "tree", "dag"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={cn(
                 "rounded px-3 py-1 text-xs font-medium",
-                tab === t ? "bg-accent-500/10 text-accent-600" : "text-ink-500 hover:bg-ink-50",
+                tab === t ? "bg-accent-500/10 text-accent-600" : "text-acos-fg1 hover:bg-acos-bg3",
               )}
               data-testid={`tab-${t}`}
             >
@@ -440,7 +440,7 @@ export function TasksView() {
             "ml-auto rounded-md border px-3 py-1 text-xs font-medium",
             showArchive
               ? "border-accent-500/40 bg-accent-500/10 text-accent-600"
-              : "border-ink-200 text-ink-500 hover:bg-ink-50",
+              : "border-acos-line text-acos-fg1 hover:bg-acos-bg3",
           )}
           data-testid="toggle-archive"
         >
@@ -452,7 +452,7 @@ export function TasksView() {
       </div>
 
       {rows.length === 0 && !tasks.isLoading ? (
-        <p className="py-12 text-center text-sm text-ink-400">
+        <p className="py-12 text-center text-sm text-acos-fg2">
           Görev yok — CEO'ya bir hedef verin.
         </p>
       ) : tab === "kanban" ? (
@@ -461,8 +461,8 @@ export function TasksView() {
             const cards = rows.filter((t) => column.statuses.includes(t.status));
             return (
               <div key={column.id} className="w-56 shrink-0" data-testid={`column-${column.id}`}>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
-                  {column.label} <span className="text-ink-300">{cards.length}</span>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-acos-fg1">
+                  {column.label} <span className="text-acos-fg2">{cards.length}</span>
                 </p>
                 <div className="space-y-2">
                   {cards.map((task) => (
