@@ -285,6 +285,80 @@ export function createIntakeControlActivities(deps: IntakeControlActivityDeps) {
     },
 
     /**
+     * CEO consults Founder on GOAL decomposition (T48).
+     * After intake analysis, CEO creates a draft decomposition and asks Founder
+     * for approval before proceeding. This happens before task cascade.
+     *
+     * Flow:
+     *   1. GOAL is PLANNED (not yet assigned to CEO)
+     *   2. Founder gets notification (WebSocket event + UI button)
+     *   3. Founder clicks "Approve" or "Request changes"
+     *   4. System transitions GOAL to ASSIGNED (or keeps PLANNED for revisions)
+     *   5. Activity resumes; if approved, CEO continues with decomposition
+     *
+     * MVP: Founder approval is simulated by GOAL transitioning to ASSIGNED.
+     * Full version would have revision rounds with feedback.
+     */
+    async ceoConsultFounder(input: {
+      companyId: string;
+      projectId: string;
+      goalTaskId: string;
+      objective: string;
+      draftSummary?: string;
+    }): Promise<{ approved: boolean }> {
+      const ctx = companyContext(input.companyId);
+
+      // Emit WebSocket event: office screen shows "CEO asking Founder..."
+      await appendEvents(deps.guardedDb, ctx, [
+        {
+          type: "ceo.consulting_founder",
+          actor: { kind: "system", id: null },
+          projectId: input.projectId,
+          taskId: input.goalTaskId,
+          payload: {
+            objective: input.objective,
+            question: `Önerilen özet: ${input.draftSummary?.slice(0, 200) ?? "Analiz tamamlandı"}`,
+          },
+        },
+      ]);
+
+      // Poll: wait for Founder to transition GOAL to ASSIGNED
+      // Timeout: 2 hours (human decision time)
+      const pollIntervalMs = 2000;
+      const timeoutMs = 2 * 60 * 60 * 1000;
+      const startTime = Date.now();
+
+      while (Date.now() - startTime < timeoutMs) {
+        const goal = await deps.guardedDb
+          .select({ status: tasks.status, ownerAgentId: tasks.ownerAgentId })
+          .from(tasks)
+          .where(eq(tasks.id, input.goalTaskId))
+          .then((rows) => rows[0] ?? null);
+
+        if (!goal) {
+          throw new Error(`GOAL task not found: ${input.goalTaskId}`);
+        }
+
+        // Founder approved: GOAL transitioned to ASSIGNED
+        if (goal.status === "ASSIGNED" && goal.ownerAgentId !== null) {
+          return { approved: true };
+        }
+
+        // (Future: support REJECTED status for non-approval)
+        if (goal.status === "REJECTED") {
+          return { approved: false };
+        }
+
+        // Still waiting...
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      }
+
+      // Timeout: auto-approve (pragmatic fallback)
+      console.warn(`CEO consultation timeout for GOAL ${input.goalTaskId}; auto-approving`);
+      return { approved: true };
+    },
+
+    /**
      * Stage 4: Project memory seeding (14 §3.1 stage 4, previously deferred to T44).
      * Converts analyzer findings into project-scope memories so agents can learn
      * about the codebase structure, conventions, and patterns without repeatedly

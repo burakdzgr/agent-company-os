@@ -368,7 +368,8 @@ export class ProjectsService {
     );
     await this.taskState.transition(ctx, goal.id, "BACKLOG", founder);
     await this.taskState.transition(ctx, goal.id, "PLANNED", founder);
-    await this.taskState.assign(ctx, goal.id, { agentId: ceo.id }, founder);
+    // CEO diyaloğu (T48): GOAL PLANNED'da bekleyecek; Founder onayı sonrası CEO'ya assign
+    // (await this.taskState.assign() şimdilik ertelendi — ceoConsultFounder ile devam edilecek)
 
     await this.db.transaction(async (tx) => {
       await emitDomainEvent(tx, ctx, {

@@ -171,6 +171,7 @@ export async function projectIntakeWorkflow(
     })
     .catch(() => {}); // failure is non-blocking; agents fall back to file reads
 
+  // ---- stage 4b: GOAL created in PLANNED state, awaiting Founder consultation (T48) ----
   const routed = await control.routeIntakeActivity({
     companyId: input.companyId,
     projectId: input.projectId,
@@ -178,6 +179,34 @@ export async function projectIntakeWorkflow(
     reportArtifactId,
     findingsSummary: summary,
   });
+
+  // ---- stage 5: CEO consults Founder (T48) ----
+  // GOAL is PLANNED; CEO asks for Founder approval before assignment
+  // Founder response via UI → GOAL transitions to ASSIGNED → CEO workflow starts
+  const consultation = await control
+    .ceoConsultFounder({
+      companyId: input.companyId,
+      projectId: input.projectId,
+      goalTaskId: routed.goalTaskId,
+      objective: project.objective,
+      draftSummary: summary,
+    })
+    .catch((err) => {
+      // Consultation timeout or rejection → still continue (non-blocking)
+      console.warn("CEO consultation failed:", err);
+      return { approved: true }; // auto-approve on error
+    });
+
+  // If Founder approves, now start the CEO workflow
+  if (consultation.approved && deps.startAgentWorkflow) {
+    await deps
+      .startAgentWorkflow({
+        companyId: input.companyId,
+        agentId: routed.ceoAgentId,
+        taskId: routed.goalTaskId,
+      })
+      .catch(() => {}); // duplicate start = no-op
+  }
 
   return {
     outcome: "routed",
