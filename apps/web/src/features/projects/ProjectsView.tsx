@@ -125,18 +125,18 @@ function ProjectDetail({ companyId, project }: { companyId: string; project: Pro
       {tab === "overview" ? (
         <div className="flex flex-col gap-3 overflow-y-auto text-sm">
           <section>
-            <h4 className="text-xs font-semibold uppercase text-ink-400">Hedef</h4>
+            <h4 className="text-xs font-semibold uppercase text-acos-fg2">Hedef</h4>
             <p className="whitespace-pre-wrap">{project.objective}</p>
           </section>
           {project.constraints && (
             <section>
-              <h4 className="text-xs font-semibold uppercase text-ink-400">Kısıtlar</h4>
+              <h4 className="text-xs font-semibold uppercase text-acos-fg2">Kısıtlar</h4>
               <p className="whitespace-pre-wrap">{project.constraints}</p>
             </section>
           )}
           {project.repository && (
             <section>
-              <h4 className="text-xs font-semibold uppercase text-ink-400">Depo</h4>
+              <h4 className="text-xs font-semibold uppercase text-acos-fg2">Depo</h4>
               <p>
                 <code className="text-xs">{project.repository.barePath}</code> — varsayılan dal{" "}
                 <code className="text-xs">{project.repository.defaultBranch}</code>
@@ -151,16 +151,16 @@ function ProjectDetail({ companyId, project }: { companyId: string; project: Pro
           )}
         </div>
       ) : project.intakeReportArtifactId === null ? (
-        <p className="text-sm text-ink-400" data-testid="report-missing">
+        <p className="text-sm text-acos-fg2" data-testid="report-missing">
           {project.status === "intake"
             ? "Analiz sürüyor — rapor buraya düşecek."
             : "Analiz raporu yok (sıfırdan proje)."}
         </p>
       ) : report.isLoading ? (
-        <p className="text-sm text-ink-400">Rapor yükleniyor…</p>
+        <p className="text-sm text-acos-fg2">Rapor yükleniyor…</p>
       ) : (
         <pre
-          className="flex-1 overflow-auto whitespace-pre-wrap rounded bg-ink-50 p-3 text-xs leading-relaxed"
+          className="flex-1 overflow-auto whitespace-pre-wrap rounded bg-acos-bg1 p-3 text-xs leading-relaxed"
           data-testid="intake-report"
         >
           {report.data?.contentMd ?? ""}
@@ -191,9 +191,9 @@ export function ProjectsView() {
           + Yeni proje
         </Button>
         <Card className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
-          {projects.isLoading && <div className="p-2 text-sm text-ink-400">Yükleniyor…</div>}
+          {projects.isLoading && <div className="p-2 text-sm text-acos-fg2">Yükleniyor…</div>}
           {!projects.isLoading && items.length === 0 && (
-            <div className="p-2 text-sm text-ink-400">Henüz proje yok.</div>
+            <div className="p-2 text-sm text-acos-fg2">Henüz proje yok.</div>
           )}
           {items.map((p) => (
             <button
@@ -201,15 +201,15 @@ export function ProjectsView() {
               onClick={() => setSelectedId(p.id)}
               data-testid="project-row"
               className={cn(
-                "rounded px-2 py-1.5 text-left text-sm hover:bg-ink-50",
-                selectedId === p.id && "bg-ink-100",
+                "rounded px-2 py-1.5 text-left text-sm hover:bg-acos-bg3",
+                selectedId === p.id && "bg-acos-bg2",
               )}
             >
               <div className="flex items-center gap-2">
                 <span className="truncate font-medium">{p.name}</span>
                 <StatusPill tone={STATUS_TONE[p.status] ?? "neutral"}>{p.status}</StatusPill>
               </div>
-              <div className="mt-0.5 text-xs text-ink-400">
+              <div className="mt-0.5 text-xs text-acos-fg2">
                 {p.kind} · {new Date(p.createdAt).toLocaleDateString()}
               </div>
             </button>
@@ -221,7 +221,7 @@ export function ProjectsView() {
       ) : selected ? (
         <ProjectDetail key={selected.id} companyId={companyId} project={selected} />
       ) : (
-        <Card className="flex flex-1 items-center justify-center text-sm text-ink-400">
+        <Card className="flex flex-1 items-center justify-center text-sm text-acos-fg2">
           Bir proje seçin ya da oluşturun.
         </Card>
       )}
