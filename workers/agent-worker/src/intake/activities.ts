@@ -5,6 +5,7 @@
 import {
   appendEvents,
   ProjectsService,
+  MemoryConsolidationService,
   companyContext,
   type CompanyContext,
   type GuardedDb,
@@ -281,6 +282,143 @@ export function createIntakeControlActivities(deps: IntakeControlActivityDeps) {
           },
         ]);
       });
+    },
+
+    /**
+     * Stage 4: Project memory seeding (14 §3.1 stage 4, previously deferred to T44).
+     * Converts analyzer findings into project-scope memories so agents can learn
+     * about the codebase structure, conventions, and patterns without repeatedly
+     * reading files. Embedding is deferred (NULL) — the retrieval system already
+     * handles deferred embedding batching.
+     */
+    async seedProjectMemoriesActivity(input: {
+      companyId: string;
+      projectId: string;
+      projectName: string;
+      analyzers: ReportAnalyzerResult[];
+      reportSummary: string;
+    }): Promise<{ memoriesCreated: number }> {
+      const ctx = companyContext(input.companyId);
+      const memoryService = new MemoryConsolidationService(deps.guardedDb);
+      
+      // Analyzer'lar başarısız olduysa memory üretme
+      const successfulAnalyzers = input.analyzers.filter((a) => a.ok);
+      if (successfulAnalyzers.length === 0) {
+        return { memoriesCreated: 0 };
+      }
+
+      const candidates: Array<{
+        type: string;
+        title: string;
+        content: string;
+        summary: string;
+        importance: number;
+        metadata: Record<string, unknown>;
+      }> = [];
+
+      // Her başarılı analyzer'dan bir semantic memory oluştur
+      for (const analyzer of successfulAnalyzers) {
+        const { analyzer: key, findings } = analyzer;
+        
+        // Findings'i JSON string olarak saklayacağız
+        const findingsJson = JSON.stringify(findings, null, 2);
+        const truncated = findingsJson.slice(0, 3000); // Çok uzun olmasın
+        
+        // Analyzer türüne göre önem ve içerik belirle
+        let importance = 0.6; // Varsayılan
+        let memoryType = "semantic";
+        let title = `${input.projectName}: ${key} analysis`;
+        let content = truncated;
+        let summary = `Analysis findings from ${key} during project intake`;
+
+        // Özel analyzer'lar için daha yüksek önem
+        switch (key) {
+          case "repo_profile":
+          case "structure":
+            importance = 0.75; // Kod yapısı kritik
+            summary = `Project structure and organization from ${key}`;
+            break;
+          case "languages":
+          case "dependencies":
+            importance = 0.70; // Tech stack bilgisi önemli
+            summary = `Technology stack information from ${key}`;
+            break;
+          case "security_smells":
+            importance = 0.65; // Güvenlik bulguları
+            memoryType = "procedural"; // Güvenlik kuralları procedural
+            summary = `Security findings and patterns from ${key}`;
+            break;
+          case "tests":
+          case "config_env":
+            importance = 0.60;
+            summary = `Configuration and testing insights from ${key}`;
+            break;
+          case "docs":
+            importance = 0.55; // Dokümantasyon daha az kritik
+            summary = `Documentation analysis from ${key}`;
+            break;
+        }
+
+        candidates.push({
+          type: memoryType,
+          title,
+          content,
+          summary,
+          importance,
+          metadata: {
+            source: "intake_analyzer",
+            analyzerKey: key,
+            projectName: input.projectName,
+            // Findings'in yapısını metadata'da da sakla (retrieval için)
+            ...(typeof findings === "object" && findings !== null ? findings : {}),
+          },
+        });
+      }
+
+      // Genel proje özeti de bir memory olarak ekle (en yüksek importance)
+      candidates.push({
+        type: "semantic",
+        title: `${input.projectName}: Intake Summary`,
+        content: input.reportSummary,
+        summary: "High-level project overview from intake analysis",
+        importance: 0.80, // Özet en önemli
+        metadata: {
+          source: "intake_summary",
+          projectName: input.projectName,
+          analyzersCount: successfulAnalyzers.length,
+        },
+      });
+
+      // Tüm candidate'leri persist et
+      let created = 0;
+      for (const candidate of candidates) {
+        try {
+          await memoryService.persistCandidate(ctx, {
+            scope: "project",
+            scopeRef: input.projectId,
+            type: candidate.type,
+            title: candidate.title,
+            content: candidate.content,
+            summary: candidate.summary,
+            entities: candidate.metadata,
+            importance: candidate.importance,
+            confidence: 0.85, // Analyzer çıktısı yüksek güvenilirlik
+            sourceEventId: null, // Intake olayı değil, analyzer çıktısı
+            createdByAgentId: null, // Sistem tarafından oluşturuldu
+            embedding: null, // Deferred — batch job dolduracak
+            embeddingModel: null,
+            evidence: [], // Analyzer output kendisi evidence
+            relations: [],
+          });
+          created++;
+        } catch (err) {
+          // Tek bir memory hatası tüm seeding'i durdurmasın
+          // (analyzer hataları gibi degr ade — P6)
+          console.error(`Failed to persist memory for ${candidate.title}:`, err);
+        }
+      }
+
+      return { memoriesCreated: created };
     },
   };
 }

@@ -155,7 +155,20 @@ export async function projectIntakeWorkflow(
   });
   const reportArtifactId: string | null = saved.artifactId;
   const summary = saved.summary;
-  // memory seeding (14 §3.1 stage 4) lands with T44's consolidation pipeline
+
+  // ---- stage 4: memory seeding (14 §3.1 stage 4, previously T44) ----
+  // Project-scope memories from analyzer findings enable agents to learn
+  // codebase structure/patterns without repeatedly reading files. Degrades
+  // gracefully (P6) — zero memories created on analyzer failure.
+  await control
+    .seedProjectMemoriesActivity({
+      companyId: input.companyId,
+      projectId: input.projectId,
+      projectName: project.name,
+      analyzers,
+      reportSummary: summary,
+    })
+    .catch(() => {}); // failure is non-blocking; agents fall back to file reads
 
   const routed = await control.routeIntakeActivity({
     companyId: input.companyId,
