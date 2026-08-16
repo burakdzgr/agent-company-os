@@ -4,10 +4,31 @@
 // Founder menu. Left icon rail keeps all 14 views reachable (accessible
 // names unchanged for the e2e suite). Legacy views render on a light island
 // inside the dark chrome until U03 wraps them as dockview panels.
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { Link, Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { cn, departmentColors } from "@acos/ui";
+import {
+  cn,
+  departmentColors,
+  type IconProps,
+  CommandIcon,
+  DashboardIcon,
+  OfficeIcon,
+  TasksIcon,
+  AgentsIcon,
+  ProjectsIcon,
+  MemoryIcon,
+  OrganizationIcon,
+  SkillsIcon,
+  CommunicationIcon,
+  TerminalsIcon,
+  ApprovalsIcon,
+  EventsIcon,
+  ReportsIcon,
+  CostsIcon,
+  SettingsIcon,
+  BellIcon,
+} from "@acos/ui";
 import { api, keys } from "../lib/api.js";
 import { useEventTicker } from "../stores/eventTicker.js";
 import { usePresence } from "../stores/presence.js";
@@ -33,23 +54,38 @@ const PRESETS: Array<{ key: CommandPreset; label: string }> = [
 
 // id = kararlı test/route anahtarı (data-testid={`nav-${id}`}); label = görünen
 // + erişilebilir Türkçe ad. e2e seçicileri nav-* testid'lerini kullanır.
-const NAV_ITEMS: Array<{ id: string; label: string; icon: string; path?: string }> = [
-  { id: "command", label: "KOMUTA", icon: "◧", path: "/c/$companyId" },
-  { id: "dashboard", label: "DASHBOARD", icon: "🎛", path: "/c/$companyId/dashboard" },
-  { id: "office", label: "OFİS", icon: "🏢", path: "/c/$companyId/office" },
-  { id: "tasks", label: "GÖREVLER", icon: "▦", path: "/c/$companyId/tasks" },
-  { id: "agents", label: "AJANLAR", icon: "👤", path: "/c/$companyId/agents" },
-  { id: "projects", label: "PROJELER", icon: "📁", path: "/c/$companyId/projects" },
-  { id: "memory", label: "HAFIZA", icon: "🧠", path: "/c/$companyId/memory" },
-  { id: "organization", label: "ORGANİZASYON", icon: "🌐", path: "/c/$companyId/organization" },
-  { id: "skills", label: "YETENEKLER", icon: "🎓", path: "/c/$companyId/skills" },
-  { id: "communication", label: "İLETİŞİM", icon: "💬", path: "/c/$companyId/communication" },
-  { id: "terminals", label: "TERMİNALLER", icon: "⌨", path: "/c/$companyId/terminals" },
-  { id: "approvals", label: "ONAYLAR", icon: "✓", path: "/c/$companyId/approvals" },
-  { id: "events", label: "OLAYLAR", icon: "⚡", path: "/c/$companyId/events" },
-  { id: "reports", label: "RAPORLAR", icon: "📄", path: "/c/$companyId/reports" },
-  { id: "costs", label: "MALİYETLER", icon: "＄", path: "/c/$companyId/costs" },
-  { id: "settings", label: "AYARLAR", icon: "⚙" },
+const NAV_ITEMS: Array<{
+  id: string;
+  label: string;
+  icon: ComponentType<IconProps>;
+  path?: string;
+}> = [
+  { id: "command", label: "Komuta", icon: CommandIcon, path: "/c/$companyId" },
+  { id: "dashboard", label: "Dashboard", icon: DashboardIcon, path: "/c/$companyId/dashboard" },
+  { id: "office", label: "Ofis", icon: OfficeIcon, path: "/c/$companyId/office" },
+  { id: "tasks", label: "Görevler", icon: TasksIcon, path: "/c/$companyId/tasks" },
+  { id: "agents", label: "Ajanlar", icon: AgentsIcon, path: "/c/$companyId/agents" },
+  { id: "projects", label: "Projeler", icon: ProjectsIcon, path: "/c/$companyId/projects" },
+  { id: "memory", label: "Hafıza", icon: MemoryIcon, path: "/c/$companyId/memory" },
+  {
+    id: "organization",
+    label: "Organizasyon",
+    icon: OrganizationIcon,
+    path: "/c/$companyId/organization",
+  },
+  { id: "skills", label: "Yetenekler", icon: SkillsIcon, path: "/c/$companyId/skills" },
+  {
+    id: "communication",
+    label: "İletişim",
+    icon: CommunicationIcon,
+    path: "/c/$companyId/communication",
+  },
+  { id: "terminals", label: "Terminaller", icon: TerminalsIcon, path: "/c/$companyId/terminals" },
+  { id: "approvals", label: "Onaylar", icon: ApprovalsIcon, path: "/c/$companyId/approvals" },
+  { id: "events", label: "Olaylar", icon: EventsIcon, path: "/c/$companyId/events" },
+  { id: "reports", label: "Raporlar", icon: ReportsIcon, path: "/c/$companyId/reports" },
+  { id: "costs", label: "Maliyetler", icon: CostsIcon, path: "/c/$companyId/costs" },
+  { id: "settings", label: "Ayarlar", icon: SettingsIcon },
 ];
 
 function GlobalSearch({ companyId }: { companyId: string }) {
@@ -242,7 +278,7 @@ export function AppShell() {
   }
 
   return (
-    <div className="grid h-screen grid-rows-[38px_minmax(0,1fr)_24px] bg-acos-bg0 font-sans text-[13px] text-acos-fg0">
+    <div className="grid h-screen grid-rows-[38px_40px_minmax(0,1fr)_24px] bg-acos-bg0 font-sans text-[13px] text-acos-fg0">
       <header className="flex items-center gap-2.5 overflow-hidden border-b border-acos-line bg-acos-bg1 px-3 text-xs">
         <span className="font-bold">
           A<b style={{ color: "#2ec26a" }}>C</b>OS
@@ -328,7 +364,7 @@ export function AppShell() {
             className="relative px-1 text-acos-fg1 hover:text-acos-fg0"
             aria-label="Bildirimler"
           >
-            🔔
+            <BellIcon size={16} />
             {unread > 0 && (
               <span
                 data-testid="bell-badge"
@@ -357,7 +393,7 @@ export function AppShell() {
           )}
         </span>
         <span className="px-1 text-acos-fg2" title="Ayarlar (daha sonra)">
-          ⚙
+          <SettingsIcon size={15} />
         </span>
         {/* Single-user mode: no logout — the Founder identity is ambient. */}
         <span className="text-acos-fg1" data-testid="me-name">
@@ -365,43 +401,64 @@ export function AppShell() {
         </span>
       </header>
 
-      <div className="flex min-h-0">
-        <nav className="flex w-11 shrink-0 flex-col items-center gap-0.5 border-r border-acos-line bg-acos-bg1 py-2">
-          {NAV_ITEMS.map((item) =>
-            item.path ? (
-              <Link
-                key={item.id}
-                to={item.path as "/c/$companyId/agents"}
-                params={{ companyId }}
-                activeOptions={{ exact: item.path === "/c/$companyId" }}
-                aria-label={item.label}
-                title={item.label}
-                data-testid={`nav-${item.id}`}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-[15px] text-acos-fg1 hover:bg-acos-bg3 hover:text-acos-fg0 [&.active]:bg-acos-bg3 [&.active]:text-dept-engineering"
-              >
-                <span aria-hidden>{item.icon}</span>
-              </Link>
-            ) : (
+      {/* Tek sayfa hissi (36 §2 UI overhaul): sol icon-rail yerine üstte
+          yatay sekme çubuğu — tüm 16 görünüm burada, tek satırda kaydırılabilir. */}
+      <nav
+        className="flex min-w-0 items-stretch gap-0.5 overflow-x-auto border-b border-acos-line bg-acos-bg1 px-2"
+        aria-label="Ana gezinme"
+      >
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          return item.path ? (
+            <Link
+              key={item.id}
+              to={item.path as "/c/$companyId/agents"}
+              params={{ companyId }}
+              activeOptions={{ exact: item.path === "/c/$companyId" }}
+              aria-label={item.label}
+              title={item.label}
+              data-testid={`nav-${item.id}`}
+              className={cn(
+                "group relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 text-[11.5px] font-medium",
+                "text-acos-fg1 transition-colors duration-150 hover:text-acos-fg0",
+                "[&.active]:text-acos-fg0",
+              )}
+            >
+              <Icon
+                size={16}
+                className="shrink-0 text-acos-fg2 transition-colors duration-150 group-hover:text-acos-fg1 [.active_&]:text-dept-engineering"
+              />
+              <span>{item.label}</span>
+              {/* alt çizgi vurgusu: aktifte belirgin, hover'da soluk */}
               <span
-                key={item.id}
-                aria-label={item.label}
-                title={`${item.label} — daha sonraki bir görevle gelir`}
-                data-testid={`nav-${item.id}`}
-                className="flex h-8 w-8 cursor-not-allowed items-center justify-center rounded-md text-[15px] text-acos-fg2/50"
-              >
-                <span aria-hidden>{item.icon}</span>
-              </span>
-            ),
-          )}
-        </nav>
+                className={cn(
+                  "pointer-events-none absolute inset-x-2 bottom-0 h-[2px] scale-x-0 rounded-full bg-dept-engineering",
+                  "transition-transform duration-150 group-hover:scale-x-50",
+                  "[.active_&]:scale-x-100",
+                )}
+              />
+            </Link>
+          ) : (
+            <span
+              key={item.id}
+              aria-label={item.label}
+              title={`${item.label} — daha sonraki bir görevle gelir`}
+              data-testid={`nav-${item.id}`}
+              className="flex shrink-0 cursor-not-allowed items-center gap-1.5 whitespace-nowrap px-3 text-[11.5px] font-medium text-acos-fg2/50"
+            >
+              <Icon size={16} className="shrink-0" />
+              <span>{item.label}</span>
+            </span>
+          );
+        })}
+      </nav>
 
-        {/* P0-B: no more light island — every route renders on the dark canvas */}
-        <main className={cn("min-w-0 flex-1 overflow-auto", onCommandCenter ? "" : "p-4")}>
-          <div className={onCommandCenter ? "h-full" : "min-h-full"}>
-            <Outlet />
-          </div>
-        </main>
-      </div>
+      {/* P0-B: no more light island — every route renders on the dark canvas */}
+      <main className={cn("min-w-0 overflow-auto", onCommandCenter ? "" : "p-4")}>
+        <div className={onCommandCenter ? "h-full" : "min-h-full"}>
+          <Outlet />
+        </div>
+      </main>
 
       <RealtimeDispatcher companyId={companyId} />
       <footer
