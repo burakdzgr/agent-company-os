@@ -80,11 +80,11 @@ function AttachedTerminal({ session }: { session: TerminalSessionDto }) {
   return (
     <Card className="flex min-h-0 flex-1 flex-col gap-2 p-3">
       <div className="flex items-center gap-2">
-        <code className="text-xs text-ink-500">{session.title}</code>
+        <code className="text-xs text-acos-fg1">{session.title}</code>
         <StatusPill tone={session.status === "active" ? "ok" : "neutral"}>
           {session.status}
         </StatusPill>
-        {session.branch && <code className="text-xs text-ink-400">{session.branch}</code>}
+        {session.branch && <code className="text-xs text-acos-fg2">{session.branch}</code>}
         <div className="ml-auto flex items-center gap-2">
           <Button
             variant="ghost"
@@ -130,12 +130,12 @@ export function TerminalsView() {
   return (
     <div className="flex h-full min-h-0 gap-3 p-3">
       <Card className="flex w-80 shrink-0 flex-col gap-1 overflow-y-auto p-2">
-        <h2 className="px-1 py-1 text-xs font-semibold uppercase tracking-wide text-ink-400">
+        <h2 className="px-1 py-1 text-xs font-semibold uppercase tracking-wide text-acos-fg2">
           Terminal oturumları
         </h2>
-        {sessions.isLoading && <div className="p-2 text-sm text-ink-400">Yükleniyor…</div>}
+        {sessions.isLoading && <div className="p-2 text-sm text-acos-fg2">Yükleniyor…</div>}
         {!sessions.isLoading && items.length === 0 && (
-          <div className="p-2 text-sm text-ink-400" data-testid="terminals-empty">
+          <div className="p-2 text-sm text-acos-fg2" data-testid="terminals-empty">
             Aktif oturum yok.
           </div>
         )}
@@ -145,15 +145,15 @@ export function TerminalsView() {
             onClick={() => setSelectedId(s.id)}
             data-testid="terminal-session-row"
             className={cn(
-              "rounded px-2 py-1.5 text-left text-sm hover:bg-ink-50",
-              selectedId === s.id && "bg-ink-100",
+              "rounded px-2 py-1.5 text-left text-sm hover:bg-acos-bg3",
+              selectedId === s.id && "bg-acos-bg2",
             )}
           >
             <div className="flex items-center gap-2">
               <StatusPill tone={s.status === "active" ? "ok" : "neutral"}>{s.status}</StatusPill>
               <span className="truncate font-medium">{s.title}</span>
             </div>
-            <div className="mt-0.5 flex gap-2 text-xs text-ink-400">
+            <div className="mt-0.5 flex gap-2 text-xs text-acos-fg2">
               {s.taskNumber !== null && <span>TASK-{s.taskNumber}</span>}
               {s.agentName && <span>{s.agentName}</span>}
               {s.isolationLevel && <span>{s.isolationLevel}</span>}
@@ -167,7 +167,7 @@ export function TerminalsView() {
       {selected ? (
         <AttachedTerminal key={selected.id} session={selected} />
       ) : (
-        <Card className="flex flex-1 items-center justify-center text-sm text-ink-400">
+        <Card className="flex flex-1 items-center justify-center text-sm text-acos-fg2">
           Bağlanmak için oturum seçin.
         </Card>
       )}
