@@ -75,12 +75,12 @@ export interface AgentTaskOutcome {
 }
 
 const MAX_REPAIRS = 2;
-const STEP_SOFT_WARN = 40; // guard (c) soft — injected into section 10
-const STEP_HARD_CAP = 50; // guard (c) hard — cumulative across continues
+const STEP_SOFT_WARN = 60; // guard (c) soft — injected into section 10
+const STEP_HARD_CAP = 120; // guard (c) hard — cumulative across continues (raised for live LLM)
 const CONTINUE_EVERY_STEPS = 50; // 08 §10 (local steps per run)
 const HISTORY_EVENT_LIMIT = 5_000;
-const LOOP_WINDOW = 6; // guard (d)
-const LOOP_TRIP = 3;
+const LOOP_WINDOW = 10; // guard (d) — longer pattern detection
+const LOOP_TRIP = 4; // more tolerant (was 3)
 
 /**
  * Canlı model toleransı (2026-08-14): markdown çiti / önsöz-sonsöz metni
@@ -116,7 +116,13 @@ function normalizedActionHash(action: AgentAction): string {
   const raw = JSON.stringify(action)
     .toLowerCase()
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<uuid>")
-    .replace(/\d{4}-\d{2}-\d{2}t[\d:.]+z?/g, "<ts>");
+    .replace(/\d{4}-\d{2}-\d{2}t[\d:.]+z?/g, "<ts>")
+    // Normalize file paths: strip leading ./ and /work/ prefix
+    .replace(/\.\/|\/work\//g, "")
+    // Normalize numbers (line numbers, byte counts, etc.)
+    .replace(/\b\d+\b/g, "<n>")
+    // Normalize message/note content length (first 100 chars only)
+    .replace(/"(body|note|summary|content|message)":\s*"([^"]{100})[^"]*"/g, '"$1":"$2<...>"');
   let hash = 0x811c9dc5;
   for (let i = 0; i < raw.length; i++) {
     hash ^= raw.charCodeAt(i);
