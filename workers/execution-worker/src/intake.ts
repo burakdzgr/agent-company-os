@@ -223,6 +223,78 @@ export const INTAKE_ANALYZERS: readonly { key: string; title: string; script: st
       console.log(JSON.stringify({ findings: hits.slice(0, 50), truncated: hits.length > 50 }));
     `,
   },
+  {
+    key: "code_graph",
+    title: "Code structure & dependencies",
+    script: `
+      const fs = require("node:fs"), path = require("node:path");
+      // TypeScript/JavaScript kod grafiği: her dosya için import/export bilgisi
+      // Agent'lar bu metadata ile "X modülünü kimler kullanıyor" sorularına
+      // dosya okumadan cevap verebilir (memory retrieval).
+      const modules = [];
+      const walk = (dir) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          if (e.name === ".git" || e.name === "node_modules") continue;
+          const absPath = path.join(dir, e.name);
+          if (e.isDirectory()) { walk(absPath); continue; }
+          // Sadece TypeScript/JavaScript dosyaları
+          if (!/\\.[jt]sx?$/.test(e.name)) continue;
+          
+          let text;
+          try { text = fs.readFileSync(absPath, "utf8"); } catch { continue; }
+          if (text.length > 500_000) continue; // Çok büyük dosyaları atla
+          
+          const relPath = absPath.slice(6); // /work/ prefix'i kaldır
+          const imports = [];
+          const exports = [];
+          
+          // Basit regex ile import/export tespiti (AST parser olmadan MVP)
+          // import { x } from "y" veya import x from "y"
+          const importMatches = text.matchAll(/^\\s*import\\s+(?:{[^}]+}|[^'"]+)\\s+from\\s+['"]([^'"]+)['"]/gm);
+          for (const m of importMatches) {
+            const spec = m[1];
+            // Sadece relative ve package import'ları (./ ../ veya paket adı)
+            if (spec && !spec.startsWith("node:")) imports.push(spec);
+          }
+          
+          // export { x }, export function, export const, export default
+          if (/^\\s*export\\s+(default|const|function|class|interface|type|enum)\\s/m.test(text)) {
+            exports.push("named_exports");
+          }
+          if (/^\\s*export\\s+default\\s/m.test(text)) {
+            exports.push("default_export");
+          }
+          if (/^\\s*export\\s+{/m.test(text)) {
+            exports.push("named_exports");
+          }
+          
+          // En az bir import veya export varsa kaydet
+          if (imports.length > 0 || exports.length > 0) {
+            modules.push({
+              file: relPath,
+              imports: [...new Set(imports)].slice(0, 50), // Unique, max 50
+              exports: [...new Set(exports)],
+              loc: text.split("\\n").length, // Line count
+            });
+          }
+        }
+      };
+      walk("/work");
+      
+      // İstatistikler
+      const stats = {
+        totalModules: modules.length,
+        avgImportsPerModule: modules.reduce((s, m) => s + m.imports.length, 0) / (modules.length || 1),
+        filesWithExports: modules.filter(m => m.exports.length > 0).length,
+      };
+      
+      console.log(JSON.stringify({
+        modules: modules.slice(0, 200), // İlk 200 modül (büyük repo'larda sınırla)
+        stats,
+        truncated: modules.length > 200,
+      }));
+    `,
+  },
 ];
 
 export interface AnalyzerResult {

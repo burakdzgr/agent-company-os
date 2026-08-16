@@ -320,7 +320,59 @@ export function createIntakeControlActivities(deps: IntakeControlActivityDeps) {
       for (const analyzer of successfulAnalyzers) {
         const { analyzer: key, findings } = analyzer;
         
-        // Findings'i JSON string olarak saklayacağız
+        // code_graph analyzer'ı için özel işlem: her modül ayrı bir memory
+        if (key === "code_graph" && typeof findings === "object" && findings !== null) {
+          const modules = (findings as { modules?: unknown[] }).modules ?? [];
+          const stats = (findings as { stats?: unknown }).stats;
+          
+          // Genel code graph istatistikleri için bir memory
+          candidates.push({
+            type: "semantic",
+            title: `${input.projectName}: Code Graph Overview`,
+            content: JSON.stringify(stats, null, 2),
+            summary: "Overall code structure statistics and module dependencies",
+            importance: 0.75,
+            metadata: {
+              source: "intake_analyzer",
+              analyzerKey: "code_graph",
+              projectName: input.projectName,
+              kind: "code_graph_summary",
+              ...(typeof stats === "object" && stats !== null ? stats : {}),
+            },
+          });
+          
+          // Her modül için ayrı memory (procedural — "X dosyası Y'yi import eder")
+          for (const mod of modules.slice(0, 100)) { // Max 100 modül
+            if (typeof mod !== "object" || mod === null) continue;
+            const m = mod as { file?: string; imports?: string[]; exports?: string[]; loc?: number };
+            if (!m.file) continue;
+            
+            const importList = (m.imports ?? []).join(", ") || "none";
+            const exportList = (m.exports ?? []).join(", ") || "none";
+            
+            candidates.push({
+              type: "procedural", // Kod yapısı bilgisi procedural
+              title: `Code: ${m.file}`,
+              content: `Imports: ${importList}\\nExports: ${exportList}\\nLines: ${m.loc ?? 0}`,
+              summary: `Module structure and dependencies for ${m.file}`,
+              importance: 0.50, // Modül detayları daha düşük importance
+              metadata: {
+                source: "intake_analyzer",
+                analyzerKey: "code_graph",
+                projectName: input.projectName,
+                kind: "code_module",
+                file: m.file,
+                imports: m.imports ?? [],
+                exports: m.exports ?? [],
+                loc: m.loc ?? 0,
+              },
+            });
+          }
+          
+          continue; // code_graph işlendi, genel analyzer loop'una geçme
+        }
+        
+        // Diğer analyzer'lar için standart işlem
         const findingsJson = JSON.stringify(findings, null, 2);
         const truncated = findingsJson.slice(0, 3000); // Çok uzun olmasın
         

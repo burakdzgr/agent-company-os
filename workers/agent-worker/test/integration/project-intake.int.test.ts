@@ -462,8 +462,9 @@ describe.skipIf(!runnable)("projectIntakeWorkflow (T42, demo steps 6–7)", () =
         ),
       );
 
-    // ≥9 memories: 8 analyzer findings + 1 intake summary (all succeeded)
-    expect(projectMemories.length).toBeGreaterThanOrEqual(9);
+    // Çok sayıda memory: 8 standart analyzer + 1 summary + code_graph (1 overview + N modules)
+    // Fixture'da en az birkaç .ts dosyası var, dolayısıyla code_graph modül memory'leri olmalı
+    expect(projectMemories.length).toBeGreaterThanOrEqual(15);
 
     // High-importance memories: structure, repo_profile, languages
     const structureMemory = projectMemories.find((m) => m.title.includes("structure"));
@@ -487,6 +488,32 @@ describe.skipIf(!runnable)("projectIntakeWorkflow (T42, demo steps 6–7)", () =
 
     // Confidence is high (analyzer output is reliable)
     expect(structureMemory!.confidence).toBe(0.85);
+
+    // Code graph memories: overview + module details
+    const codeGraphOverview = projectMemories.find(
+      (m) => m.title.includes("Code Graph Overview"),
+    );
+    expect(codeGraphOverview).toBeDefined();
+    expect(codeGraphOverview!.importance).toBe(0.75);
+    expect(codeGraphOverview!.entities).toHaveProperty("kind", "code_graph_summary");
+
+    // Module-level memories (procedural type)
+    const moduleMemories = projectMemories.filter(
+      (m) => m.type === "procedural" && (m.entities as { kind?: string }).kind === "code_module",
+    );
+    expect(moduleMemories.length).toBeGreaterThan(0); // Fixture'da .ts dosyaları var
+
+    // İlk modül memory'yi detaylı kontrol et
+    const firstModule = moduleMemories[0]!;
+    expect(firstModule.title).toMatch(/^Code: /);
+    expect(firstModule.entities).toHaveProperty("file");
+    expect(firstModule.entities).toHaveProperty("imports");
+    expect(firstModule.entities).toHaveProperty("exports");
+    expect(firstModule.importance).toBe(0.5); // Modül detayları düşük importance
+    
+    // Metadata'da modül bilgileri var mı (retrieval için)
+    expect(Array.isArray((firstModule.entities as { imports?: unknown }).imports)).toBe(true);
+    expect(Array.isArray((firstModule.entities as { exports?: unknown }).exports)).toBe(true);
   }, 600_000);
 
   // B4 (14 §3.1): repo'suz bir proje fikri de rapor almalı. Önceden bu yolda

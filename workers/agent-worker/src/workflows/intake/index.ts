@@ -61,6 +61,7 @@ export const INTAKE_ANALYZER_PLAN = [
   "docs",
   "config_env",
   "security_smells",
+  "code_graph",
 ] as const;
 
 export interface ProjectIntakeInput {
