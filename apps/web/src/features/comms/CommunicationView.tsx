@@ -64,7 +64,7 @@ export function CommunicationView() {
   return (
     <div className="flex h-[calc(100vh-9rem)] gap-4">
       <Card className="w-72 shrink-0 overflow-y-auto p-2">
-        <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
+        <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-acos-fg1">
           Kanallar
         </p>
         {(channels.data ?? []).map((channel) => (
@@ -72,37 +72,37 @@ export function CommunicationView() {
             key={channel.id}
             onClick={() => setSelectedId(channel.id)}
             className={cn(
-              "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-ink-50",
+              "flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-acos-bg3",
               selectedId === channel.id && "bg-accent-500/10",
             )}
             data-testid={`channel-${channel.id}`}
           >
             <StatusPill tone={KIND_TONE[channel.kind] ?? "neutral"}>{channel.kind}</StatusPill>
-            <span className="truncate text-ink-800">{channelLabel(channel, agentNames)}</span>
+            <span className="truncate text-acos-fg0">{channelLabel(channel, agentNames)}</span>
           </button>
         ))}
         {(channels.data ?? []).length === 0 && (
-          <p className="px-2 py-6 text-center text-xs text-ink-400">
+          <p className="px-2 py-6 text-center text-xs text-acos-fg2">
             Takımlar ve görevler oluştukça kanallar burada belirir.
           </p>
         )}
       </Card>
 
-      <Card className="flex min-w-0 flex-1 flex-col p-0">
+      <Card className="flex min-w-0 flex-1 flex-col" padding={false}>
         {selected ? (
           <>
-            <header className="border-b border-ink-100 px-4 py-2 text-sm font-medium text-ink-800">
+            <header className="border-b border-acos-line px-4 py-2 text-sm font-medium text-acos-fg0">
               {channelLabel(selected, agentNames)}
             </header>
             <div className="flex-1 space-y-2 overflow-y-auto p-4" data-testid="message-pane">
               {(messages.data ?? []).map((message: Message) => (
                 <div key={message.id} className="text-sm">
-                  <span className="font-medium text-ink-800">
+                  <span className="font-medium text-acos-fg0">
                     {message.senderAgentId
                       ? (agentNames.get(message.senderAgentId) ?? "Ajan")
                       : "Founder"}
                   </span>
-                  <span className="ml-2 text-xs text-ink-400">
+                  <span className="ml-2 text-xs text-acos-fg2">
                     {new Date(message.createdAt).toLocaleTimeString()}
                   </span>
                   {message.kind !== "text" && (
@@ -110,14 +110,14 @@ export function CommunicationView() {
                       {message.kind}
                     </StatusPill>
                   )}
-                  <p className="whitespace-pre-wrap text-ink-700">{message.body}</p>
+                  <p className="whitespace-pre-wrap text-acos-fg1">{message.body}</p>
                 </div>
               ))}
               {(messages.data ?? []).length === 0 && (
-                <p className="py-8 text-center text-sm text-ink-400">Henüz mesaj yok.</p>
+                <p className="py-8 text-center text-sm text-acos-fg2">Henüz mesaj yok.</p>
               )}
             </div>
-            <footer className="flex gap-2 border-t border-ink-100 p-3">
+            <footer className="flex gap-2 border-t border-acos-line p-3">
               <Input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
@@ -137,7 +137,7 @@ export function CommunicationView() {
             </footer>
           </>
         ) : (
-          <p className="flex flex-1 items-center justify-center text-sm text-ink-400">
+          <p className="flex flex-1 items-center justify-center text-sm text-acos-fg2">
             Bir kanal seçin.
           </p>
         )}
