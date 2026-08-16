@@ -43,9 +43,30 @@ test("R1: killing agent-worker mid-cascade loses nothing — the run resumes and
   // cancels the previous demo cascades through the REAL transition API
   // before starting the R1 run.
   const csrf = (await page.context().cookies()).find((c) => c.name === "acos_csrf")?.value ?? "";
+  // KAPSAM: yalnız e2e senaryolarının ürettiği görevler.
+  //
+  // Bu sorgu eskiden şirketteki BÜTÜN açık görevleri iptal ediyordu ve
+  // paylaşılan geliştirme veritabanında Founder'ın gerçek işlerini siliyordu
+  // — 2026-08-15'te "Transform agent-company-os into production-ready SaaS",
+  // "F1: Keşif ve Analiz", "Test ve CI durum analizi" ve altı iş daha bu
+  // hazırlık adımında CANCELLED'a düştü (iptaller terminal, geri alınamıyor).
+  // Yorum zaten "previous demo cascades" diyordu; SQL öyle demiyordu.
+  //
+  // Demo başlıkları dışında bir şey kalırsa ve WIP limiti testi bloklarsa,
+  // test AÇIKÇA başarısız olur. Sessizce veri silmektense gürültülü çuvallamak
+  // doğru olan: biri bir sinyal, diğeri kayıp.
   const { rows: openCascade } = await pg.query(
     `SELECT id FROM tasks WHERE company_id = $1
-     AND status NOT IN ('DONE','CANCELLED','FAILED','REJECTED')`,
+     AND status NOT IN ('DONE','CANCELLED','FAILED','REJECTED')
+     AND (
+       title ILIKE '%feature X%'
+       OR title ILIKE 'Terminal demo task%'
+       OR title ILIKE 'Board Probe%'
+       OR title ILIKE 'Office Probe%'
+       OR title ILIKE 'Greenfield %'
+       OR title ILIKE 'Initiative: analyze the project%'
+       OR title ILIKE 'Write integration coverage%'
+     )`,
     [companyId],
   );
   for (const row of openCascade) {

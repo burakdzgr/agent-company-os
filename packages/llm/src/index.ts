@@ -55,6 +55,7 @@ export {
   type MemoryEntities,
   type EvidenceRef,
 } from "./memory-candidate.js";
+export { languageName, outputLanguageDirective } from "./language.js";
 export { resolveTargets } from "./resolution.js";
 export { ModelRouter, type ProviderAdapter, type RouterOptions, type RoutingContext } from "./router.js";
 export {

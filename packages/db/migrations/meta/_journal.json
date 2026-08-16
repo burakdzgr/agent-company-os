@@ -113,6 +113,13 @@
       "when": 1786845180000,
       "tag": "0016_project_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786845240000,
+      "tag": "0017_output_language_default_tr",
+      "breakpoints": true
     }
   ]
 }

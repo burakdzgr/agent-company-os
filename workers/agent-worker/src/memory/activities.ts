@@ -21,7 +21,10 @@ import {
   type TriggerWindow,
 } from "@acos/db";
 import type { SimilarityBand } from "@acos/domain";
+import { companySettings } from "@acos/db/schema";
+import { eq } from "drizzle-orm";
 import {
+  outputLanguageDirective,
   parseMemoryCandidates,
   type MemoryCandidate,
   type ModelRouter,
@@ -153,6 +156,13 @@ export function createMemoryActivities(deps: MemoryActivityDeps) {
 
       const ctx = companyContext(input.companyId);
       const routing = await deps.routingFor(ctx, anchor.agentId ?? "");
+      // Anı başlıkları/özetleri Founder'ın Hafıza Gözlemevi'nde okuduğu
+      // metinlerdir — şirketin çıktı diline (A5) uymaları gerekir.
+      const [settingsRow] = await deps.guardedDb
+        .select({ outputLanguage: companySettings.outputLanguage })
+        .from(companySettings)
+        .where(eq(companySettings.companyId, ctx.companyId));
+      const languageDirective = outputLanguageDirective(settingsRow?.outputLanguage ?? "en");
       const prompt =
         `${anchor.headline} ` +
         `Extract 0-8 memory candidates as a JSON array matching the MemoryCandidate contract ` +
@@ -164,6 +174,7 @@ export function createMemoryActivities(deps: MemoryActivityDeps) {
         `Only those ids exist; a ref you did not copy from the window is rejected ` +
         `and the whole candidate is thrown away. ` +
         `Extract only knowledge with future utility; never invent evidence.\n\n` +
+        (languageDirective ? `${languageDirective}\n\n` : "") +
         `Window:\n${renderWindowDigest(window)}`;
       const first = await deps.router.complete(
         { purpose: "fast", messages: [{ role: "user", content: prompt }] },

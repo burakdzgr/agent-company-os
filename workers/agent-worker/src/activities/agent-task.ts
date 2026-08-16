@@ -34,6 +34,7 @@ import {
   agentSteps,
   agents,
   artifacts as artifactsTable,
+  companySettings,
   environments,
   llmCalls,
   modelProfiles,
@@ -43,6 +44,7 @@ import {
   tasks,
   workspaces as workspacesTable,
 } from "@acos/db/schema";
+import { outputLanguageDirective } from "@acos/llm";
 import type { ModelRouter, RoutingContext, LlmMessage, LlmUsage } from "@acos/llm";
 import { CONTEXT_SENTINEL_UUID, type AgentAction } from "@acos/llm/agent-action";
 import { FENCE_PREAMBLE, provenanceFence } from "@acos/tools";
@@ -330,6 +332,16 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         .from(tasks)
         .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.taskId)));
       if (!agentRow || !task) throw new Error("agent or task not found for working set");
+
+      // Şirketin çıktı dili (_DECISIONS A5). Ayar vardı ama hiçbir prompt
+      // okumuyordu; "tr" yazmak hiçbir şeyi değiştirmiyordu. Ayar okunamazsa
+      // "en"e düşülür — dil yönergesi olmayan bir prompt, çalışmayan bir
+      // prompt'tan iyidir.
+      const [settingsRow] = await guardedDb
+        .select({ outputLanguage: companySettings.outputLanguage })
+        .from(companySettings)
+        .where(eq(companySettings.companyId, ctx.companyId));
+      const outputLanguage = settingsRow?.outputLanguage ?? "en";
 
       const chain = await guardedDb.execute(sql`
         WITH RECURSIVE up AS (
@@ -621,10 +633,15 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       // goes after it. The catalog used to sit at the END of the variable user
       // message, so no prefix was stable at all and there was nothing worth
       // caching; the brief assumed the order was already right.
+      // Dil yönergesi kararlı önekte: her adımda birebir aynı, yani B3'ün
+      // önbellek kesme noktasının içinde kalıyor ve fazladan token maliyeti
+      // ilk adımdan sonra sıfır.
+      const languageDirective = outputLanguageDirective(outputLanguage);
       const stablePrefix = [
         `You are ${agentRow.name}, ${agentRow.positionTitle} (${agentRow.seniority}, autonomy L${agentRow.autonomyLevel}).`,
         agentRow.persona,
         `Non-negotiable rules: act only via a single AgentAction JSON object; never invent tools.`,
+        ...(languageDirective ? [languageDirective] : []),
       ].join("\n");
       const stepPreamble = [...(hasFences ? [FENCE_PREAMBLE] : []), markers].join("\n");
       // Canlı model düzeltmesi (2026-08-14): scripted router şemayı "bilir",

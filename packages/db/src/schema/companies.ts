@@ -75,7 +75,11 @@ export const companySettings = pgTable(
       .references(() => companies.id, { onDelete: "restrict" }),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    outputLanguage: text("output_language").notNull().default("en"),
+    // _DECISIONS A5: iç dil İngilizce, ŞİRKETE DÖNÜK çıktı dili ayardır.
+    // Varsayılan "tr" (Founder kararı 2026-08-16): bu kurulumda Founder
+    // Türkçe çalışıyor ve her yeni şirkette ayarı elle çevirmek zorunda
+    // kalıyordu. Değer şirket başına değiştirilebilir olmaya devam ediyor.
+    outputLanguage: text("output_language").notNull().default("tr"),
     timezone: text("timezone").notNull().default("UTC"),
     defaultAutonomyLevel: smallint("default_autonomy_level").notNull().default(2),
     dailySpendLimitCents: bigint("daily_spend_limit_cents", { mode: "number" }),

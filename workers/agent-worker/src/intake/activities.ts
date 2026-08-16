@@ -9,7 +9,19 @@ import {
   type CompanyContext,
   type GuardedDb,
 } from "@acos/db";
+import { companySettings } from "@acos/db/schema";
+import { eq } from "drizzle-orm";
+import { outputLanguageDirective } from "@acos/llm";
 import type { ModelRouter, RoutingContext } from "@acos/llm";
+
+/** Şirketin çıktı dili (A5) — ayar okunamazsa İngilizce. */
+async function outputLanguageOf(db: GuardedDb, companyId: string): Promise<string> {
+  const [row] = await db
+    .select({ outputLanguage: companySettings.outputLanguage })
+    .from(companySettings)
+    .where(eq(companySettings.companyId, companyId));
+  return row?.outputLanguage ?? "en";
+}
 import {
   buildIntakeReport,
   findingsSummary,
@@ -132,6 +144,10 @@ export function createIntakeControlActivities(deps: IntakeControlActivityDeps) {
       `  productSignals    — product/market signals visible in the evidence`,
       `  recommendedPlan   — numbered first steps for THIS objective`,
       `  openQuestions     — what the organization must answer before starting`,
+      // Intake raporunu Founder okur — şirketin çıktı dilinde olmalı (A5).
+      // Alan ADLARI (executiveSummary…) İngilizce kalır; onlar şema.
+      "",
+      outputLanguageDirective(await outputLanguageOf(deps.guardedDb, ctx.companyId)),
     ]
       .filter(Boolean)
       .join("\n");
