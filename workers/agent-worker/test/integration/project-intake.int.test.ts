@@ -35,6 +35,7 @@ import {
   artifacts,
   companies,
   events,
+  memories,
   modelProviders,
   orgEdges,
   orgUnits,
@@ -446,6 +447,46 @@ describe.skipIf(!runnable)("projectIntakeWorkflow (T42, demo steps 6–7)", () =
         ? rows
         : null;
     }, "CTO initiative + EM epic + dev tasks from the cascade");
+
+    // Stage 4 (14 §3.1): project-scope memories created from analyzer findings
+    // (previously deferred to T44). Agents learn codebase structure/patterns
+    // without repeatedly reading files.
+    const projectMemories = await db
+      .select()
+      .from(memories)
+      .where(
+        and(
+          eq(memories.companyId, companyId),
+          eq(memories.scope, "project"),
+          eq(memories.scopeRef, project.id),
+        ),
+      );
+
+    // ≥9 memories: 8 analyzer findings + 1 intake summary (all succeeded)
+    expect(projectMemories.length).toBeGreaterThanOrEqual(9);
+
+    // High-importance memories: structure, repo_profile, languages
+    const structureMemory = projectMemories.find((m) => m.title.includes("structure"));
+    expect(structureMemory).toBeDefined();
+    expect(structureMemory!.importance).toBeGreaterThanOrEqual(0.7);
+    expect(structureMemory!.status).toBe("active"); // importance ≥ 0.45 → active
+
+    // Summary memory has highest importance
+    const summaryMemory = projectMemories.find((m) => m.title.includes("Intake Summary"));
+    expect(summaryMemory).toBeDefined();
+    expect(summaryMemory!.importance).toBe(0.8);
+
+    // Metadata contains source information
+    expect(structureMemory!.entities).toHaveProperty("source", "intake_analyzer");
+    expect(structureMemory!.entities).toHaveProperty("analyzerKey");
+    expect(structureMemory!.entities).toHaveProperty("projectName", "Fixture Shop");
+
+    // Embedding is deferred (NULL) — batch job fills it
+    expect(structureMemory!.embedding).toBeNull();
+    expect(structureMemory!.embeddingModel).toBeNull();
+
+    // Confidence is high (analyzer output is reliable)
+    expect(structureMemory!.confidence).toBe(0.85);
   }, 600_000);
 
   // B4 (14 §3.1): repo'suz bir proje fikri de rapor almalı. Önceden bu yolda
