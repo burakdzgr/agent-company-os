@@ -441,3 +441,85 @@ describe("service-level error typing", () => {
     expect(new TaskEngineError("TASK_NOT_FOUND", "x").name).toBe("TaskEngineError");
   });
 });
+
+// Arşiv (07 §5.6): Founder panoyu temizleyebilmeli ama HİÇBİR ŞEY
+// SİLİNMEMELİ. Bu testlerin varlık sebebi somut: canlı panoda 3 tamamlanmış
+// göreve karşı 32 iptal birikmişti ve pano okunmaz hâle gelmişti; çözüm
+// silmek olsaydı olay zinciri ve o görevlerden doğan anılar sakat kalırdı.
+describe("pano arşivi", () => {
+  it("arşivlenen görev varsayılan panodan çıkar, satır ve olaylar durur", async () => {
+    const task = await tasksSvc.create(
+      ctx,
+      { kind: "goal", title: "Arşivlenecek hedef", objective: "x" },
+      { kind: "founder" },
+    );
+    await stateSvc.transition(ctx, task.id, "CANCELLED", { kind: "founder" });
+
+    const eventsBefore = await db.execute(
+      sql`SELECT count(*)::int AS n FROM events WHERE company_id = ${companyId}`,
+    );
+
+    const archived = await tasksSvc.setArchived(ctx, task.id, true);
+    expect(archived?.archivedAt).not.toBeNull();
+
+    const active = await tasksSvc.list(ctx, {});
+    expect(active.some((t) => t.id === task.id)).toBe(false);
+
+    const inArchive = await tasksSvc.list(ctx, { include: "archived" });
+    expect(inArchive.some((t) => t.id === task.id)).toBe(true);
+
+    const all = await tasksSvc.list(ctx, { include: "all" });
+    expect(all.some((t) => t.id === task.id)).toBe(true);
+
+    // hiçbir olay silinmedi — arşiv bir görünüm niteliği, veri kaybı değil
+    const eventsAfter = await db.execute(
+      sql`SELECT count(*)::int AS n FROM events WHERE company_id = ${companyId}`,
+    );
+    expect((eventsAfter.rows[0] as { n: number }).n).toBe(
+      (eventsBefore.rows[0] as { n: number }).n,
+    );
+  });
+
+  it("geri getirilebilir", async () => {
+    const task = await tasksSvc.create(
+      ctx,
+      { kind: "goal", title: "Geri gelecek hedef", objective: "x" },
+      { kind: "founder" },
+    );
+    await stateSvc.transition(ctx, task.id, "CANCELLED", { kind: "founder" });
+    await tasksSvc.setArchived(ctx, task.id, true);
+    await tasksSvc.setArchived(ctx, task.id, false);
+
+    const active = await tasksSvc.list(ctx, {});
+    expect(active.some((t) => t.id === task.id)).toBe(true);
+  });
+
+  it("bir haftadan eski kapanışlar kendiliğinden panodan düşer", async () => {
+    const task = await tasksSvc.create(
+      ctx,
+      { kind: "goal", title: "Eski kapanış", objective: "x" },
+      { kind: "founder" },
+    );
+    await stateSvc.transition(ctx, task.id, "CANCELLED", { kind: "founder" });
+    // kapanış zamanını geriye al — solma kuralı closed_at üzerinden işler
+    await db.execute(
+      sql`UPDATE tasks SET closed_at = now() - interval '9 days'
+          WHERE id = ${task.id} AND company_id = ${companyId}`,
+    );
+
+    const active = await tasksSvc.list(ctx, {});
+    expect(active.some((t) => t.id === task.id)).toBe(false);
+    const inArchive = await tasksSvc.list(ctx, { include: "archived" });
+    expect(inArchive.some((t) => t.id === task.id)).toBe(true);
+  });
+
+  it("açık görev, kapanmamışsa panoda kalır (solma yalnız kapanışa bakar)", async () => {
+    const task = await tasksSvc.create(
+      ctx,
+      { kind: "goal", title: "Açık kalan hedef", objective: "x" },
+      { kind: "founder" },
+    );
+    const active = await tasksSvc.list(ctx, {});
+    expect(active.some((t) => t.id === task.id)).toBe(true);
+  });
+});

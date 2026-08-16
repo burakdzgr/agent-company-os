@@ -40,6 +40,8 @@ export const TaskSchema = z.object({
   reassignmentCount: z.number().int(),
   createdAt: z.iso.datetime(),
   closedAt: z.iso.datetime().nullable(),
+  /** Founder panodan kaldırdıysa dolu — satır silinmez, yalnız gizlenir. */
+  archivedAt: z.iso.datetime().nullable(),
 });
 export type Task = z.infer<typeof TaskSchema>;
 
@@ -83,7 +85,15 @@ export const TaskListQuerySchema = z.object({
   risk: TaskRiskLevelSchema.optional(),
   parentId: z.uuid().optional(),
   q: z.string().optional(),
+  /**
+   * Görünürlük penceresi. Varsayılan "active": arşivlenmiş görevler ve
+   * kapanalı bir haftadan çok olmuş görevler panoda çıkmaz — satırlar
+   * durur, yalnız görünmezler.
+   */
+  include: z.enum(["active", "archived", "all"]).optional(),
 });
+
+export const ArchiveTaskRequestSchema = z.object({ archived: z.boolean() });
 
 export const CreateDependencyRequestSchema = z.object({ dependsOnTaskId: z.uuid() });
 

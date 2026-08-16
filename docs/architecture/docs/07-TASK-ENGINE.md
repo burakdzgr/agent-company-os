@@ -184,7 +184,28 @@ Engine** (system, acting on Founder verdict), **Founder**, **System** (guards, d
 "No developer approves their own work" is structural: the REVIEW→* and QA→* rows require an actor
 different from `owner_agent_id`; the domain function receives both IDs and refuses equality.
 
-## 6. Delegation engine
+### 5.6 Board archive — hiding, never deleting
+
+A closed task keeps its board card forever, and a busy company drowns in them: the live floor
+reached **32 CANCELLED against 3 DONE**, at which point the board stopped answering "what is
+happening" and answered "what once happened" instead. Two mechanisms fix that without a delete
+path.
+
+- **`tasks.archived_at`** — the Founder removes a card from the board; the row, its events, its
+  steps, its artifacts and every memory derived from it stay exactly where they are (INV-11 is
+  append-only, and a deleted task would orphan the causal chain those records point at). Setting
+  the column back to NULL restores the card. **Founder only** — agents must not be able to sweep
+  their own traces off the board.
+- **Automatic fade** — a task whose `closed_at` is older than `TERMINAL_FADE_DAYS` (7) leaves the
+  default board on its own. It is a *query window*, not a sweep job: nothing is written, so the
+  boundary moves with time and can never desynchronise from the data.
+
+`GET /tasks?include=` selects the window: `active` (default — not archived, and open or closed
+within the window), `archived` (the other side of that same line), `all` (audit/export).
+
+**Archive is not a state.** The 16-state machine of §2 is untouched and no transition is
+recorded, because nothing about the work changed — only what the Founder wants to look at. It is
+therefore also not in the permission matrix above; the route enforces the Founder check directly.
 
 Decomposition is not a special subsystem — it is a manager agent's `agentTaskWorkflow` emitting a
 sequence of **AgentActions** (`create_task` then `delegate_task`, 08-AGENT-RUNTIME.md §4):

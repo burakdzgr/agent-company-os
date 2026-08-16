@@ -367,6 +367,11 @@ export function createAcosClient(options: AcosClientOptions) {
         TaskSchema.parse(
           await post(`/api/v1/companies/${companyId}/tasks/${taskId}/transitions`, body),
         ),
+      /** Panodan kaldır / geri getir — silmez, satır ve olaylar yerinde kalır. */
+      archive: async (companyId: string, taskId: string, archived: boolean): Promise<Task> =>
+        TaskSchema.parse(
+          await post(`/api/v1/companies/${companyId}/tasks/${taskId}/archive`, { archived }),
+        ),
       tree: async (companyId: string, taskId: string): Promise<{ root: TaskTreeNode }> =>
         z
           .object({ root: TaskTreeNodeSchema })

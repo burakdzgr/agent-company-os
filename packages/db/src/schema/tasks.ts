@@ -50,6 +50,17 @@ export const tasks = pgTable(
     reassignmentCount: smallint("reassignment_count").notNull().default(0),
     result: jsonb("result"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
+    /**
+     * Founder panodan kaldırdı — SİLİNMEDİ.
+     *
+     * Görev satırı, olayları, adımları, artefaktları ve ondan doğan anılar
+     * olduğu gibi durur (INV-11 append-only); değişen tek şey varsayılan
+     * görünümde çıkıp çıkmadığı. Geri alınabilir: alan NULL'a döner.
+     *
+     * Durum makinesine yeni bir durum EKLENMEDİ (07 §5'teki 16 durum
+     * sabittir); arşiv bir durum değil, görünüm niteliğidir.
+     */
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
   },
   (t) => [
     uniqueIndex("tasks_company_number_uq").on(t.companyId, t.number),
@@ -61,6 +72,9 @@ export const tasks = pgTable(
         sql`${t.status} IN ('ASSIGNED','IN_PROGRESS','WAITING','BLOCKED','REVIEW','CHANGES_REQUESTED','QA','QA_FAILED','APPROVAL')`,
       ),
     index("tasks_parent_idx").on(t.parentId),
+    index("tasks_company_archived_pidx")
+      .on(t.companyId, t.closedAt)
+      .where(sql`${t.archivedAt} IS NULL`),
     index("tasks_company_deadline_pidx")
       .on(t.companyId, t.deadline)
       .where(sql`${t.deadline} IS NOT NULL AND ${t.closedAt} IS NULL`),

@@ -28,21 +28,58 @@ const COLUMNS: Array<{ id: string; label: string; statuses: string[] }> = [
 
 const PRIORITY_TONE = { P0: "danger", P1: "warn", P2: "accent", P3: "neutral" } as const;
 
-function TaskCard({ task, onSelect }: { task: Task; onSelect: (t: Task) => void }) {
+const CLOSED_STATUSES = new Set(["DONE", "FAILED", "CANCELLED", "REJECTED"]);
+
+function TaskCard({
+  task,
+  onSelect,
+  companyId,
+}: {
+  task: Task;
+  onSelect: (t: Task) => void;
+  companyId: string;
+}) {
+  const queryClient = useQueryClient();
+  const archive = useMutation({
+    mutationFn: (archived: boolean) => api.tasks.archive(companyId, task.id, archived),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [companyId, "tasks"] }),
+  });
+  // Kaldırma düğmesi yalnız KAPANMIŞ işlerde: açık bir işi panodan gizlemek
+  // onu unutmak demek olurdu. Kapanmış iş zaten bitmiş; panoda durması artık
+  // bilgi değil gürültü.
+  const closed = CLOSED_STATUSES.has(task.status);
+  const archived = task.archivedAt !== null;
+
   return (
-    <button
-      onClick={() => onSelect(task)}
-      className="w-full rounded-md border border-ink-200 bg-acos-bg2 p-2 text-left text-xs shadow-sm hover:shadow"
+    <div
+      className="relative w-full rounded-md border border-ink-200 bg-acos-bg2 shadow-sm hover:shadow"
       data-testid={`task-card-${task.number}`}
     >
-      <div className="flex items-center gap-1.5">
-        <span className="font-mono text-ink-400">{task.displayNumber}</span>
-        <StatusPill tone={PRIORITY_TONE[task.priority]}>{task.priority}</StatusPill>
-        <span className="ml-auto uppercase text-[10px] text-ink-300">{task.kind}</span>
-      </div>
-      <p className="mt-1 line-clamp-2 font-medium text-ink-800">{task.title}</p>
-      <p className="mt-0.5 text-[10px] text-ink-400">{task.status}</p>
-    </button>
+      <button onClick={() => onSelect(task)} className="w-full p-2 text-left text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono text-ink-400">{task.displayNumber}</span>
+          <StatusPill tone={PRIORITY_TONE[task.priority]}>{task.priority}</StatusPill>
+          <span className="ml-auto uppercase text-[10px] text-ink-300">{task.kind}</span>
+        </div>
+        <p className="mt-1 line-clamp-2 font-medium text-ink-800">{task.title}</p>
+        <p className="mt-0.5 text-[10px] text-ink-400">{task.status}</p>
+      </button>
+      {closed && (
+        <button
+          onClick={() => archive.mutate(!archived)}
+          disabled={archive.isPending}
+          title={
+            archived
+              ? "Panoya geri getir"
+              : "Panodan kaldır — görev, olayları ve anıları silinmez, arşivde durur"
+          }
+          className="absolute right-1 top-1 rounded px-1.5 py-0.5 text-[10px] text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+          data-testid={`task-archive-${task.number}`}
+        >
+          {archived ? "↩" : "✕"}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -367,9 +404,14 @@ export function TasksView() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<Task | null>(null);
 
+  // Arşiv görünümü: varsayılan pano yalnız açık + yeni kapanmış işleri
+  // gösterir (sunucudaki "active" penceresi). Kapanan hiçbir şey silinmez,
+  // buradan geri getirilir.
+  const [showArchive, setShowArchive] = useState(false);
+
   const tasks = useQuery({
-    queryKey: [companyId, "tasks", "list"],
-    queryFn: () => api.tasks.list(companyId),
+    queryKey: [companyId, "tasks", "list", showArchive ? "archived" : "active"],
+    queryFn: () => api.tasks.list(companyId, { include: showArchive ? "archived" : "active" }),
   });
   const rows = tasks.data ?? [];
 
@@ -392,7 +434,19 @@ export function TasksView() {
             </button>
           ))}
         </div>
-        <Button className="ml-auto" onClick={() => setCreateOpen(true)} data-testid="new-task-button">
+        <button
+          onClick={() => setShowArchive((v) => !v)}
+          className={cn(
+            "ml-auto rounded-md border px-3 py-1 text-xs font-medium",
+            showArchive
+              ? "border-accent-500/40 bg-accent-500/10 text-accent-600"
+              : "border-ink-200 text-ink-500 hover:bg-ink-50",
+          )}
+          data-testid="toggle-archive"
+        >
+          {showArchive ? "Panoya dön" : "Arşiv"}
+        </button>
+        <Button onClick={() => setCreateOpen(true)} data-testid="new-task-button">
           Yeni görev
         </Button>
       </div>
@@ -412,7 +466,12 @@ export function TasksView() {
                 </p>
                 <div className="space-y-2">
                   {cards.map((task) => (
-                    <TaskCard key={task.id} task={task} onSelect={setSelected} />
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      onSelect={setSelected}
+                      companyId={companyId}
+                    />
                   ))}
                 </div>
               </div>

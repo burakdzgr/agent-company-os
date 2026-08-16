@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
+  ArchiveTaskRequestSchema,
   CreateAssignmentRequestSchema,
   CreateDependencyRequestSchema,
   CreateTaskRequestSchema,
@@ -52,6 +53,8 @@ export function toApiTask(t: TaskRow) {
     reassignmentCount: t.reassignmentCount,
     createdAt: t.createdAt instanceof Date ? t.createdAt.toISOString() : t.createdAt,
     closedAt: t.closedAt instanceof Date ? (t.closedAt?.toISOString() ?? null) : t.closedAt,
+    archivedAt:
+      t.archivedAt instanceof Date ? (t.archivedAt?.toISOString() ?? null) : (t.archivedAt ?? null),
   };
 }
 
@@ -126,7 +129,43 @@ export async function registerTaskRoutes(
         ...rest,
         status: typeof status === "string" ? [status] : status,
       });
+      // include varsayılanı serviste ("active") — rota katmanı karar vermez
       return rows.map(toApiTask);
+    },
+  );
+
+  /**
+   * Panodan kaldır / geri getir (07 §5.6).
+   *
+   * SİLME UCU DEĞİL ve bilerek öyle: silmek olay zincirini ve o görevden
+   * doğan anıları sakat bırakırdı (INV-11 append-only). `archived=false` ile
+   * her an geri gelir. Bir durum geçişi de değil — 16 durumluk makine
+   * dokunulmaz; bu yüzden transitions ucundan ayrı duruyor.
+   *
+   * SADECE Founder: ajanlar kendi izlerini panodan silememeli.
+   */
+  app.post(
+    "/api/v1/companies/:id/tasks/:taskId/archive",
+    {
+      schema: {
+        operationId: "archiveTask",
+        tags: ["tasks"],
+        params: taskParam,
+        body: ArchiveTaskRequestSchema,
+        response: { 200: TaskSchema },
+      },
+    },
+    async (request) => {
+      const user = request.requireUser();
+      const role = await companiesSvc().membership(user.id, request.params.id);
+      if (!role) throw new ApiError("not_found", "company not found");
+      if (role !== "founder") {
+        throw new ApiError("forbidden", "panoyu yalnız Founder düzenler");
+      }
+      const ctx = companyContext(request.params.id);
+      const row = await tasksSvc().setArchived(ctx, request.params.taskId, request.body.archived);
+      if (!row) throw new ApiError("not_found", "task not found");
+      return toApiTask(row);
     },
   );
 

@@ -115,6 +115,7 @@ export {
   CreateTaskRequestSchema,
   UpdateTaskRequestSchema,
   TaskTransitionRequestSchema,
+  ArchiveTaskRequestSchema,
   TaskListQuerySchema,
   CreateDependencyRequestSchema,
   TaskDependencySchema,

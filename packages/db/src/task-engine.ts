@@ -61,6 +61,17 @@ const PARENTLESS_KINDS = new Set(["goal", "task"]);
 
 const TERMINAL: ReadonlySet<string> = new Set(["DONE", "FAILED", "CANCELLED"]);
 
+/**
+ * Kapanmış görevin panoda kalma süresi (gün).
+ *
+ * Kapanan iş bir süre görünür kalmalı — dün ne bitti, ne iptal oldu sorusunun
+ * cevabı panodadır. Ama süresiz kalırsa pano ölü kartlarla doluyor (canlı
+ * örnek: 32 iptal karşısında 3 tamamlanmış görev). Bu eşikten sonra görev
+ * kendiliğinden arşiv görünümüne geçer; hiçbir satır silinmez, `include`
+ * parametresiyle her an geri getirilir.
+ */
+export const TERMINAL_FADE_DAYS = 7;
+
 export class TasksService {
   constructor(private readonly db: GuardedDb) {}
 
@@ -200,9 +211,32 @@ export class TasksService {
       risk?: string | undefined;
       parentId?: string | undefined;
       q?: string | undefined;
+      /**
+       * Görünürlük penceresi (varsayılan "active"):
+       *   active   — arşivlenmemiş VE (açık ya da yeni kapanmış) görevler
+       *   archived — yalnız gizlenmiş olanlar (arşiv görünümü)
+       *   all      — hepsi (denetim/dışa aktarım)
+       */
+      include?: "active" | "archived" | "all" | undefined;
     },
   ): Promise<TaskRow[]> {
     const conditions: SQL[] = [eq(tasks.companyId, ctx.companyId) as SQL];
+    // Görünürlük filtresi status filtresinden ÖNCE: durum sorulmuş olsa bile
+    // arşivlenmiş görev varsayılan panoda çıkmamalı.
+    const include = filters.include ?? "active";
+    if (include === "active") {
+      conditions.push(
+        sql`${tasks.archivedAt} IS NULL
+            AND (${tasks.closedAt} IS NULL
+                 OR ${tasks.closedAt} > now() - ${sql.raw(`interval '${TERMINAL_FADE_DAYS} days'`)})`,
+      );
+    } else if (include === "archived") {
+      conditions.push(
+        sql`${tasks.archivedAt} IS NOT NULL
+            OR (${tasks.closedAt} IS NOT NULL
+                AND ${tasks.closedAt} <= now() - ${sql.raw(`interval '${TERMINAL_FADE_DAYS} days'`)})`,
+      );
+    }
     if (filters.projectId) conditions.push(eq(tasks.projectId, filters.projectId) as SQL);
     if (filters.kind) conditions.push(eq(tasks.kind, filters.kind) as SQL);
     if (filters.status && filters.status.length > 0) {
@@ -221,6 +255,28 @@ export class TasksService {
       .from(tasks)
       .where(and(...conditions))
       .orderBy(asc(tasks.number));
+  }
+
+  /**
+   * Founder panodan kaldırır / geri getirir.
+   *
+   * Bilerek SİLMİYOR ve bilerek bir durum geçişi DEĞİL: silmek olay
+   * zincirini ve o görevden doğan anıları sakat bırakırdı (INV-11), yeni bir
+   * durum ise 07 §5'in 16 durumluk makinesini değiştirmek olurdu. Arşiv
+   * yalnızca bir görünüm niteliğidir, bu yüzden izin matrisinden ve durum
+   * makinesinden geçmez — ama SADECE Founder çağırabilir (rota katmanı).
+   */
+  async setArchived(
+    ctx: CompanyContext,
+    taskId: string,
+    archived: boolean,
+  ): Promise<TaskRow | undefined> {
+    const [row] = await this.db
+      .update(tasks)
+      .set({ archivedAt: archived ? sql`now()` : null })
+      .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, taskId)))
+      .returning();
+    return row;
   }
 
   async update(
