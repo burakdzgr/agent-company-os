@@ -293,7 +293,7 @@ export function OrganizationView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-ink-900">Organizasyon</h1>
+        <h1 className="text-lg font-bold text-acos-fg0">Organizasyon</h1>
         <div className="flex gap-2">
           <Button
             variant="ghost"
@@ -325,7 +325,7 @@ export function OrganizationView() {
 
       <Card title="Raporlama hatları (reports_to ormanı)">
         {visibleAgents.length === 0 ? (
-          <p className="py-8 text-center text-sm text-ink-400">
+          <p className="py-8 text-center text-sm text-acos-fg2">
             Henüz ajan yok — &quot;Ajan işe al&quot; ile tek tek ya da &quot;İçe aktar&quot; ile
             JSON/CSV&apos;den tüm organizasyonu kurun.
           </p>
@@ -351,7 +351,7 @@ export function OrganizationView() {
               header: "İşlemler",
               cell: (a) =>
                 a.status === "offboarded" ? (
-                  <span className="text-xs text-ink-400">—</span>
+                  <span className="text-xs text-acos-fg2">—</span>
                 ) : (
                   <div className="flex gap-1.5">
                     <Button
@@ -573,7 +573,7 @@ export function OrganizationView() {
 
       <Dialog open={resetOpen} title="Organizasyonu sıfırdan kur" onClose={() => setResetOpen(false)}>
         <div className="space-y-3" data-testid="org-reset-dialog">
-          <p className="text-sm text-ink-700">
+          <p className="text-sm text-acos-fg1">
             Bu işlem <strong>tüm ajanları işten çıkarır</strong> (hafızaları ve geçmişleri korunur)
             ve <strong>tüm birimleri arşivler</strong>. Ardından birimleri ve kadroyu sıfırdan
             kurabilirsiniz. Görev geçmişi, olay akışı ve maliyet kayıtları silinmez.

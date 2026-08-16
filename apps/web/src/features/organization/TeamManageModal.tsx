@@ -124,19 +124,19 @@ export function TeamManageModal({ companyId, onClose }: { companyId: string; onC
         )}
 
         <div>
-          <h4 className="mb-1 text-xs font-semibold uppercase text-ink-500">Mevcut takımlar</h4>
+          <h4 className="mb-1 text-xs font-semibold uppercase text-acos-fg1">Mevcut takımlar</h4>
           {teams.length === 0 ? (
-            <p className="text-xs text-ink-400">Henüz takım yok.</p>
+            <p className="text-xs text-acos-fg2">Henüz takım yok.</p>
           ) : (
             <div className="max-h-40 space-y-1 overflow-y-auto">
               {teams.map((team) => (
                 <div
                   key={team.id}
-                  className="flex items-center gap-2 rounded border border-ink-100 px-2 py-1 text-sm"
+                  className="flex items-center gap-2 rounded border border-acos-line px-2 py-1 text-sm"
                   data-testid={`team-row-${team.slug}`}
                 >
                   <span className="truncate">{team.name}</span>
-                  <span className="rounded-full bg-ink-100 px-1.5 text-[10px] tabular-nums text-ink-600">
+                  <span className="rounded-full bg-acos-bg2 px-1.5 text-[10px] tabular-nums text-acos-fg1">
                     {headcount(team.id)} üye
                   </span>
                   <Button
@@ -151,7 +151,7 @@ export function TeamManageModal({ companyId, onClose }: { companyId: string; onC
               ))}
             </div>
           )}
-          <p className="mt-1 text-[10px] text-ink-400">
+          <p className="mt-1 text-[10px] text-acos-fg2">
             İçinde aktif ajan olan takım arşivlenemez — önce ajanları Organizasyon&apos;dan taşıyın.
           </p>
         </div>
@@ -186,7 +186,7 @@ export function TeamManageModal({ companyId, onClose }: { companyId: string; onC
         </form>
 
         <div>
-          <h4 className="mb-1 text-xs font-semibold uppercase text-ink-500">Toplu oluştur</h4>
+          <h4 className="mb-1 text-xs font-semibold uppercase text-acos-fg1">Toplu oluştur</h4>
           <Textarea
             value={bulk}
             onChange={(e) => setBulk(e.target.value)}
@@ -196,7 +196,7 @@ export function TeamManageModal({ companyId, onClose }: { companyId: string; onC
             data-testid="team-bulk-text"
           />
           {bulk.trim() !== "" && (
-            <p className="mt-1 text-xs text-ink-600" data-testid="team-bulk-preview">
+            <p className="mt-1 text-xs text-acos-fg1" data-testid="team-bulk-preview">
               {bulkTeams.length} takım hazır
               {bulkProblems.length > 0 && (
                 <span className="text-danger"> · {bulkProblems[0]}</span>
@@ -206,7 +206,7 @@ export function TeamManageModal({ companyId, onClose }: { companyId: string; onC
           {rowStates.length > 0 && (
             <div className="mt-1 max-h-24 overflow-y-auto text-xs" data-testid="team-bulk-log">
               {rowStates.map((s, i) => (
-                <p key={i} className={s.ok ? "text-ink-600" : "text-danger"}>
+                <p key={i} className={s.ok ? "text-acos-fg1" : "text-danger"}>
                   {s.ok ? "✓" : "✗"} {s.label}
                   {s.detail ? ` — ${s.detail}` : ""}
                 </p>

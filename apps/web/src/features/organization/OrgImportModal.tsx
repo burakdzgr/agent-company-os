@@ -22,9 +22,9 @@ function problemDetail(err: unknown): string {
 function ImportLog({ steps }: { steps: StepState[] }) {
   if (steps.length === 0) return null;
   return (
-    <div className="max-h-56 space-y-0.5 overflow-y-auto rounded border border-ink-200 p-2 text-xs" data-testid="org-import-log">
+    <div className="max-h-56 space-y-0.5 overflow-y-auto rounded border border-acos-line p-2 text-xs" data-testid="org-import-log">
       {steps.map((s, i) => (
-        <p key={i} className={s.state === "error" ? "text-danger" : "text-ink-700"}>
+        <p key={i} className={s.state === "error" ? "text-danger" : "text-acos-fg1"}>
           {s.state === "error" ? "✗" : "✓"} {s.label}
           {s.detail ? ` — ${s.detail}` : ""}
         </p>
@@ -212,7 +212,7 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
       <div className="space-y-3" data-testid="org-import-modal">
         {!finished && (
           <>
-            <p className="text-xs text-ink-500">
+            <p className="text-xs text-acos-fg1">
               JSON tam şemayı destekler (birimler + pozisyonlar + ajanlar, yönetici zinciriyle);
               CSV yalnız ajan satırlarını (başlıklar:{" "}
               <code>name,position,unit,manager,seniority,autonomyLevel,persona,expertise</code>).
@@ -227,7 +227,7 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
               >
                 Şablonu kopyala
               </Button>
-              <label className="inline-flex cursor-pointer items-center rounded-md bg-ink-100 px-3 py-1.5 text-sm text-ink-800 hover:bg-ink-200">
+              <label className="inline-flex cursor-pointer items-center rounded-md bg-acos-bg2 px-3 py-1.5 text-sm text-acos-fg0 hover:bg-acos-line">
                 Dosya yükle…
                 <input
                   type="file"
@@ -250,8 +250,8 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
               data-testid="org-import-text"
             />
             {text.trim() !== "" && (
-              <div className="rounded border border-ink-200 bg-ink-50 px-3 py-2 text-xs" data-testid="org-import-preview">
-                <p className="text-ink-800">
+              <div className="rounded border border-acos-line bg-acos-bg1 px-3 py-2 text-xs" data-testid="org-import-preview">
+                <p className="text-acos-fg0">
                   Önizleme: <strong>{plan.units.length}</strong> birim ·{" "}
                   <strong>{plan.positions.length}</strong> pozisyon ·{" "}
                   <strong>{plan.agents.length}</strong> ajan
@@ -272,7 +272,7 @@ export function OrgImportModal({ companyId, onClose }: { companyId: string; onCl
 
         <div className="flex items-center justify-end gap-2">
           {finished && (
-            <span className="mr-auto text-xs text-ink-600" data-testid="org-import-summary">
+            <span className="mr-auto text-xs text-acos-fg1" data-testid="org-import-summary">
               Bitti: {okCount} başarılı, {errCount} hatalı
             </span>
           )}
@@ -375,7 +375,7 @@ export function UnitImportModal({ companyId, onClose }: { companyId: string; onC
       <div className="space-y-3" data-testid="unit-import-modal">
         {!finished && (
           <>
-            <p className="text-xs text-ink-500">
+            <p className="text-xs text-acos-fg1">
               Satır başına <code>Ad, tür, ÜstBirim</code> — tür{" "}
               <code>departman · takım · ofis · bölüm</code> (boşsa departman), üst birim ad/slug
               (boşsa en üst seviye). JSON dizisi de kabul edilir. Var olan birimler atlanır.
@@ -389,7 +389,7 @@ export function UnitImportModal({ companyId, onClose }: { companyId: string; onC
               data-testid="unit-import-text"
             />
             {text.trim() !== "" && (
-              <p className="text-xs text-ink-600" data-testid="unit-import-preview">
+              <p className="text-xs text-acos-fg1" data-testid="unit-import-preview">
                 Önizleme: <strong>{specs.length}</strong> birim
                 {problems.length > 0 && <span className="text-danger"> · {problems[0]}</span>}
               </p>
@@ -401,7 +401,7 @@ export function UnitImportModal({ companyId, onClose }: { companyId: string; onC
 
         <div className="flex items-center justify-end gap-2">
           {finished && (
-            <span className="mr-auto text-xs text-ink-600" data-testid="unit-import-summary">
+            <span className="mr-auto text-xs text-acos-fg1" data-testid="unit-import-summary">
               Bitti: {okCount} başarılı, {errCount} hatalı
             </span>
           )}
@@ -479,7 +479,7 @@ export function PositionImportModal({
       <div className="space-y-3" data-testid="position-import-modal">
         {!finished && (
           <>
-            <p className="text-xs text-ink-500">
+            <p className="text-xs text-acos-fg1">
               JSON dizisi <code>[{"{"}&quot;title&quot;, &quot;defaultRole&quot;{"}"}…]</code> ya da satır
               başına <code>Unvan, rol</code> (rol boşsa <code>member</code>). Roller:{" "}
               <code>executive · manager · lead · member · reviewer</code>. Var olan unvanlar atlanır.
@@ -500,8 +500,8 @@ export function PositionImportModal({
               data-testid="position-import-text"
             />
             {text.trim() !== "" && (
-              <div className="rounded border border-ink-200 bg-ink-50 px-3 py-2 text-xs" data-testid="position-import-preview">
-                <p className="text-ink-800">
+              <div className="rounded border border-acos-line bg-acos-bg1 px-3 py-2 text-xs" data-testid="position-import-preview">
+                <p className="text-acos-fg0">
                   Önizleme: <strong>{specs.length}</strong> rol
                 </p>
                 {problems.length > 0 && (
@@ -520,7 +520,7 @@ export function PositionImportModal({
 
         <div className="flex items-center justify-end gap-2">
           {finished && (
-            <span className="mr-auto text-xs text-ink-600" data-testid="position-import-summary">
+            <span className="mr-auto text-xs text-acos-fg1" data-testid="position-import-summary">
               Bitti: {okCount} başarılı, {errCount} hatalı
             </span>
           )}
