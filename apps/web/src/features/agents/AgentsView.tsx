@@ -34,7 +34,7 @@ export function AgentsView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-lg font-bold text-ink-900">Ajanlar</h1>
+        <h1 className="text-lg font-bold text-acos-fg0">Ajanlar</h1>
         <div className="flex items-center gap-2">
           <Select
             aria-label="Durum filtresi"
@@ -55,7 +55,7 @@ export function AgentsView() {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="py-12 text-center text-sm text-ink-400">
+        <p className="py-12 text-center text-sm text-acos-fg2">
           Henüz ajan yok — Organizasyon'dan işe alın.
         </p>
       ) : (
@@ -70,8 +70,8 @@ export function AgentsView() {
                 <div className="flex items-center gap-3">
                   <AgentAvatar name={agent.name} imageUrl={agent.avatarUrl} />
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-ink-900">{agent.name}</p>
-                    <p className="text-xs text-ink-400">
+                    <p className="truncate font-semibold text-acos-fg0">{agent.name}</p>
+                    <p className="text-xs text-acos-fg2">
                       {agent.displayNumber} · {agent.seniority} · L{agent.autonomyLevel}
                     </p>
                   </div>
@@ -92,7 +92,7 @@ export function AgentsView() {
                         }}
                         className={
                           closedAgentIds.includes(agent.id)
-                            ? "text-xs text-ink-400 opacity-50 hover:opacity-100"
+                            ? "text-xs text-acos-fg2 opacity-50 hover:opacity-100"
                             : "text-xs text-accent-600"
                         }
                       >

@@ -9,8 +9,8 @@ import { AgentAvatar, AgentStatusPill, Button, Card, DataTable, cn } from "@acos
 import { api, keys, queryClient } from "../../lib/api.js";
 
 const KIND_TONE: Record<string, string> = {
-  think: "bg-ink-100 text-ink-600",
-  record_decision: "bg-ink-100 text-ink-600",
+  think: "bg-acos-bg2 text-acos-fg1",
+  record_decision: "bg-acos-bg2 text-acos-fg1",
   use_tool: "bg-accent-500/15 text-accent-600",
   create_task: "bg-[#2ec26a]/15 text-[#2ec26a]",
   delegate_task: "bg-[#2ec26a]/15 text-[#2ec26a]",
@@ -18,7 +18,7 @@ const KIND_TONE: Record<string, string> = {
   request_review: "bg-[#ffcb47]/15 text-[#b58a1f]",
   request_help: "bg-[#ffcb47]/15 text-[#b58a1f]",
   escalate: "bg-[#ff4d4d]/15 text-[#ff4d4d]",
-  wait_for: "bg-ink-100 text-ink-500",
+  wait_for: "bg-acos-bg2 text-acos-fg1",
   update_task_status: "bg-accent-500/15 text-accent-600",
   complete_task: "bg-[#2ec26a]/15 text-[#2ec26a]",
   abandon: "bg-[#ff4d4d]/15 text-[#ff4d4d]",
@@ -101,7 +101,7 @@ export function AgentDetailView() {
     },
   });
 
-  if (!agent.data) return <p className="text-sm text-ink-400">Yükleniyor…</p>;
+  if (!agent.data) return <p className="text-sm text-acos-fg2">Yükleniyor…</p>;
   const a = agent.data;
 
   return (
@@ -110,10 +110,10 @@ export function AgentDetailView() {
         <div className="flex flex-wrap items-center gap-4">
           <AgentAvatar name={a.name} imageUrl={a.avatarUrl} size={56} />
           <div>
-            <h1 className="text-lg font-bold text-ink-900" data-testid="agent-name">
+            <h1 className="text-lg font-bold text-acos-fg0" data-testid="agent-name">
               {a.name}
             </h1>
-            <p className="text-sm text-ink-400">
+            <p className="text-sm text-acos-fg2">
               {a.displayNumber} · {a.seniority} · otonomi L{a.autonomyLevel}
             </p>
           </div>
@@ -136,7 +136,7 @@ export function AgentDetailView() {
             )}
           </div>
         </div>
-        <p className="mt-3 text-sm text-ink-600">{a.persona}</p>
+        <p className="mt-3 text-sm text-acos-fg1">{a.persona}</p>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -156,7 +156,7 @@ export function AgentDetailView() {
         <Card title="Eskalasyon zinciri">
           <ol className="space-y-1 text-sm" data-testid="escalation-chain">
             {chain.data?.map((hop, index) => (
-              <li key={index} className="text-ink-800">
+              <li key={index} className="text-acos-fg0">
                 {index + 1}. {hop.kind === "founder" ? "Founder (sanal)" : hop.name}
               </li>
             ))}
@@ -178,7 +178,7 @@ export function AgentDetailView() {
         }
       >
         {(steps.data ?? []).length === 0 ? (
-          <p className="py-4 text-center text-sm text-ink-400">
+          <p className="py-4 text-center text-sm text-acos-fg2">
             Henüz adım yok — bu çalışana bir görev atandığında düşünce ve aksiyon akışı burada
             canlı izlenir.
           </p>
@@ -189,16 +189,16 @@ export function AgentDetailView() {
               return (
                 <div
                   key={`${step.agentSessionId}-${step.stepNo}-${step.createdAt}`}
-                  className="rounded border border-ink-100 px-2 py-1.5 text-xs"
+                  className="rounded border border-acos-line px-2 py-1.5 text-xs"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] tabular-nums text-ink-400">
+                    <span className="font-mono text-[10px] tabular-nums text-acos-fg2">
                       #{step.stepNo}
                     </span>
                     <span
                       className={cn(
                         "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                        KIND_TONE[step.actionKind] ?? "bg-ink-100 text-ink-600",
+                        KIND_TONE[step.actionKind] ?? "bg-acos-bg2 text-acos-fg1",
                       )}
                     >
                       {step.actionKind}
@@ -208,13 +208,13 @@ export function AgentDetailView() {
                         {obs.label}
                       </span>
                     )}
-                    <span className="ml-auto text-[10px] tabular-nums text-ink-400">
+                    <span className="ml-auto text-[10px] tabular-nums text-acos-fg2">
                       {step.tokensIn + step.tokensOut > 0 &&
                         `${step.tokensIn + step.tokensOut} jeton · `}
                       {new Date(step.createdAt).toLocaleTimeString()}
                     </span>
                   </div>
-                  <p className="mt-0.5 line-clamp-2 text-ink-700">{stepSummary(step)}</p>
+                  <p className="mt-0.5 line-clamp-2 text-acos-fg1">{stepSummary(step)}</p>
                 </div>
               );
             })}
