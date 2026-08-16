@@ -33,13 +33,13 @@ function ExpiryBar({ approval }: { approval: Approval }) {
   const hoursLeft = Math.max(Math.round((expires - now) / 3_600_000), 0);
   return (
     <div className="flex items-center gap-2" title={`bitiş: ${new Date(expires).toLocaleString()}`}>
-      <div className="h-1.5 w-24 overflow-hidden rounded bg-ink-100">
+      <div className="h-1.5 w-24 overflow-hidden rounded bg-acos-bg2">
         <div
           className={cn("h-full", ratio > 0.85 ? "bg-red-500" : ratio > 0.5 ? "bg-amber-500" : "bg-emerald-500")}
           style={{ width: `${Math.round(ratio * 100)}%` }}
         />
       </div>
-      <span className="text-xs text-ink-400">{hoursLeft} sa kaldı</span>
+      <span className="text-xs text-acos-fg2">{hoursLeft} sa kaldı</span>
     </div>
   );
 }
@@ -59,25 +59,25 @@ function BriefPanel({ detail }: { detail: ApprovalDetail }) {
     <div className="space-y-3 text-sm">
       {BRIEF_SECTIONS.slice(0, 2).map(({ key, label }) => (
         <section key={key}>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">{label}</h4>
-          <p className="whitespace-pre-wrap text-ink-800">{brief[key]}</p>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-acos-fg1">{label}</h4>
+          <p className="whitespace-pre-wrap text-acos-fg0">{brief[key]}</p>
         </section>
       ))}
       <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-acos-fg1">
           Otonom denendi
         </h4>
-        <ul className="list-disc pl-5 text-ink-800">
+        <ul className="list-disc pl-5 text-acos-fg0">
           {brief.attempted.map((item, i) => (
             <li key={i}>{item}</li>
           ))}
         </ul>
       </section>
       <section>
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">Seçenekler</h4>
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-acos-fg1">Seçenekler</h4>
         <table className="mt-1 w-full text-left text-xs">
           <thead>
-            <tr className="text-ink-500">
+            <tr className="text-acos-fg1">
               <th className="py-1 pr-2 font-medium">Seçenek</th>
               <th className="py-1 pr-2 font-medium">Artılar</th>
               <th className="py-1 pr-2 font-medium">Eksiler</th>
@@ -86,11 +86,11 @@ function BriefPanel({ detail }: { detail: ApprovalDetail }) {
           </thead>
           <tbody>
             {brief.options.map((option, i) => (
-              <tr key={i} className="border-t border-ink-100 align-top">
-                <td className="py-1 pr-2 text-ink-800">{option.option}</td>
-                <td className="py-1 pr-2 text-ink-600">{option.pros || "—"}</td>
-                <td className="py-1 pr-2 text-ink-600">{option.cons || "—"}</td>
-                <td className="py-1 text-ink-800">
+              <tr key={i} className="border-t border-acos-line align-top">
+                <td className="py-1 pr-2 text-acos-fg0">{option.option}</td>
+                <td className="py-1 pr-2 text-acos-fg1">{option.pros || "—"}</td>
+                <td className="py-1 pr-2 text-acos-fg1">{option.cons || "—"}</td>
+                <td className="py-1 text-acos-fg0">
                   <MoneyText cents={option.cost_cents} currency={brief.cost.currency} />
                 </td>
               </tr>
@@ -100,11 +100,11 @@ function BriefPanel({ detail }: { detail: ApprovalDetail }) {
       </section>
       {BRIEF_SECTIONS.slice(2).map(({ key, label }) => (
         <section key={key}>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-ink-500">{label}</h4>
-          <p className="whitespace-pre-wrap text-ink-800">{brief[key]}</p>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-acos-fg1">{label}</h4>
+          <p className="whitespace-pre-wrap text-acos-fg0">{brief[key]}</p>
         </section>
       ))}
-      <section className="flex flex-wrap gap-4 text-xs text-ink-600">
+      <section className="flex flex-wrap gap-4 text-xs text-acos-fg1">
         <span>
           Maliyet: <MoneyText cents={brief.cost.amount_cents} currency={brief.cost.currency} />
           {brief.cost.period ? ` / ${brief.cost.period}` : ""}
@@ -118,13 +118,13 @@ function BriefPanel({ detail }: { detail: ApprovalDetail }) {
 
 function ChainTimeline({ detail }: { detail: ApprovalDetail }) {
   return (
-    <ol className="space-y-2 border-l border-ink-200 pl-4 text-sm">
+    <ol className="space-y-2 border-l border-acos-line pl-4 text-sm">
       {detail.chain.map((entry, i) => (
         <li key={i} className="relative">
-          <span className="absolute -left-[1.15rem] top-1.5 h-2 w-2 rounded-full bg-ink-400" />
-          <span className="font-medium text-ink-800">{entry.verdict}</span>
-          <span className="ml-2 text-xs text-ink-400">{new Date(entry.at).toLocaleString()}</span>
-          {entry.note && <p className="text-ink-600">{entry.note}</p>}
+          <span className="absolute -left-[1.15rem] top-1.5 h-2 w-2 rounded-full bg-acos-fg2" />
+          <span className="font-medium text-acos-fg0">{entry.verdict}</span>
+          <span className="ml-2 text-xs text-acos-fg2">{new Date(entry.at).toLocaleString()}</span>
+          {entry.note && <p className="text-acos-fg1">{entry.note}</p>}
         </li>
       ))}
     </ol>
@@ -174,9 +174,9 @@ function ApprovalCard({
             <StatusPill tone={STATUS_TONE[approval.status]}>{approval.status}</StatusPill>
             <StatusPill tone="neutral">{approval.kind}</StatusPill>
             <StatusPill tone={URGENCY_TONE[approval.urgency]}>{approval.urgency}</StatusPill>
-            <span className="truncate font-medium text-ink-900">{approval.title}</span>
+            <span className="truncate font-medium text-acos-fg0">{approval.title}</span>
           </div>
-          <p className="mt-1 text-xs text-ink-500">
+          <p className="mt-1 text-xs text-acos-fg1">
             #{approval.number} · talep eden: {approval.requesterName ?? "bilinmeyen ajan"} ·{" "}
             {new Date(approval.createdAt).toLocaleString()}
             {approval.costCents !== null && approval.costCents > 0 && (
@@ -191,30 +191,30 @@ function ApprovalCard({
       </button>
 
       {open && (
-        <div className="mt-4 space-y-4 border-t border-ink-100 pt-4">
+        <div className="mt-4 space-y-4 border-t border-acos-line pt-4">
           {detail.data ? (
             <>
               <BriefPanel detail={detail.data} />
               <div>
-                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">
+                <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-acos-fg1">
                   Onay zinciri
                 </h4>
                 <ChainTimeline detail={detail.data} />
               </div>
               {detail.data.task && (
-                <p className="text-xs text-ink-600">
+                <p className="text-xs text-acos-fg1">
                   Bağlı görev: TASK-{detail.data.task.number} · {detail.data.task.title} (
                   {detail.data.task.status})
                 </p>
               )}
               {detail.data.decisionNote && (
-                <p className="text-sm text-ink-700">
+                <p className="text-sm text-acos-fg1">
                   <span className="font-medium">Karar notu:</span> {detail.data.decisionNote}
                 </p>
               )}
             </>
           ) : (
-            <p className="text-sm text-ink-400">Brief yükleniyor…</p>
+            <p className="text-sm text-acos-fg2">Brief yükleniyor…</p>
           )}
 
           {pending && (
@@ -273,7 +273,7 @@ export function ApprovalsView() {
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <div className="flex items-center gap-2">
-        <h1 className="flex-1 text-lg font-semibold text-ink-900">Onay Merkezi</h1>
+        <h1 className="flex-1 text-lg font-semibold text-acos-fg0">Onay Merkezi</h1>
         {(["inbox", "history"] as const).map((t) => (
           <Button key={t} variant={tab === t ? "primary" : "ghost"} onClick={() => setTab(t)} data-testid={`tab-${t}`}>
             {t === "inbox" ? "Gelen" : "Geçmiş"}
@@ -284,7 +284,7 @@ export function ApprovalsView() {
         <ApprovalCard key={approval.id} approval={approval} companyId={companyId} />
       ))}
       {items.length === 0 && (
-        <Card className="p-8 text-center text-sm text-ink-400">
+        <Card className="p-8 text-center text-sm text-acos-fg2">
           {tab === "inbox"
             ? "Bekleyen onay yok — ajan eskalasyonları buraya yapılandırılmış brief olarak düşer."
             : "Henüz karara bağlanmış onay yok."}
