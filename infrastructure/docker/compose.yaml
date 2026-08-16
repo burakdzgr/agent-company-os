@@ -123,6 +123,7 @@ services:
       LLM_MODE: ${LLM_MODE:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       # D4 (27 §12): per-project egress allowlist include, rendered here and
       # read by egress-proxy (read-only on its side).
       EGRESS_INCLUDE_PATH: /var/acos/egress/projects.conf
@@ -186,6 +187,7 @@ services:
       LLM_MODE: ${LLM_MODE:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       # use_tool → Tool Gateway internal HTTP (T40, S3)
       SERVER_INTERNAL_URL: http://server:3000
       # Dev fallbacks — override via .env in any real install (prod overlay requires them).
@@ -198,6 +200,8 @@ services:
       nats:
         condition: service_healthy
       temporal:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
       # server healthy ⇒ migrations ran; the worker reads model_providers at boot
       server:
@@ -274,6 +278,21 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - "${DATA_DIR:-./data}/ollama:/root/.ollama"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:11434/api/tags > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    # Ollama pulled model başlangıçta indirilecek; "ollama pull mistral" gibi komut çalıştırır
+    # Komut: docker exec acos-ollama ollama pull mistral
 
   egress-proxy:
     image: acos/egress-proxy
