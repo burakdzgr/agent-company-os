@@ -447,9 +447,7 @@ describe.skipIf(!runnable)("projectIntakeWorkflow (T42, demo steps 6–7)", () =
       .set({ status: "ASSIGNED", ownerAgentId: ceoId })
       .where(eq(tasks.id, result.goalTaskId));
 
-    // Now CEO workflow should start (if not already from ceoConsultFounder resume)
-    // Wait for cascade to begin (T48 → cascade deferred to separate test)
-    // For now, just verify GOAL is ASSIGNED
+    // Verify GOAL is ASSIGNED
     const [goalAfterApproval] = await db
       .select()
       .from(tasks)
@@ -457,10 +455,27 @@ describe.skipIf(!runnable)("projectIntakeWorkflow (T42, demo steps 6–7)", () =
     expect(goalAfterApproval!.status).toBe("ASSIGNED");
     expect(goalAfterApproval!.ownerAgentId).toBe(ceoId);
 
-    // TODO(T48+1): After CEO workflow stability, add cascade verification:
-    //   Initiative (CTO), Epic (EM), Dev tasks assertions
-    //
-    // await pollUntil(async () => { ... }, "CTO initiative + EM epic + dev tasks");
+    // Wait for CEO to decompose & cascade to begin (T48 cascade)
+    // CEO workflow should now be running (startAgentWorkflow called after approval)
+    // Expect: initiative (CTO), epic (EM), dev tasks
+    await pollUntil(async () => {
+      const rows = await db
+        .select()
+        .from(tasks)
+        .where(and(eq(tasks.companyId, companyId), eq(tasks.projectId, project.id)));
+      const initiative = rows.find((t) => t.kind === "initiative");
+      const epic = rows.find((t) => t.kind === "epic");
+      const devs = rows.filter((t) => t.kind === "task");
+      
+      // Scripted mode: CEO creates initiative, delegates to CTO (Mert Aksoy)
+      // CTO creates epic, delegates to EM (Selin Koç)
+      // EM creates 2 dev tasks
+      return initiative?.ownerAgentId === agentId["Mert Aksoy"] &&
+        epic?.ownerAgentId === agentId["Selin Koç"] &&
+        devs.length === 2
+        ? rows
+        : null;
+    }, "CTO initiative + EM epic + dev tasks from the cascade");
 
     // Stage 4 (14 §3.1): project-scope memories created from analyzer findings
     // (previously deferred to T44). Agents learn codebase structure/patterns

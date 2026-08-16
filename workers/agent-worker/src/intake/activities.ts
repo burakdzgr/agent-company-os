@@ -10,7 +10,7 @@ import {
   type CompanyContext,
   type GuardedDb,
 } from "@acos/db";
-import { companySettings } from "@acos/db/schema";
+import { companySettings, tasks } from "@acos/db/schema";
 import { eq } from "drizzle-orm";
 import { outputLanguageDirective } from "@acos/llm";
 import type { ModelRouter, RoutingContext } from "@acos/llm";
@@ -245,15 +245,8 @@ export function createIntakeControlActivities(deps: IntakeControlActivityDeps) {
         reportArtifactId: input.reportArtifactId,
         findingsSummary: input.findingsSummary,
       });
-      if (routed.created && deps.startAgentWorkflow) {
-        await deps
-          .startAgentWorkflow({
-            companyId: input.companyId,
-            agentId: routed.ceoAgentId,
-            taskId: routed.goalTaskId,
-          })
-          .catch(() => {}); // duplicate start = no-op (REJECT_DUPLICATE)
-      }
+      // T48: CEO workflow start moved to ceoConsultFounder (after Founder approval)
+      // (removed: if (routed.created && deps.startAgentWorkflow) { ... })
       return { goalTaskId: routed.goalTaskId, ceoAgentId: routed.ceoAgentId };
     },
 
