@@ -35,6 +35,7 @@ const PRESETS: Array<{ key: CommandPreset; label: string }> = [
 // + erişilebilir Türkçe ad. e2e seçicileri nav-* testid'lerini kullanır.
 const NAV_ITEMS: Array<{ id: string; label: string; icon: string; path?: string }> = [
   { id: "command", label: "KOMUTA", icon: "◧", path: "/c/$companyId" },
+  { id: "dashboard", label: "DASHBOARD", icon: "🎛", path: "/c/$companyId/dashboard" },
   { id: "office", label: "OFİS", icon: "🏢", path: "/c/$companyId/office" },
   { id: "tasks", label: "GÖREVLER", icon: "▦", path: "/c/$companyId/tasks" },
   { id: "agents", label: "AJANLAR", icon: "👤", path: "/c/$companyId/agents" },

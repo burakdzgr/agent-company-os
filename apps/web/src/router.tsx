@@ -28,6 +28,7 @@ import { SkillsView } from "./features/skills/SkillsView.js";
 import { MemoryView } from "./features/memory/MemoryView.js";
 import { CostsView } from "./features/costs/CostsView.js";
 import { ReportsView } from "./features/costs/ReportsView.js";
+import { DashboardView } from "./features/dashboard/DashboardView.js";
 import { ThemePreviewPage } from "./theme/PreviewPage.js";
 import { OfficeWindow } from "./features/office/OfficeWindow.js";
 
@@ -191,6 +192,12 @@ const reportsRoute = createRoute({
   component: ReportsView,
 });
 
+const dashboardRoute = createRoute({
+  getParentRoute: () => companyRoute,
+  path: "dashboard",
+  component: DashboardView,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   setupRoute,
@@ -199,6 +206,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   companyRoute.addChildren([
     companyIndexRoute,
+    dashboardRoute,
     organizationRoute,
     agentsRoute,
     agentDetailRoute,
