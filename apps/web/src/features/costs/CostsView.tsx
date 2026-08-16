@@ -81,7 +81,7 @@ export function CostsView() {
 
       <Card className="p-4">
         <div data-testid="costs-total">
-          <p className="text-xs uppercase text-ink-400">Toplam harcama ({days === 1 ? "24s" : `${days}g`})</p>
+          <p className="text-xs uppercase text-acos-fg2">Toplam harcama ({days === 1 ? "24s" : `${days}g`})</p>
           <p className="text-2xl font-semibold">{cents(summary.data?.totalCents ?? 0)}</p>
         </div>
         <div className="mt-3 flex flex-col gap-1">
@@ -98,7 +98,7 @@ export function CostsView() {
             </div>
           ))}
           {summary.data && summary.data.groups.length === 0 && (
-            <p className="text-sm text-ink-400" data-testid="costs-empty">
+            <p className="text-sm text-acos-fg2" data-testid="costs-empty">
               Bu aralıkta harcama yok.
             </p>
           )}
@@ -123,12 +123,12 @@ export function CostsView() {
             </div>
           ))}
           {forecast.data && forecast.data.items.length === 0 && (
-            <p className="text-sm text-ink-400">Aktif bütçe yok.</p>
+            <p className="text-sm text-acos-fg2">Aktif bütçe yok.</p>
           )}
         </div>
       </Card>
 
-      <Card className="overflow-x-auto p-0">
+      <Card className="overflow-x-auto" padding={false}>
         <table className="w-full text-sm" data-testid="costs-ledger">
           <thead>
             <tr className="border-b bg-acos-bg2 text-left">

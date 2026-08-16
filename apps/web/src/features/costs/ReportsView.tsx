@@ -33,7 +33,7 @@ export function ReportsView() {
           >
             <div data-testid="report-row" onClick={() => setSelectedId(report.id)}>
               <p className="text-sm font-medium">{report.title}</p>
-              <p className="text-xs text-ink-400">
+              <p className="text-xs text-acos-fg2">
                 {report.projectName ?? "—"} · {report.createdByAgentName ?? "system"} ·{" "}
                 {new Date(report.createdAt).toLocaleString()}
               </p>
@@ -41,7 +41,7 @@ export function ReportsView() {
           </Card>
         ))}
         {reports.data && items.length === 0 && (
-          <Card className="p-6 text-sm text-ink-400">
+          <Card className="p-6 text-sm text-acos-fg2">
             <div data-testid="reports-empty">
               Henüz yönetici raporu yok — proje tamamlanınca CEO raporlar.
             </div>
