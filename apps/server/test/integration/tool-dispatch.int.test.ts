@@ -352,4 +352,47 @@ describe.skipIf(!runnable)("gateway → dispatch → real workspace (T40 accepta
     expect(res.status, `dispatch error: ${res.error ?? res.reason ?? "none"}`).toBe("succeeded");
     expect((res.output as { exitCode: number }).exitCode).toBe(3);
   }, 600_000);
+
+  // 2026-08-16 canlı arıza: bir ajan `pnpm --filter … typecheck` çalıştırdı,
+  // corepack "pnpm indirilsin mi? [Y/n]" diye sordu ve komut zaman aşımına
+  // kadar orada bekledi. Terminal salt-okunur (24 §6.9) — cevap verecek kimse
+  // yok, olmamalı da. Bu testler etkileşimsiz ortamı kilitliyor.
+  it("komutlar etkileşimsiz koşar (CI + corepack/git/npx istem kapalı)", async () => {
+    const res = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "terminal.run",
+      input: {
+        command:
+          'echo "CI=$CI COREPACK=$COREPACK_ENABLE_DOWNLOAD_PROMPT GIT=$GIT_TERMINAL_PROMPT NPM=$npm_config_yes"',
+        timeoutSec: 60,
+      },
+      taskId,
+    });
+    expect(res.status, `dispatch error: ${res.error ?? res.reason ?? "none"}`).toBe("succeeded");
+    const out = (res.output as { stdoutTail: string }).stdoutTail;
+    expect(out).toContain("CI=1");
+    expect(out).toContain("COREPACK=0");
+    expect(out).toContain("GIT=0");
+    expect(out).toContain("NPM=true");
+  }, 600_000);
+
+  it("zaman aşımı ajana AÇIKÇA bildirilir (sessiz exit=137 değil)", async () => {
+    const res = await gateway.invoke(ctx, {
+      agentId: DEV,
+      toolName: "terminal.run",
+      // Kendi başına bitmeyen komut. (İlk denemede `read -r answer` kullandım
+      // ve test kırıldı: sandbox'ta stdin hemen EOF verdiği için `read`
+      // anında dönüyor. Takılmayı taklit etmenin doğru yolu beklemek.)
+      input: { command: "sleep 30", timeoutSec: 2 },
+      taskId,
+    });
+    expect(res.status).toBe("succeeded"); // araç çalıştı; sonuç zaman aşımı
+    const out = res.output as { timedOut: boolean; note?: string };
+    expect(out.timedOut).toBe(true);
+    // Açıklama ÇIKTIDA olmalı, resultSummary'de değil: resultSummary yalnız
+    // tool_invocations satırına ve olaya yazılıyor, çağırana dönmüyor — ajan
+    // onu hiç görmüyor. (İlk denemede oraya yazmıştım; test yakaladı.)
+    expect(out.note).toContain("TIMED OUT");
+    expect(out.note).toContain("NON-INTERACTIVELY");
+  }, 600_000);
 });

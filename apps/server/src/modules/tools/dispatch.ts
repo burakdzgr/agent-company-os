@@ -401,6 +401,38 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
     return workspace;
   }
 
+  /**
+   * Ajanın komutları ETKİLEŞİMSİZ koşar — sorulan soruya cevap verecek kimse yok.
+   *
+   * Canlı arıza (2026-08-16): bir ajan `pnpm --filter … typecheck` çalıştırdı,
+   * corepack "pnpm-9.15.9.tgz indirilsin mi? [Y/n]" diye sordu ve komut
+   * zaman aşımına kadar (300 sn) orada bekledi. Founder ekranda soruyu
+   * görüyor ama terminal salt-okunur (24 §6.9) — cevap veremiyor, vermemeli
+   * de: o pencere gözlem penceresi, kabuk değil. Ajan aynı komutu üç kez
+   * denedi, üç kez aynı yerde takıldı; 15 dakika ve üç adım boşa gitti.
+   *
+   * Çıktı akışı PTY üzerinden gittiği için stdin bir TTY'dir ve araçlar tam
+   * da bu yüzden soru sorma hakkını kendinde görüyor. Çözüm TTY'yi kaldırmak
+   * değil (o zaman canlı kare akışı biterdi), araçlara etkileşimsiz olduğunu
+   * SÖYLEMEK.
+   *
+   * Ajan `args.env` ile bunları bilerek ezebilir — varsayılan, yasak değil.
+   */
+  const NON_INTERACTIVE_ENV: Record<string, string> = {
+    // Neredeyse bütün CLI'ların anladığı evrensel işaret
+    CI: "1",
+    // Buradaki somut suçlu: corepack indirme onayı
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: "0",
+    // npx "paket kurulsun mu?" sorusu
+    npm_config_yes: "true",
+    // git kimlik bilgisi istemi — sessizce sonsuza kadar bekleyen bir başkası
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "",
+    // apt / pip
+    DEBIAN_FRONTEND: "noninteractive",
+    PIP_NO_INPUT: "1",
+  };
+
   async function execScript(
     workspaceId: string,
     script: string,
@@ -418,7 +450,10 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
       command: ["/bin/sh", "-lc", script],
       cwd: "/work",
       timeoutMs: opts.timeoutMs,
-      ...(opts.env && { env: opts.env }),
+      // Etkileşimsiz varsayılanlar HER exec yolunda: yalnız terminal.run'a
+      // koymak yetmezdi — git.merge, fs.search ve yazma yolu da aynı kabuğu
+      // kullanıyor ve aynı şekilde takılabilir.
+      env: { ...NON_INTERACTIVE_ENV, ...opts.env },
       ...(opts.sessionId && { sessionId: opts.sessionId }),
       ...(opts.stdinBase64 !== undefined && { stdinBase64: opts.stdinBase64 }),
     });
@@ -782,9 +817,24 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
                 ...(args.env as Record<string, string>),
               },
             });
+            /**
+             * Zaman aşımı AÇIKÇA bildirilir.
+             *
+             * `timedOut` alanı ExecResult'ta zaten vardı ama ajana hiç
+             * ulaşmıyordu: ajan yalnız `exit=137` görüyor, bunun "komut
+             * öldürüldü" mü "test kırıldı" mı olduğunu ayırt edemiyordu.
+             * Canlı sonuç: corepack sorusunda takılan komutu üç kez aynı
+             * şekilde tekrarladı. Sessiz başarısızlık, ajanın öğrenemediği
+             * başarısızlıktır.
+             */
+            const timeoutNote = result.timedOut
+              ? `TIMED OUT after ${timeoutSec}s and was killed — the command did not finish on its own. Commands run NON-INTERACTIVELY: nothing can answer a prompt, so a tool waiting for input will always end here. Re-run with the tool's non-interactive flag, or raise timeoutSec only if the work genuinely takes that long.`
+              : "";
             return {
               output: {
                 exitCode: result.exitCode,
+                timedOut: result.timedOut,
+                ...(timeoutNote && { note: timeoutNote }),
                 stdoutTail: tail(result.stdout),
                 stderrTail: tail(result.stderr),
                 durationMs: result.durationMs,
@@ -792,7 +842,9 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
                 provenance: "workspace",
               },
               costCents: Math.max(1, Math.ceil(result.durationMs / 60_000)),
-              resultSummary: `exit=${result.exitCode} in ${result.durationMs}ms`,
+              resultSummary: `exit=${result.exitCode} in ${result.durationMs}ms${
+                result.timedOut ? " (TIMED OUT)" : ""
+              }`,
             };
           } finally {
             await workspaces

@@ -151,6 +151,21 @@ export const terminalRun: ToolDefinition = {
   }),
   output: z.object({
     exitCode: z.number().int(),
+    /**
+     * Komut kendi bitmedi, zaman aşımıyla öldürüldü.
+     *
+     * Şemada YOKTU ve bu yüzden dispatch'in doldurduğu alan buraya
+     * gelmeden eleniyordu: ajan yalnız `exit=137` görüyor, "öldürüldü" ile
+     * "test kırıldı" arasını ayıramıyordu. Zod bilinmeyen anahtarı sessizce
+     * atar — alan eklenmeden çıktıya koymak hiçbir şey yapmaz.
+     */
+    timedOut: z.boolean(),
+    /**
+     * Ajana yazılan açıklama. `resultSummary` bu işi göremez: o alan yalnız
+     * tool_invocations satırına ve olaya yazılıyor, çağırana DÖNMÜYOR — yani
+     * ajan onu hiç görmüyor. Ajanın okuduğu tek şey bu çıktı nesnesi.
+     */
+    note: z.string().optional(),
     stdoutTail: z.string(),
     stderrTail: z.string(),
     durationMs: z.number(),

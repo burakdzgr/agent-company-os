@@ -319,6 +319,15 @@ export function TerminalGrid() {
           {hiddenCount > 0 && ` · ${hiddenCount} gizli`}
           {team && <span className="text-dept-engineering"> · filtre: {team.name}</span>}
         </span>
+        {/*
+          Salt-okunur olduğu YAZILI olmalı. Founder bir komut istemi görüp
+          yazamayınca (canlı örnek: corepack "[Y/n]" sorusu) doğal tepki
+          "neden yazamıyorum" oluyor; bu pencere ajanın terminaline BAKAR,
+          onu sürmez. Bunu keşfettirmek yerine söylemek gerekiyor.
+        */}
+        <span className="text-acos-fg2/70" title="Ajanların terminaline bakan pencere — komut girilmez">
+          · salt okunur
+        </span>
         {hiddenCount > 0 && (
           <button
             data-testid="terminal-open-all"
