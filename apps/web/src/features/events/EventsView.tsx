@@ -16,27 +16,27 @@ const ACTOR_TONE = { founder: "accent", agent: "ok", system: "neutral" } as cons
 function EventTimelineRow({ event }: { event: Event }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="border-b border-ink-100 py-1.5 text-sm last:border-0">
+    <div className="border-b border-acos-line py-1.5 text-sm last:border-0">
       <button
         onClick={() => setExpanded((v) => !v)}
         className="flex w-full items-baseline gap-2 text-left"
         data-testid="event-row"
       >
-        <span className="w-14 shrink-0 tabular-nums text-xs text-ink-400">#{event.seq}</span>
-        <time className="shrink-0 tabular-nums text-xs text-ink-400">
+        <span className="w-14 shrink-0 tabular-nums text-xs text-acos-fg2">#{event.seq}</span>
+        <time className="shrink-0 tabular-nums text-xs text-acos-fg2">
           {new Date(event.occurredAt).toLocaleTimeString()}
         </time>
         <StatusPill tone={ACTOR_TONE[event.actor.kind]}>{event.actor.kind}</StatusPill>
-        <code className="shrink-0 rounded bg-ink-100 px-1.5 py-0.5 text-xs text-accent-600">
+        <code className="shrink-0 rounded bg-acos-bg2 px-1.5 py-0.5 text-xs text-accent-600">
           {event.type}
         </code>
-        <span className="truncate text-xs text-ink-400">
+        <span className="truncate text-xs text-acos-fg2">
           {event.subject.agentId ? `agent ${event.subject.agentId.slice(-6)}` : ""}
         </span>
-        <span className={cn("ml-auto text-xs text-ink-300", expanded && "rotate-90")}>▸</span>
+        <span className={cn("ml-auto text-xs text-acos-fg2", expanded && "rotate-90")}>▸</span>
       </button>
       {expanded && (
-        <pre className="mt-1 overflow-x-auto rounded bg-ink-50 p-2 text-xs text-ink-600">
+        <pre className="mt-1 overflow-x-auto rounded bg-acos-bg1 p-2 text-xs text-acos-fg1">
           {JSON.stringify(event.payload, null, 2)}
         </pre>
       )}
@@ -84,7 +84,7 @@ export function EventsView() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-ink-900">Olaylar</h1>
+        <h1 className="text-lg font-semibold text-acos-fg0">Olaylar</h1>
         <StatusPill tone={status === "open" ? "ok" : status === "replaying" ? "accent" : "warn"}>
           ws: {status}
         </StatusPill>
@@ -108,7 +108,7 @@ export function EventsView() {
 
       <Card className="p-4">
         {events.length === 0 ? (
-          <p className="py-8 text-center text-sm text-ink-400">
+          <p className="py-8 text-center text-sm text-acos-fg2">
             {live
               ? "Şirketiniz hareket ettikçe olaylar burada akar."
               : "Filtrelere uyan olay yok."}
