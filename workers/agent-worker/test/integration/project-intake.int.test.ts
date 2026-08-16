@@ -455,6 +455,9 @@ describe.skipIf(!runnable)("projectIntakeWorkflow (T42, demo steps 6–7)", () =
     expect(goalAfterApproval!.status).toBe("ASSIGNED");
     expect(goalAfterApproval!.ownerAgentId).toBe(ceoId);
 
+    // T48: ceoConsultFounder polling interval is 2s; give it time to resume
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+
     // Wait for CEO to decompose & cascade to begin (T48 cascade)
     // CEO workflow should now be running (startAgentWorkflow called after approval)
     // Expect: initiative (CTO), epic (EM), dev tasks
