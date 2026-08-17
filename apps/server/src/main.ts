@@ -1,7 +1,8 @@
 // Boot sequence (T15, 28 §2): config → migrate under advisory lock → routes.
 import { Pool } from "pg";
 import { loadConfigOrExit } from "@acos/config";
-import { createDb, createGuardedDb, runMigrations } from "@acos/db";
+import { createDb, createGuardedDb, runMigrations, WorkspaceService } from "@acos/db";
+import { companies } from "@acos/db/schema";
 import { connect as natsConnect } from "nats";
 import { buildApp } from "./app.js";
 import { provisionJetStream } from "./modules/events/jetstream.js";
@@ -36,6 +37,28 @@ async function main(): Promise<void> {
     if (process.env.NODE_ENV === "production") {
       console.warn("⚠  …and NODE_ENV=production: the server is unauthenticated in a production build.");
     }
+  }
+
+  // Açılış mutabakatı: bir önceki süreçle birlikte ölen terminal oturumları
+  // `active` kalıyordu ve Founder'ın panelinde günlerce donmuş "açık terminal"
+  // olarak duruyordu (23 §13'ün projektör için yaptığı mutabakatın terminal
+  // karşılığı). Hayatta kalan oturum canlı olamaz — sahibi olan süreç öldü.
+  // Şirket listesi guard'sız db'den okunur: `companies` kiracı tablosu
+  // değil, kiracının KÖKÜDÜR — company_id yüklemi diye bir şeyi yoktur.
+  // Mutabakat, tek tek şirket kimliğiyle yürür (S4).
+  try {
+    const companyRows = await createDb(pool).select({ id: companies.id }).from(companies);
+    const orphaned = await new WorkspaceService(guardedDb).closeOrphanedTerminals(
+      companyRows.map((c) => c.id),
+    );
+    if (orphaned > 0) {
+      console.log(`terminal reconciliation — closed ${orphaned} orphaned session(s)`);
+    }
+  } catch (err) {
+    // Mutabakat bir KOLAYLIKTIR, açılış şartı değil: burada patlamak
+    // sunucuyu hiç ayağa kaldırmamak demek olurdu (ilk sürümde tam olarak
+    // bu oldu — bir S4 ihlali bütün boot'u düşürdü).
+    console.warn("terminal reconciliation skipped:", (err as Error).message);
   }
 
   const app = await buildApp({

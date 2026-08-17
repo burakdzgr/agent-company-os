@@ -35,7 +35,21 @@ export const envSchema = z.object({
   SERVER_PORT: port.default(3000),
   DATA_DIR: z.string().min(1).default("./data"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
-  SEED_DEMO: boolFromString.default(true),
+  /**
+   * Demo şirketini ("Acme Technologies" + 17 isimli ajan) açılışta kur.
+   *
+   * Varsayılan FALSE. Ajanlar dinamik oluşur — işe alım API'si `agent.hired`
+   * olayı üretir, CEO kaskadı da yeni ajan talep edebilir. Seed'deki isimler
+   * çalışma zamanı verisi değil, bir TEST FİKSTÜRÜDÜR; varsayılan açık
+   * olduğu için her kurulum kendiliğinden 17 uydurma çalışanla başlıyordu ve
+   * bu, dinamik işe alımı gizliyordu (2026-08-17 Founder itirazı).
+   *
+   * Entegrasyon testleri `ensureSeed`'i KENDİLERİ çağırır, bu bayraktan
+   * etkilenmezler. Yalnız e2e yığını açılıştaki seed'e bağlıdır ve onu
+   * scripts/e2e-stack.mjs artık AÇIKÇA açar — örtük varsayılana güvenmek
+   * yerine bağımlılık görünür oldu.
+   */
+  SEED_DEMO: boolFromString.default(false),
 
   // Datastores
   DATABASE_URL: z.string({ error: "required — postgres connection string" }).startsWith("postgres://", {

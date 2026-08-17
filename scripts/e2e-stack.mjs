@@ -27,6 +27,11 @@ const stackEnv = {
   WORKSPACE_NET_NAME: "acos-e2e-workspaces",
   WORKSPACE_SUBNET: "172.31.0.0/16",
   SEED_FOUNDER_PASSWORD: process.env.SEED_FOUNDER_PASSWORD ?? "founder-dev-password",
+  // e2e senaryoları demo şirketin kadrosuna ("Acme Technologies", Kerem
+  // Yıldız, Backend takımı…) dayanır. SEED_DEMO'nun varsayılanı false
+  // olduğundan burada AÇIKÇA açılır — 12 e2e dosyası bu fikstüre bağlı ve
+  // bağımlılığın örtük bir varsayılana yaslanması onu görünmez kılıyordu.
+  SEED_DEMO: "true",
   // 32 §6: e2e is DETERMINISTIC — the scripted ModelRouter, never live LLM.
   // (An env-less shell would otherwise flip the worker to live mode and the
   // cascade/consolidation specs stall — found the hard way.)

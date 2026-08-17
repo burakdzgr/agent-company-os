@@ -776,4 +776,49 @@ export class WorkspaceService {
       return updated!;
     });
   }
+
+  /**
+   * Açılışta öksüz terminal oturumlarını kapatır.
+   *
+   * Bir terminal oturumu, onu açan `exec` çağrısıyla aynı süreçte yaşar ve
+   * normalde dispatch'in `finally` bloğunda kapanır. Ama sunucu exec sürerken
+   * ölürse (yeniden dağıtım, çökme) satır sonsuza kadar `active` kalıyor:
+   * hiçbir şey onu kapatmıyordu. Sonuç, Founder'ın panelinde GÜNLERCE "1 açık
+   * terminal" görünmesi ve o hücrenin donmuş, iki gün önceki çıktıyı
+   * göstermesiydi — 2026-08-14'ten kalma bir `pnpm test` oturumu 17 Ağustos'ta
+   * hâlâ açıktı ve ekrandaki metin yapılmış bir düzeltmenin hâlâ bozuk
+   * olduğunu düşündürdü.
+   *
+   * Açılışta hayatta kalan hiçbir oturum canlı OLAMAZ: sahibi olan süreç
+   * öldü. Bu yüzden kapatmak doğru ve güvenli. Kapanışlar tek tek
+   * `closeTerminal`'den geçer — her biri kendi `workspace.terminal.closed`
+   * olayını üretir (INV-11: durum değişikliği olaysız olmaz).
+   */
+  async closeOrphanedTerminals(companyIds: readonly string[]): Promise<number> {
+    let closed = 0;
+    // ŞİRKET BAŞINA: kiracı tablosuna `company_id` yüklemi olmadan sorgu
+    // atılamaz (S4 — guard bunu TenancyViolationError ile reddediyor ve
+    // haklı; ilk sürümüm şirketler arası tarama yapıp sunucunun açılışını
+    // kırdı). Şirket listesi çağıran taraftan gelir.
+    for (const companyId of companyIds) {
+      const rows = await this.db
+        .select({ id: terminalSessions.id })
+        .from(terminalSessions)
+        .where(
+          and(
+            eq(terminalSessions.companyId, companyId),
+            eq(terminalSessions.status, "active"),
+          ),
+        );
+      for (const row of rows) {
+        try {
+          await this.closeTerminal({ companyId }, row.id);
+          closed += 1;
+        } catch {
+          // tek bir oturumun kapanmaması açılışı engellememeli
+        }
+      }
+    }
+    return closed;
+  }
 }

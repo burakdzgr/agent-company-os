@@ -23,7 +23,7 @@ import { users } from "../../src/schema/identity.js";
 import { projects, repositories } from "../../src/schema/projects.js";
 import { tasks } from "../../src/schema/tasks.js";
 import { events } from "../../src/schema/events.js";
-import { workspaceLocks, workspaces } from "../../src/schema/workspaces-costs.js";
+import { terminalSessions, workspaceLocks, workspaces } from "../../src/schema/workspaces-costs.js";
 import { startPostgres, type StartedPostgreSqlContainer } from "./helpers";
 
 let container: StartedPostgreSqlContainer;
@@ -411,5 +411,41 @@ describe("terminal session records (T38)", () => {
     expect(closed.closedAt).not.toBeNull();
     await service.closeTerminal(ctx, session.id); // idempotent — no second event
     expect((await eventsOfType("workspace.terminal.closed")).length).toBe(1);
+  });
+
+  /**
+   * Açılış mutabakatı (23 §13'ün terminal karşılığı).
+   *
+   * Bir terminal oturumu onu açan exec ile aynı süreçte yaşar. Sunucu exec
+   * sürerken ölürse satır sonsuza kadar `active` kalıyordu: canlı örnekte
+   * 08-14'ten kalma bir oturum 17 Ağustos'ta hâlâ açıktı ve Founder'ın
+   * panelinde donmuş çıktıyla "1 açık terminal" olarak duruyordu — yapılmış
+   * bir düzeltmenin hâlâ bozuk olduğunu düşündürecek kadar ikna edici.
+   */
+  it("açılışta öksüz oturumlar kapanır ve olayları üretilir", async () => {
+    const [row] = await system
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.taskId, task82.id));
+    const orphan = await service.openTerminal(ctx, {
+      workspaceId: row!.id,
+      title: "öksüz kalan komut",
+    });
+    expect(orphan.status).toBe("active");
+    const closedBefore = (await eventsOfType("workspace.terminal.closed")).length;
+
+    const n = await service.closeOrphanedTerminals([ctx.companyId]);
+    expect(n).toBe(1);
+
+    const [after] = await system
+      .select()
+      .from(terminalSessions)
+      .where(eq(terminalSessions.id, orphan.id));
+    expect(after!.status).toBe("closed");
+    // sessizce kapanmaz — durum değişikliği olaysız olmaz (INV-11)
+    expect((await eventsOfType("workspace.terminal.closed")).length).toBe(closedBefore + 1);
+
+    // ikinci koşu boşuna iş yapmaz
+    expect(await service.closeOrphanedTerminals([ctx.companyId])).toBe(0);
   });
 });

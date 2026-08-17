@@ -20,7 +20,10 @@ describe("loadConfig", () => {
     expect(config.webPort).toBe(5173);
     expect(config.dataDir).toBe("./data");
     expect(config.logLevel).toBe("info");
-    expect(config.seedDemo).toBe(true);
+    // Demo kadrosu VARSAYILAN OLARAK KURULMAZ: ajanlar dinamik oluşur, ve
+    // varsayılan açıkken her kurulum 17 uydurma çalışanla başlayıp bunu
+    // gizliyordu. e2e yığını bayrağı açıkça açar.
+    expect(config.seedDemo).toBe(false);
     expect(config.temporal.namespace).toBe("acos");
     expect(config.security.argon2MemoryKib).toBe(65536);
     expect(config.embeddings).toEqual({ provider: "openai", model: "text-embedding-3-small" });
