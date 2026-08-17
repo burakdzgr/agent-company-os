@@ -12,6 +12,7 @@ import { useOfficeStore } from "../../stores/office.js";
 import { usePresence } from "../../stores/presence.js";
 import { useRealtimeStatus } from "../../realtime/RealtimeDispatcher.js";
 import { OfficeCanvas } from "./OfficeCanvas.js";
+import { DirectiveDialog } from "./DirectiveDialog.js";
 
 export function OfficeView() {
   const { companyId } = useParams({ from: "/c/$companyId" });
@@ -22,6 +23,17 @@ export function OfficeView() {
   const setLayout = useOfficeStore((s) => s.setLayout);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [directiveOpen, setDirectiveOpen] = useState(false);
+
+  // Şirketin tepesi kim? Bu soruya cevap veren bir yüzey yoktu; Founder
+  // CEO'yu 32 ajanlık düz listede arıyordu (2026-08-17). Sunucu mantığı
+  // (ProjectsService.topExecutive) zaten vardı, yalnız açılmamıştı.
+  const executiveQuery = useQuery({
+    queryKey: [companyId, "org", "top-executive"],
+    queryFn: () => api.tasks.topExecutive(companyId),
+    retry: false, // ajansız şirkette 404 normaldir, tekrar denemeye değmez
+  });
+  const executive = executiveQuery.data ?? null;
 
   // floor plan (U04): read-only REST projection of the projector's layout
   const layoutQuery = useQuery({
@@ -75,6 +87,17 @@ export function OfficeView() {
           {agentCount} ajan ofiste
         </span>
         <div className="ml-auto flex items-center gap-2">
+          {/*
+            Founder'ın iş verme yolu artık BAŞLIKTA duruyor ve kimin
+            yöneteceğini adıyla söylüyor. Ofisteki CEO'ya tıklamak da aynı
+            diyaloğu açar — ama Founder'ın önce doğru avatarı bulması
+            gerekmesin.
+          */}
+          {executive && (
+            <Button onClick={() => setDirectiveOpen(true)} data-testid="office-directive-button">
+              {executive.positionTitle}'a görev ver
+            </Button>
+          )}
           <Button
             variant={inspectorOpen ? "secondary" : "ghost"}
             onClick={() => setInspectorOpen((v) => !v)}
@@ -88,7 +111,11 @@ export function OfficeView() {
       {/* Pixi sahnesi — chrome dışında hiçbir render/animasyon mantığına dokunulmadı */}
       <Card className="overflow-hidden border-acos-line bg-acos-bg1 shadow-lg" padding={false}>
         <div className="h-[540px] overflow-hidden bg-[#0f1420]">
-          <OfficeCanvas onSelectAgent={setSelectedAgentId} avatarUrls={avatarUrls} />
+          <OfficeCanvas
+            onSelectAgent={setSelectedAgentId}
+            avatarUrls={avatarUrls}
+            executiveAgentId={executive?.agentId ?? null}
+          />
         </div>
       </Card>
 
@@ -102,14 +129,43 @@ export function OfficeView() {
               {selected.name.slice(0, 1).toUpperCase()}
             </div>
             <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-acos-fg0">{selected.name}</div>
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-medium text-acos-fg0">{selected.name}</span>
+                {/* Kimin patron olduğu kartta YAZILI — keşfedilmesi gereken
+                    bir bilgi olmaktan çıktı. */}
+                {executive?.agentId === selected.agentId && (
+                  <span
+                    className="rounded-full border border-dept-executive px-2 py-0.5 text-[10px] font-semibold text-dept-executive"
+                    data-testid="office-ceo-badge"
+                  >
+                    {executive.positionTitle}
+                  </span>
+                )}
+              </div>
               <StatusPill tone={badges[selected.agentId] === "OFFLINE" ? "neutral" : "ok"}>
                 {badges[selected.agentId] ?? selected.badge}
               </StatusPill>
             </div>
             <div className="ml-auto flex shrink-0 gap-2">
+              {executive?.agentId === selected.agentId && (
+                <Button onClick={() => setDirectiveOpen(true)} data-testid="office-card-directive">
+                  Görev ver
+                </Button>
+              )}
+              {/* Konuşma: DM kanalı iletişim ekranında zaten var, buradan
+                  ajanı seçili olarak açılıyor — Founder'ın kanalı elle
+                  bulması gerekmiyor. */}
+              <Link
+                to="/c/$companyId/communication"
+                params={{ companyId }}
+                search={{ dm: selected.agentId }}
+              >
+                <Button variant="secondary" data-testid="office-card-chat">
+                  Konuş
+                </Button>
+              </Link>
               <Link to="/c/$companyId/agents/$agentId" params={{ companyId, agentId: selected.agentId }}>
-                <Button variant="secondary">Ajan Monitöründe aç</Button>
+                <Button variant="ghost">Monitör</Button>
               </Link>
               <Button variant="ghost" onClick={() => setSelectedAgentId(null)}>
                 Kapat
@@ -117,6 +173,15 @@ export function OfficeView() {
             </div>
           </div>
         </Card>
+      )}
+
+      {executive && (
+        <DirectiveDialog
+          companyId={companyId}
+          executive={executive}
+          open={directiveOpen}
+          onClose={() => setDirectiveOpen(false)}
+        />
       )}
 
       {inspectorOpen && (

@@ -34,6 +34,9 @@ import { OfficeWindow } from "./features/office/OfficeWindow.js";
 
 const rootRoute = createRootRoute();
 
+/** Search parametrelerindeki ajan/şirket kimliklerini doğrulamak için. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function requireAuth() {
   try {
     await api.auth.me();
@@ -148,6 +151,17 @@ const commsRoute = createRoute({
   getParentRoute: () => companyRoute,
   path: "communication",
   component: CommunicationView,
+  /**
+   * `?dm=<agentId>` — ofisteki avatardan "Konuş" ile gelindiğinde o ajanın
+   * DM'i kendiliğinden açılır. Doğrulama şart: doğrulanmamış search'te
+   * TypeScript her anahtarı kabul eder, yani yazım hatası olan bir bağlantı
+   * sessizce hiçbir şey yapmayan bir düğmeye dönüşürdü (bu değişiklikte tam
+   * olarak öyle başladı — tip kontrolü geçti, davranış yoktu).
+   */
+  validateSearch: (search: Record<string, unknown>): { dm?: string } => {
+    const dm = search.dm;
+    return typeof dm === "string" && UUID_RE.test(dm) ? { dm } : {};
+  },
 });
 
 const approvalsRoute = createRoute({

@@ -184,6 +184,30 @@ Engine** (system, acting on Founder verdict), **Founder**, **System** (guards, d
 "No developer approves their own work" is structural: the REVIEW→* and QA→* rows require an actor
 different from `owner_agent_id`; the domain function receives both IDs and refuses equality.
 
+### 5.7 Founder directive — one request, the same legal transitions
+
+Giving the company work took **five operations**: create a goal task, DRAFT→BACKLOG,
+BACKLOG→PLANNED, find the CEO in a flat list of every agent, assign. Step four was the wall — the
+`topExecutive` resolver already existed (intake routing and the executive report both use it) but was
+**exposed on no API route**, so no screen could say who the top of the company was. The Founder could
+not find where to hand over new work, which is a fair verdict on the flow rather than on the Founder.
+
+- `GET /companies/:id/tasks/top-executive` → `{ agentId, name, positionTitle }`. Single source:
+  `ProjectsService.topExecutive`, extended to carry the title (the join was already there) because a
+  Founder-facing surface has to say *what* this person is, not only who.
+- `POST /companies/:id/directives` → `{ title, objective, priority, successCriteria }`. The server
+  runs the same **legal** sequence in order: create the goal, groom it through BACKLOG and PLANNED,
+  assign it to the top executive (which starts their loop per 09 §4).
+
+**This is not a shortcut.** The §2 state machine and the §5 permission matrix apply unchanged, every
+step still emits its own event, and the resulting history is byte-for-byte what the manual path
+produces — verified on the live stack: `task.created → DRAFT→BACKLOG → BACKLOG→PLANNED →
+channel.created → PLANNED→ASSIGNED → agent.task.assigned → agent.task.started`. The only thing that
+shrank is the Founder's click count.
+
+The office surfaces it twice (24 §6.4): a header button naming the executive, and the CEO's avatar
+marked in the scene with a gold crown and ring so the Founder can find the person before clicking.
+
 ### 5.6 Board archive — hiding, never deleting
 
 A closed task keeps its board card forever, and a busy company drowns in them: the live floor

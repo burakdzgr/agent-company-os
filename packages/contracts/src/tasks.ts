@@ -95,6 +95,30 @@ export const TaskListQuerySchema = z.object({
 
 export const ArchiveTaskRequestSchema = z.object({ archived: z.boolean() });
 
+/**
+ * Founder direktifi — TEK adımda hedef verme.
+ *
+ * Eski yol beş ayrı işlemdi: görev oluştur → DRAFT→BACKLOG → BACKLOG→PLANNED
+ * → 32 ajanlık düz listeden CEO'yu bul → ata. Founder "yeni iş nereden
+ * verilir" sorusuna cevap bulamıyordu ve haklıydı: hiçbir ekran "şirketin
+ * tepesi bu kişi" demiyordu. Bu istek aynı yasal geçişleri sunucuda sırayla
+ * yürütür — durum makinesi (07 §2) ve izin matrisi (07 §5) aynen geçerli,
+ * kısayol yok; kısalan tek şey Founder'ın tıklama sayısı.
+ */
+export const CreateDirectiveRequestSchema = z.object({
+  title: z.string().min(1).max(200),
+  objective: z.string().min(1).max(8000),
+  priority: TaskPrioritySchema.default("P1"),
+  successCriteria: z.array(z.string().min(1).max(500)).max(20).default([]),
+});
+
+/** Şirketin tepe yöneticisi (CEO) — org zincirinin kökü. */
+export const TopExecutiveResponseSchema = z.object({
+  agentId: z.uuid(),
+  name: z.string(),
+  positionTitle: z.string(),
+});
+
 export const CreateDependencyRequestSchema = z.object({ dependsOnTaskId: z.uuid() });
 
 export const TaskDependencySchema = z.object({

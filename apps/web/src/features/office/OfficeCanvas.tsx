@@ -314,12 +314,15 @@ export function OfficeCanvas({
   onSelectAgent,
   avatarUrls,
   focusAgentIds,
+  executiveAgentId,
 }: {
   onSelectAgent?: (agentId: string) => void;
   /** agentId → agents.avatar_url (persistent identity → same character, U15) */
   avatarUrls?: ReadonlyMap<string, string | null>;
   /** P1-A team filter: when set, avatars OUTSIDE the set render dimmed */
   focusAgentIds?: ReadonlySet<string> | null;
+  /** Şirketin tepe yöneticisi — sahnede altın halkayla işaretlenir. */
+  executiveAgentId?: string | null;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const engine = useOfficeStore((s) => s.engine);
@@ -331,6 +334,21 @@ export function OfficeCanvas({
   avatarUrlsRef.current = avatarUrls;
   const focusAgentIdsRef = useRef(focusAgentIds);
   focusAgentIdsRef.current = focusAgentIds;
+  /**
+   * CEO işareti: sahne bir kez kurulur, prop SONRADAN gelir (sorgu asenkron).
+   *
+   * Ref'i güncellemek yetmiyor: avatar geçişi yalnız `engine.version`
+   * değiştiğinde koşuyor, CEO cevabı ise son motor güncellemesinden sonra
+   * düşüyor — halka hiç çizilmiyordu (ilk sürümde tam olarak bu oldu, kod
+   * doğruydu ama hiç çağrılmıyordu). Bu yüzden prop değişimi ayrı bir "kirli"
+   * bayrağı kaldırır ve ticker bir sonraki karede avatar geçişini zorlar.
+   */
+  const executiveIdRef = useRef(executiveAgentId);
+  const executiveDirtyRef = useRef(false);
+  if (executiveIdRef.current !== executiveAgentId) {
+    executiveIdRef.current = executiveAgentId;
+    executiveDirtyRef.current = true;
+  }
   const selectedAgentId = useFocus((s) => s.selectedAgentId);
   const selectedRef = useRef(selectedAgentId);
   selectedRef.current = selectedAgentId;
@@ -489,6 +507,12 @@ export function OfficeCanvas({
           paintFloorplan(zoneLayer, plan, CELL, tiles);
           fitCamera();
         }
+        // CEO işareti geldi/değişti → avatar geçişini bir kez zorla, yoksa
+        // motor durgunken (bütün ajanlar IDLE) halka hiç çizilmez
+        if (executiveDirtyRef.current) {
+          executiveDirtyRef.current = false;
+          renderedEngineVersion = -1;
+        }
         if (engine.version === renderedEngineVersion) return;
         renderedEngineVersion = engine.version;
 
@@ -604,6 +628,31 @@ export function OfficeCanvas({
               .circle(0, -40, 3.5)
               .fill(badgeColor)
               .stroke({ color: 0x0b0e13, width: 1 });
+            // CEO işareti: ayaklarının altında altın bir halka.
+            //
+            // Founder ofiste CEO'yu bulamıyordu (2026-08-17) — kim olduğu
+            // ancak avatara tıklayıp kartı okuyunca anlaşılıyordu. Halka
+            // sunucudan gelen `topExecutive` cevabına dayanır, isimden ya da
+            // unvan metninden TAHMİN EDİLMEZ.
+            //
+            // Halka İLK sürümde tek ince çizgiydi ve yakın karede bile
+            // komşularından zor ayırt ediliyordu — "belirgin olsun" isteğini
+            // karşılamıyordu. Şimdi kalın halka + baş üstünde altın taç
+            // işareti: ikisi birlikte hem uzaktan hem yakından okunuyor.
+            if (agentId === executiveIdRef.current) {
+              // y=6, y=13 değil: 13'te halka isim etiketinin üstüne biniyor ve
+              // adı okunmaz hâle getiriyordu (ekran görüntüsünde yakalandı).
+              node.badge
+                .ellipse(0, 6, 14, 5.5)
+                .fill({ color: 0xffcb47, alpha: 0.16 })
+                .stroke({ color: 0xffcb47, width: 3, alpha: 1 })
+                .ellipse(0, 6, 19, 8)
+                .stroke({ color: 0xffcb47, width: 1.5, alpha: 0.5 })
+                // taç: baş üstünde üç uçlu küçük bir işaret
+                .poly([-6, -46, -3, -52, 0, -46, 3, -52, 6, -46])
+                .fill({ color: 0xffcb47 })
+                .stroke({ color: 0x0b0e13, width: 1 });
+            }
           } else if (node.body) {
             node.body
               .clear()

@@ -291,10 +291,23 @@ export class ProjectsService {
     return row;
   }
 
-  /** The top executive: default_role=executive with no active reports_to. */
-  async topExecutive(ctx: CompanyContext): Promise<{ id: string; name: string }> {
+  /**
+   * The top executive: default_role=executive with no active reports_to.
+   *
+   * `positionTitle` rides along because the caller almost always needs it and
+   * the join is already here — the Founder-facing surfaces have to say *what*
+   * this person is ("CEO"), not just who.
+   */
+  async topExecutive(
+    ctx: CompanyContext,
+  ): Promise<{ id: string; name: string; positionTitle: string }> {
     const rows = await this.db
-      .select({ id: agents.id, name: agents.name, employeeNumber: agents.employeeNumber })
+      .select({
+        id: agents.id,
+        name: agents.name,
+        employeeNumber: agents.employeeNumber,
+        positionTitle: positions.title,
+      })
       .from(agents)
       .innerJoin(positions, eq(agents.positionId, positions.id))
       .where(
@@ -316,7 +329,7 @@ export class ProjectsService {
           ),
         )
         .limit(1);
-      if (!managed) return { id: row.id, name: row.name };
+      if (!managed) return { id: row.id, name: row.name, positionTitle: row.positionTitle };
     }
     throw new ProjectError("PROJECT_NO_EXECUTIVE", "no active top executive to route intake to");
   }

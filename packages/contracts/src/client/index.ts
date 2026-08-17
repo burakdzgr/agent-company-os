@@ -56,6 +56,7 @@ import {
   TaskDependenciesResponseSchema,
   TaskDependencySchema,
   TaskTreeNodeSchema,
+  TopExecutiveResponseSchema,
   type Task,
   type TaskAssignment,
   type TaskTreeNode,
@@ -367,6 +368,22 @@ export function createAcosClient(options: AcosClientOptions) {
         TaskSchema.parse(
           await post(`/api/v1/companies/${companyId}/tasks/${taskId}/transitions`, body),
         ),
+      /** Şirketin tepe yöneticisi (CEO) — arayüzün "kim patron" cevabı. */
+      topExecutive: async (companyId: string) =>
+        TopExecutiveResponseSchema.parse(
+          await get(`/api/v1/companies/${companyId}/tasks/top-executive`),
+        ),
+      /** Founder direktifi: hedefi tek istekte CEO'ya ver. */
+      directive: async (
+        companyId: string,
+        body: {
+          title: string;
+          objective: string;
+          priority?: string;
+          successCriteria?: string[];
+        },
+      ): Promise<Task> =>
+        TaskSchema.parse(await post(`/api/v1/companies/${companyId}/directives`, body)),
       /** Panodan kaldır / geri getir — silmez, satır ve olaylar yerinde kalır. */
       archive: async (companyId: string, taskId: string, archived: boolean): Promise<Task> =>
         TaskSchema.parse(

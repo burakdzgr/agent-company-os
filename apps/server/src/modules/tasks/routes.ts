@@ -7,6 +7,8 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
   ArchiveTaskRequestSchema,
+  CreateDirectiveRequestSchema,
+  TopExecutiveResponseSchema,
   CreateAssignmentRequestSchema,
   CreateDependencyRequestSchema,
   CreateTaskRequestSchema,
@@ -81,6 +83,10 @@ export async function registerTaskRoutes(
   taskStateSvc: () => TaskStateService,
   companiesSvc: () => CompanyService,
   agentWorkflowStarter?: () => import("../workflows/client.js").AgentWorkflowStarter | null,
+  /** Tepe yönetici çözümü — tek kaynak ProjectsService.topExecutive (app.ts). */
+  resolveTopExecutive?: (
+    ctx: CompanyContext,
+  ) => Promise<{ id: string; name: string; positionTitle: string }>,
 ) {
   const app = rawApp.withTypeProvider<ZodTypeProvider>();
 
@@ -89,6 +95,19 @@ export async function registerTaskRoutes(
     const role = await companiesSvc().membership(user.id, companyId);
     if (!role) throw new ApiError("not_found", "company not found");
     return companyContext(companyId);
+  }
+
+  /** Tepe yönetici; çözücü bağlanmamışsa (birim testleri) null. */
+  async function topExecutive(
+    ctx: CompanyContext,
+  ): Promise<{ agentId: string; name: string; positionTitle: string } | null> {
+    if (!resolveTopExecutive) return null;
+    const executive = await resolveTopExecutive(ctx);
+    return {
+      agentId: executive.id,
+      name: executive.name,
+      positionTitle: executive.positionTitle,
+    };
   }
 
   app.post(
@@ -166,6 +185,96 @@ export async function registerTaskRoutes(
       const row = await tasksSvc().setArchived(ctx, request.params.taskId, request.body.archived);
       if (!row) throw new ApiError("not_found", "task not found");
       return toApiTask(row);
+    },
+  );
+
+  /**
+   * Şirketin tepe yöneticisi (CEO). Statik segment — /tasks/:taskId'den önce.
+   *
+   * Mantık `ProjectsService.topExecutive` içinde vardı (intake yönlendirmesi
+   * ve yönetici raporu onu kullanıyor) ama HİÇBİR API ucundan açık değildi:
+   * arayüz şirketin tepesinin kim olduğunu bilmiyordu. Founder'ın CEO'yu 32
+   * ajanlık düz bir listede araması bundan.
+   */
+  app.get(
+    "/api/v1/companies/:id/tasks/top-executive",
+    {
+      schema: {
+        operationId: "getTopExecutive",
+        tags: ["tasks"],
+        params: idParam,
+        response: { 200: TopExecutiveResponseSchema },
+      },
+    },
+    async (request) => {
+      const ctx = await requireCompany(request, request.params.id);
+      const executive = await topExecutive(ctx).catch(() => null);
+      if (!executive) {
+        throw new ApiError("not_found", "şirketin aktif bir tepe yöneticisi yok");
+      }
+      return executive;
+    },
+  );
+
+  /**
+   * Founder direktifi: hedefi CEO'ya TEK istekte ver.
+   *
+   * Sunucu aynı YASAL geçişleri sırayla yürütür — hedef oluştur, DRAFT→
+   * BACKLOG→PLANNED groom et, tepe yöneticiye ata (atama CEO'nun döngüsünü
+   * başlatır, 09 §4). Durum makinesi ve izin matrisi atlanmaz; kısalan tek
+   * şey Founder'ın el emeği. Her adım kendi olayını üretmeye devam eder, yani
+   * görev geçmişi elle yapılmış hâliyle birebir aynı.
+   */
+  app.post(
+    "/api/v1/companies/:id/directives",
+    {
+      schema: {
+        operationId: "createDirective",
+        tags: ["tasks"],
+        params: idParam,
+        body: CreateDirectiveRequestSchema,
+        response: { 201: TaskSchema },
+      },
+    },
+    async (request, reply) => {
+      const ctx = await requireCompany(request, request.params.id);
+      const executive = await topExecutive(ctx).catch(() => null);
+      if (!executive) {
+        throw new ApiError("not_found", "şirketin aktif bir tepe yöneticisi yok");
+      }
+      const founder = { kind: "founder" as const };
+      const created = await tasksSvc()
+        .create(
+          ctx,
+          {
+            kind: "goal",
+            title: request.body.title,
+            objective: request.body.objective,
+            priority: request.body.priority,
+            successCriteria: request.body.successCriteria,
+          },
+          founder,
+        )
+        .catch(mapTaskError);
+
+      for (const to of ["BACKLOG", "PLANNED"] as const) {
+        await taskStateSvc().transition(ctx, created.id, to, founder).catch(mapTaskError);
+      }
+      const assigned = await taskStateSvc()
+        .assign(ctx, created.id, { agentId: executive.agentId }, founder)
+        .catch(mapTaskError);
+
+      // atama CEO'nun agentTaskWorkflow'unu tetikler (09 §4, T36) — commit
+      // sonrası, best-effort; veritabanındaki atama yine de otorite
+      const starter = agentWorkflowStarter?.();
+      if (starter && assigned.status === "ASSIGNED" && assigned.ownerAgentId) {
+        await starter({
+          companyId: ctx.companyId,
+          taskId: assigned.id,
+          agentId: assigned.ownerAgentId,
+        });
+      }
+      return reply.status(201).send(toApiTask(assigned));
     },
   );
 

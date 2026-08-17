@@ -4,7 +4,7 @@
 // U06's directive). When an agent is focused, a "DM aç" shortcut opens the
 // Founder↔agent DM (get-or-create).
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { cn } from "@acos/ui";
 import { api, keys, queryClient } from "../../lib/api.js";
@@ -45,6 +45,26 @@ export function ChatPanel() {
       void queryClient.invalidateQueries({ queryKey: [companyId, "channels"] });
     },
   });
+
+  /**
+   * Ofisten "Konuş" ile gelindiğinde DM'i KENDİLİĞİNDEN aç.
+   *
+   * Ofisteki avatara tıklayıp "Konuş" demek, iletişim ekranında doğru kanalı
+   * elle aramak zorunda kalmak demek olmamalı. `?dm=<agentId>` bir kez
+   * tüketilir: openDm idempotent (var olan kanalı döndürür) ama her render'da
+   * tetiklenmesi gereksiz istek olurdu.
+   */
+  const dmParam = useSearch({ from: "/c/$companyId/communication" }).dm ?? null;
+  const consumedDmRef = useRef<string | null>(null);
+  // Mutation nesnesi her render'da yeniden kurulduğu için bağımlılığa
+  // konamaz; onun yerine ref'te tutulur ve efekt yalnız parametreye bakar.
+  const openDmRef = useRef(openDm.mutate);
+  openDmRef.current = openDm.mutate;
+  useEffect(() => {
+    if (!dmParam || consumedDmRef.current === dmParam) return;
+    consumedDmRef.current = dmParam;
+    openDmRef.current(dmParam);
+  }, [dmParam]);
   const send = useMutation({
     mutationFn: () => api.comms.send(companyId, selectedId!, { body: draft }),
     onSuccess: () => {

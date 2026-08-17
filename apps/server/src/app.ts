@@ -12,6 +12,7 @@ import {
   type ZodTypeProvider,
 } from "fastify-type-provider-zod";
 import { problemFor, type ErrorCode } from "@acos/contracts";
+import { ProjectsService } from "@acos/db";
 import type { Db, GuardedDb } from "@acos/db";
 import { registerHealthRoutes, type HealthCheckers } from "./modules/health/index.js";
 import { moduleStubs } from "./modules/index.js";
@@ -293,7 +294,20 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
   await registerAgentRoutes(app, agentsSvc, companiesSvc);
   await registerEventRoutes(app, eventsSvc, companiesSvc);
   app.decorate("agentWorkflowStarter", null);
-  await registerTaskRoutes(app, tasksSvc, taskStateSvc, companiesSvc, () => app.agentWorkflowStarter);
+  await registerTaskRoutes(
+    app,
+    tasksSvc,
+    taskStateSvc,
+    companiesSvc,
+    () => app.agentWorkflowStarter,
+    // Tepe yönetici çözümü TEK yerde: ProjectsService.topExecutive. Intake
+    // yönlendirmesi ve yönetici raporu zaten onu kullanıyor; direktif ucu da
+    // aynı mantığa bağlanır, kopyalanmaz.
+    async (ctx) => {
+      if (!options.guardedDb) throw new ApiError("internal", "tasks not wired");
+      return new ProjectsService(options.guardedDb).topExecutive(ctx);
+    },
+  );
   app.decorate("commsSignalPort", null);
   await registerCommsRoutes(app, {
     guardedDb: () => {
