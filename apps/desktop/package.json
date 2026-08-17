@@ -1,9 +1,11 @@
 {
   "name": "@acos/desktop",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "commonjs",
   "main": "dist/main.js",
+  "description": "ACOS — AI Agent Company OS masaüstü kabuğu",
+  "author": "ACOS",
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b",

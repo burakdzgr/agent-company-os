@@ -44,6 +44,15 @@ Track this work in `PROGRESS-UI.md` as tasks U01–U16 (same table format as PRO
 | Office sprites | **PixelLab-generated** pixel characters (see `PixelLab-ASSET-BRIEF.md`) | portrait (picker) + 4-dir walk/idle spritesheets, baked into repo as PNG atlases; NOT a runtime dependency |
 | Tilemap/props | hand-authored pixel tiles + CC0 props | floor/walls/desks/plants baked as an atlas |
 | Desktop shell | **Electron** (`apps/desktop`; `electron` + `electron-builder`) | wraps the Vite build in a `BrowserWindow`; native window/menu/tray/notifications; can boot/monitor the compose stack; office detach = second `BrowserWindow`. Secure config: `contextIsolation:true`, `nodeIntegration:false`, `sandbox:true`, a minimal `preload` bridge; renderer loads the built SPA (or `ACOS_BASE_URL`). Heavier bundle (~150MB) accepted per Founder decision. |
+
+**Packaging constraint (`electron-builder.json` cannot hold comments — recorded here instead).**
+`electronVersion` is **pinned explicitly** and must be updated together with `devDependencies.electron`.
+Two reasons, both hit in practice: electron-builder downloads platform-specific binaries so a range
+(`^43.4.0`) cannot be resolved, and the repo's `.npmrc` sets `node-linker=hoisted`, so
+`apps/desktop/node_modules` does not exist for the version to be read from. The shell also does **not**
+bundle the SPA — it loads it from the running stack and clears the cache first
+(`apps/desktop/src/main.ts`), so **UI changes need a fresh `web` image and an app restart, not a
+repackage**; repackaging is only for main-process changes (window, tray, notifications, lifecycle).
 | Terminal | **xterm.js** (already chosen T41) | multi-terminal grid |
 | Graphs | **Cytoscape.js** (org) + **three.js/R3F** (memory galaxy, ADR-021) + custom canvas (office, memory 2D fallback) | |
 | Charts | Recharts | costs/reports |

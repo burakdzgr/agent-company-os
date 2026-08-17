@@ -1,6 +1,7 @@
 {
   "appId": "os.acos.desktop",
   "productName": "ACOS",
+  "electronVersion": "43.4.0",
   "directories": {
     "output": "release"
   },
