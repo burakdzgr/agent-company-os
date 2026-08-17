@@ -65,8 +65,8 @@ export interface SandboxDispatchOptions {
 
 class DispatchError extends Error {}
 
-/** Brave Search — an HTTP API with a free tier; overridable per install. */
-const DEFAULT_SEARCH_ENDPOINT = "https://api.search.brave.com/res/v1/web/search";
+/** AbacusAI web search API — unified search through the platform (overridable). */
+const DEFAULT_SEARCH_ENDPOINT = "https://api.abacus.ai/api/v0/searchWebForLlm";
 
 /** One proxy dispatcher per proxy URL — connections are pooled, not per call. */
 const proxyAgents = new Map<string, ProxyAgent>();
@@ -139,7 +139,10 @@ async function fetchThroughProxy(
   }
 }
 
-/** Search adapter — same proxy path; the key never leaves this process. */
+/**
+ * AbacusAI search adapter — POST body format; key in header.
+ * API docs: https://abacus.ai/help/api / Python SDK: client.search_web_for_llm
+ */
 async function searchTheWeb(
   query: string,
   opts: {
@@ -153,24 +156,36 @@ async function searchTheWeb(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs);
   try {
-    const target = new URL(opts.endpoint);
-    target.searchParams.set("q", query);
-    target.searchParams.set("count", String(opts.maxResults));
-    const res = await proxiedFetch(target, {
-      headers: { accept: "application/json", "x-subscription-token": opts.apiKey },
+    const res = await proxiedFetch(opts.endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+        apiKey: opts.apiKey,
+      },
+      body: JSON.stringify({
+        queries: [query],
+        max_results: opts.maxResults,
+        search_providers: ["GOOGLE"],
+      }),
       dispatcher: proxyAgent(opts.proxyUrl),
       signal: controller.signal,
     });
     if (!res.ok) {
-      throw new DispatchError(`search API returned ${res.status}`);
+      const text = await res.text().catch(() => "");
+      throw new DispatchError(`AbacusAI search API returned ${res.status}: ${text.slice(0, 200)}`);
     }
-    const payload = (await res.json()) as {
-      web?: { results?: Array<{ title?: string; url?: string; description?: string }> };
-    };
-    return (payload.web?.results ?? []).slice(0, opts.maxResults).map((r) => ({
+    // Response: array of WebSearchResult objects
+    const payload = (await res.json()) as Array<{
+      title?: string;
+      url?: string;
+      snippet?: string;
+      description?: string;
+    }>;
+    return payload.slice(0, opts.maxResults).map((r) => ({
       title: r.title ?? "",
       url: r.url ?? "",
-      snippet: r.description ?? "",
+      snippet: r.snippet || r.description || "",
     }));
   } catch (err) {
     if (err instanceof DispatchError) throw err;

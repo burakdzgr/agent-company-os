@@ -11,10 +11,11 @@ import {
   modelProfiles,
   modelProviders,
   orgUnits,
+  secrets,
   toolPermissions,
   users,
 } from "@acos/db/schema";
-import { hashPassword } from "./modules/auth/crypto.js";
+import { hashPassword, sealSecret } from "./modules/auth/crypto.js";
 import { CompanyService } from "./modules/companies/service.js";
 import { OrgService } from "./modules/org/service.js";
 import { AgentsService } from "./modules/agents/service.js";
@@ -48,12 +49,13 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
     await ensureCompanyDailyBudget(db, existingCompany.id);
     // 2026-08-15: tool grants were reachable only from the org-seeding path,
     // which this early return skips — so a newly wired tool (task.query,
-    // memory.search, web.fetch …) never received a grant on an install that
+    // memory.search, web.fetch ...) never received a grant on an install that
     // already existed. The permission simply never appeared and the tool
     // failed with NO_PERMISSION_GRANT, looking like a gateway bug. The list is
     // idempotent per (tool, subject), so re-running it on every boot is the
     // whole point of calling it "an additive seed upgrade".
     await seedToolGrants(db, companyContext(existingCompany.id));
+    await ensureSearchCredential(db, existingCompany.id, existingUser.id);
     return { created: false, companyId: existingCompany.id, founderUserId: existingUser.id };
   }
 
@@ -88,6 +90,7 @@ export async function ensureSeed(db: GuardedDb): Promise<SeedResult> {
   await seedOrgAndAgents(db, companyId);
   await ensureLiveModelRouting(db, companyId);
   await ensureCompanyDailyBudget(db, companyId);
+  await ensureSearchCredential(db, companyId, founderUserId);
 
   return {
     created: true,
@@ -473,4 +476,39 @@ async function seedToolGrants(db: GuardedDb, ctx: CompanyContext): Promise<void>
         .onConflictDoNothing();
     }
   }
+}
+
+/**
+ * Ensure web.search credential (ABACUS_API_KEY) — idempotent, seed'den ve
+ * runtime'dan çağrılabilir. Master key yoksa sessizce skip eder.
+ */
+async function ensureSearchCredential(
+  db: GuardedDb,
+  companyId: string,
+  founderUserId: string,
+): Promise<void> {
+  const masterKey = process.env.MASTER_KEY?.trim();
+  if (!masterKey) return; // encryption unavailable — skip silently
+  const apiKey = process.env.ABACUS_API_KEY?.trim();
+  if (!apiKey) return; // no key configured — skip
+
+  // Idempotent: zaten varsa tekrar yazma
+  const [existing] = await db
+    .select({ id: secrets.id })
+    .from(secrets)
+    .where(and(eq(secrets.companyId, companyId), eq(secrets.name, "search.api_key")));
+  if (existing) return; // already seeded
+
+  // Seal and store
+  const ciphertext = await sealSecret(masterKey, apiKey);
+  await db
+    .insert(secrets)
+    .values({
+      companyId,
+      name: "search.api_key",
+      scope: "company",
+      ciphertext,
+      createdByUserId: founderUserId,
+    })
+    .onConflictDoNothing();
 }
