@@ -245,9 +245,34 @@ export function createIntakeControlActivities(deps: IntakeControlActivityDeps) {
         reportArtifactId: input.reportArtifactId,
         findingsSummary: input.findingsSummary,
       });
-      // T48: CEO workflow start moved to ceoConsultFounder (after Founder approval)
-      // (removed: if (routed.created && deps.startAgentWorkflow) { ... })
+      // T48: CEO workflow start moved AFTER Founder approval —
+      // startCeoWorkflowActivity below.
       return { goalTaskId: routed.goalTaskId, ceoAgentId: routed.ceoAgentId };
+    },
+
+    /**
+     * CEO döngüsünü başlatır (T48, Founder onayından SONRA).
+     *
+     * Neden ayrı bir aktivite: workflow kodu aktivite bağımlılıklarına
+     * ERİŞEMEZ. Temporal'da workflow deterministik ve sandboxlıdır; `deps`
+     * orada tanımlı değildir ve olamaz. Başlatmayı doğrudan workflow'dan
+     * çağıran sürüm derlenmiyordu ("Cannot find name 'deps'"). Yan etkisi
+     * olan her şey aktiviteden geçer.
+     */
+    async startCeoWorkflowActivity(input: {
+      companyId: string;
+      agentId: string;
+      taskId: string;
+    }): Promise<void> {
+      if (!deps.startAgentWorkflow) return;
+      // yinelenen başlatma = no-op (Temporal workflowId çakışması)
+      await deps
+        .startAgentWorkflow({
+          companyId: input.companyId,
+          agentId: input.agentId,
+          taskId: input.taskId,
+        })
+        .catch(() => {});
     },
 
     /**
@@ -302,18 +327,23 @@ export function createIntakeControlActivities(deps: IntakeControlActivityDeps) {
       const ctx = companyContext(input.companyId);
 
       // Emit WebSocket event: office screen shows "CEO asking Founder..."
-      await appendEvents(deps.guardedDb, ctx, [
-        {
-          type: "ceo.consulting_founder",
-          actor: { kind: "system", id: null },
-          projectId: input.projectId,
-          taskId: input.goalTaskId,
-          payload: {
-            objective: input.objective,
-            question: `Önerilen özet: ${input.draftSummary?.slice(0, 200) ?? "Analiz tamamlandı"}`,
+      // `appendEvents` bir TRANSACTION ister, GuardedDb değil: olay satırı ile
+      // outbox satırı aynı commit'te yazılmak zorunda (INV-11 / 10 §4). Aynı
+      // dosyadaki failIntakeActivity de bu yüzden transaction açıyor.
+      await deps.guardedDb.transaction(async (tx) => {
+        await appendEvents(tx, ctx, [
+          {
+            type: "ceo.consulting_founder",
+            actor: { kind: "system", id: null },
+            projectId: input.projectId,
+            taskId: input.goalTaskId,
+            payload: {
+              objective: input.objective,
+              question: `Önerilen özet: ${input.draftSummary?.slice(0, 200) ?? "Analiz tamamlandı"}`,
+            },
           },
-        },
-      ]);
+        ]);
+      });
 
       // Poll: wait for Founder to transition GOAL to ASSIGNED
       // Timeout: 2 hours (human decision time)
@@ -446,8 +476,8 @@ export function createIntakeControlActivities(deps: IntakeControlActivityDeps) {
         // Analyzer türüne göre önem ve içerik belirle
         let importance = 0.6; // Varsayılan
         let memoryType = "semantic";
-        let title = `${input.projectName}: ${key} analysis`;
-        let content = truncated;
+        const title = `${input.projectName}: ${key} analysis`;
+        const content = truncated;
         let summary = `Analysis findings from ${key} during project intake`;
 
         // Özel analyzer'lar için daha yüksek önem

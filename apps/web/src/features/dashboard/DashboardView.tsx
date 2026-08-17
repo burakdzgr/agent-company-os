@@ -35,10 +35,13 @@ export function DashboardView() {
     queryFn: () => api.tasks.list(companyId),
   });
   
+  // İstemci adı `memories` (tekil `memory` diye bir uç yok) ve yanıt bir DİZİ
+  // değil, `{ items, contradictions, lowConfidence }` zarfı — 12 §8.1.
   const memories = useQuery({
     queryKey: keys.memories(companyId),
-    queryFn: () => api.memory.list(companyId, {}),
+    queryFn: () => api.memories.list(companyId, {}),
   });
+  const memoryItems = memories.data?.items ?? [];
   
   const agents = useQuery({
     queryKey: keys.agents(companyId),
@@ -67,7 +70,11 @@ export function DashboardView() {
             {QUICK_LINKS.map(({ path, Icon, label }) => (
               <Link
                 key={path}
-                to={`/c/${companyId}/${path}`}
+                // TanStack Router `to` bir ROTA KALIBI ister, kurulmuş URL
+                // değil: parametre `params` ile verilir. Şablona companyId'yi
+                // gömmek tip birliğiyle eşleşmiyordu.
+                to={`/c/$companyId/${path}`}
+                params={{ companyId }}
                 className="group flex flex-col items-center justify-center gap-1.5 rounded-md border border-acos-line bg-acos-bg2 p-4 transition-colors duration-150 hover:border-dept-engineering hover:bg-acos-bg3"
               >
                 <Icon
@@ -133,33 +140,37 @@ export function DashboardView() {
           <div className="space-y-2 text-xs">
             <div className="flex justify-between">
               <span className="text-acos-fg2">Toplam</span>
-              <span className="font-bold text-acos-fg0">{memories.data?.length ?? 0}</span>
+              <span className="font-bold text-acos-fg0">{memoryItems.length}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-acos-fg2">Aktif</span>
               <span className="font-bold text-acos-fg0">
-                {memories.data?.filter((m) => m.status === "active").length ?? 0}
+                {memoryItems.filter((m) => m.status === "active").length}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-acos-fg2">Proje</span>
               <span className="font-bold text-acos-fg0">
-                {memories.data?.filter((m) => m.scope === "project").length ?? 0}
+                {memoryItems.filter((m) => m.scope === "project").length}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-acos-fg2">Şirket</span>
               <span className="font-bold text-acos-fg0">
-                {memories.data?.filter((m) => m.scope === "company").length ?? 0}
+                {memoryItems.filter((m) => m.scope === "company").length}
               </span>
             </div>
           </div>
           <div className="mt-3 max-h-32 space-y-1 overflow-auto">
-            {memories.data?.slice(0, 5).map((mem) => (
-              <div key={mem.id} className="text-[10px] text-acos-fg1">
-                {mem.title}
-              </div>
-            )) ?? <p className="text-xs text-acos-fg2">Yükleniyor...</p>}
+            {memories.isLoading ? (
+              <p className="text-xs text-acos-fg2">Yükleniyor…</p>
+            ) : (
+              memoryItems.slice(0, 5).map((mem) => (
+                <div key={mem.id} className="text-[10px] text-acos-fg1">
+                  {mem.title}
+                </div>
+              ))
+            )}
           </div>
         </Card>
       </div>

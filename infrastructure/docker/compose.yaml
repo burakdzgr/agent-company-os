@@ -201,8 +201,14 @@ services:
         condition: service_healthy
       temporal:
         condition: service_healthy
+      # Ollama İSTEĞE BAĞLI bir sağlayıcıdır (_DECISIONS A3: "fully-offline
+      # mode (Ollama-only) is a supported degraded profile, NOT the primary
+      # target"). Birincil yol Anthropic; ollama'ya `service_healthy` ile
+      # bağlanmak, isteğe bağlı bir servisin tökezlemesinde bütün şirketi
+      # durduruyordu. `service_started` yeter: model yönlendirici zaten
+      # sağlayıcı erişilemezse yedeğe düşüyor.
       ollama:
-        condition: service_healthy
+        condition: service_started
       # server healthy ⇒ migrations ran; the worker reads model_providers at boot
       server:
         condition: service_healthy
@@ -286,7 +292,13 @@ services:
     volumes:
       - "${DATA_DIR:-./data}/ollama:/root/.ollama"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://127.0.0.1:11434/api/tags > /dev/null || exit 1"]
+      # `ollama list` — imajın KENDİ ikilisi. Önceki sürüm `curl` çağırıyordu
+      # ama ollama/ollama imajında curl YOK: healthcheck her seferinde
+      # "curl: not found" ile 1 dönüyor, konteyner kalıcı olarak unhealthy
+      # kalıyor ve buna service_healthy ile bağlı olan agent-worker HİÇ
+      # başlamıyordu (2026-08-17'de tam olarak bu yaşandı — ajanların çalışma
+      # sebebi olan worker sessizce "Created" durumunda kaldı).
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 6

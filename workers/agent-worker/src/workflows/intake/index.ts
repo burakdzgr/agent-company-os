@@ -197,15 +197,15 @@ export async function projectIntakeWorkflow(
       return { approved: true }; // auto-approve on error
     });
 
-  // If Founder approves, now start the CEO workflow
-  if (consultation.approved && deps.startAgentWorkflow) {
-    await deps
-      .startAgentWorkflow({
-        companyId: input.companyId,
-        agentId: routed.ceoAgentId,
-        taskId: routed.goalTaskId,
-      })
-      .catch(() => {}); // duplicate start = no-op
+  // Founder onayladıysa CEO döngüsü başlar. Başlatma bir AKTİVİTE üzerinden
+  // yapılır: workflow kodu aktivite bağımlılıklarını göremez (deterministik
+  // sandbox), yan etkisi olan her şey aktiviteden geçer.
+  if (consultation.approved) {
+    await control.startCeoWorkflowActivity({
+      companyId: input.companyId,
+      agentId: routed.ceoAgentId,
+      taskId: routed.goalTaskId,
+    });
   }
 
   return {
