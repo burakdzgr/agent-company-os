@@ -80,6 +80,7 @@ export const envSchema = z.object({
   ANTHROPIC_API_KEY: optionalSecret,
   OPENAI_API_KEY: optionalSecret,
   GEMINI_API_KEY: optionalSecret,
+  CLAUDE_CLI_BRIDGE_URL: z.string().url().optional(),
   OPENROUTER_API_KEY: optionalSecret,
   OLLAMA_BASE_URL: optionalUrl,
   VLLM_BASE_URL: optionalUrl,
@@ -130,6 +131,7 @@ export interface Config {
     readonly anthropicApiKey: string | undefined;
     readonly openaiApiKey: string | undefined;
     readonly geminiApiKey: string | undefined;
+    readonly claudeCliUrl: string | undefined;
     readonly openrouterApiKey: string | undefined;
     readonly ollamaBaseUrl: string | undefined;
     readonly vllmBaseUrl: string | undefined;
@@ -200,6 +202,7 @@ export function loadConfig(processEnv: Record<string, string | undefined>): Conf
       anthropicApiKey: env.ANTHROPIC_API_KEY,
       openaiApiKey: env.OPENAI_API_KEY,
       geminiApiKey: env.GEMINI_API_KEY,
+      claudeCliUrl: env.CLAUDE_CLI_BRIDGE_URL,
       openrouterApiKey: env.OPENROUTER_API_KEY,
       ollamaBaseUrl: env.OLLAMA_BASE_URL,
       vllmBaseUrl: env.VLLM_BASE_URL,

@@ -132,6 +132,11 @@ async function buildLiveRouter(pool: Pool, guardedDb: GuardedDb, config: Config)
     let adapter: ProviderAdapter | null = null;
     if (row.kind === "anthropic" && config.llm.anthropicApiKey) {
       adapter = createAnthropicAdapter({ providerId: row.id, apiKey: config.llm.anthropicApiKey });
+    } else if (row.kind === "openai" && row.name === "claude-cli" && config.llm.claudeCliUrl) {
+      // Claude Code CLI köprüsü (2026-08-19): host'taki claude-cli-bridge —
+      // ABONELİK kotası, API kredisi değil. OpenAI-uyumlu yüzey; kayıtlı
+      // sapma gemini ile aynı (kind CHECK'i sabit → kind='openai' + name).
+      adapter = createOpenAiAdapter({ providerId: row.id, apiKey: "subscription", baseUrl: config.llm.claudeCliUrl });
     } else if (row.kind === "openai" && row.name === "gemini" && config.llm.geminiApiKey) {
       // Gemini (2026-08-19, kayıtlı sapma): model_providers.kind CHECK'i beş
       // türle sabit — Gemini, OpenAI-uyumlu endpoint'inden konuşulduğu için
