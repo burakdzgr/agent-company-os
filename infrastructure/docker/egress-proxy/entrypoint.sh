@@ -5,6 +5,12 @@ set -e
 # (required for `access_log stdio:/dev/stdout`, 27 §12).
 chmod a+w /dev/stdout /dev/stderr || true
 
+# 2026-08-19 canlı bulgu: sert kapanışta (Docker Desktop çökmesi) kalan bayat
+# /run/squid.pid, squid'i "already running" FATAL'iyle bloke ediyor ve proxy
+# bir daha kalkamıyordu — S8 gereği workspace'lerin TEK çıkışı olduğu için
+# tüm npm/ağ istekleri sessizce ölüyordu. Taze süreç, bayat pid'i temizler.
+rm -f /run/squid.pid
+
 # O11: render the ACL subnets from the environment compose already uses, so a
 # renamed/re-subnetted workspace network cannot silently drift away from the
 # ACL and turn the proxy into a default-deny black hole.
