@@ -21,7 +21,18 @@ export interface DoorSpec {
   w: number;
 }
 
-export type PropKind = "rack" | "plant" | "coffee" | "meeting_table" | "reception";
+export type PropKind =
+  | "rack"
+  | "plant"
+  | "coffee"
+  | "meeting_table"
+  | "reception"
+  | "bookshelf"
+  | "watercooler"
+  | "cabinet"
+  | "whiteboard"
+  | "rug"
+  | "sofa";
 export interface PropSpec {
   kind: PropKind;
   x: number;
@@ -139,11 +150,23 @@ export function computeFloorplan(layout: OfficeLayout): Floorplan {
       : []),
   ];
 
+  // 2026-08-18 sanat turu (AGENTDESK referansı): her oda dekorlu — beyaz
+  // tahta üst duvarda, sağ şerit (masalar sol-üstten dolar, sağ kenar boş)
+  // kitaplık/dolap/rack'e ayrılır; lobiye kanepe + halı, toplantı yanına
+  // su sebili. Yerleşim deterministik — aynı layout aynı ofisi verir.
   const props: PropSpec[] = [];
   rooms.forEach((room, i) => {
-    // desks fill from the room's top-left; the right edge strip stays free
-    props.push({ kind: "plant", x: room.rect.x + room.rect.w - 2, y: room.rect.y + room.rect.h - 3 });
-    if (i === 0) props.push({ kind: "rack", x: room.rect.x + room.rect.w - 2.4, y: room.rect.y + 1.2 });
+    const { x, y, w, h } = room.rect;
+    props.push({ kind: "plant", x: x + w - 2, y: y + h - 3 });
+    props.push({ kind: "whiteboard", x: x + 1.1, y: y + 1.05 });
+    if (i === 0) {
+      props.push({ kind: "rack", x: x + w - 2.4, y: y + 1.2 });
+      if (h > 6) props.push({ kind: "bookshelf", x: x + w - 2.3, y: y + 3.2 });
+    } else if (i % 2 === 1) {
+      props.push({ kind: "cabinet", x: x + w - 2.3, y: y + 1.2 });
+    } else {
+      props.push({ kind: "bookshelf", x: x + w - 2.3, y: y + 1.1 });
+    }
   });
   if (meeting) {
     props.push({
@@ -152,9 +175,14 @@ export function computeFloorplan(layout: OfficeLayout): Floorplan {
       y: meeting.rect.y + meeting.rect.h / 2,
     });
     props.push({ kind: "coffee", x: meeting.rect.x + meeting.rect.w + 1.2, y: meeting.rect.y + 1 });
+    props.push({ kind: "watercooler", x: meeting.rect.x - 1.8, y: meeting.rect.y + 1 });
+    props.push({ kind: "plant", x: meeting.rect.x + meeting.rect.w + 1.1, y: meeting.rect.y + 3 });
   }
   // lobby: reception desk beside the entrance, inside the outer wall
   props.push({ kind: "reception", x: entrance.x - 7, y: bounds.y + bounds.h - 4.2 });
+  props.push({ kind: "rug", x: entrance.x + entrance.w / 2 - 1, y: bounds.y + bounds.h - 3.6 });
+  props.push({ kind: "sofa", x: entrance.x + entrance.w + 1.6, y: bounds.y + bounds.h - 3.4 });
+  props.push({ kind: "plant", x: entrance.x + entrance.w + 4.2, y: bounds.y + bounds.h - 3.6 });
 
   return { bounds, rooms, meeting, walls, entrance, props };
 }

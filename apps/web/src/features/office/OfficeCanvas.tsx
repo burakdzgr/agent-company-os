@@ -24,15 +24,22 @@ import { useFocus } from "../../stores/focus.js";
 import type { OfficeSceneEngine } from "./sceneState.js";
 import { WALL, computeFloorplan, type Floorplan } from "./floorplan.js";
 import {
+  BOOKSHELF_ART,
+  CABINET_ART,
   COFFEE_ART,
   DESK_ART,
   PLANT_ART,
   RACK_ART,
+  RUG_ART,
+  SOFA_ART,
+  WATERCOOLER_ART,
+  WHITEBOARD_ART,
   artSize,
   corridorTileArt,
   emitArt,
   floorTileArt,
   wallFaceArt,
+  woodPlankArt,
   type PixelArt,
 } from "./tiles.js";
 import {
@@ -66,12 +73,18 @@ const BG = 0x0b0e13;
 const PIXEL = 2;
 
 const hexInt = (hex: string): number => parseInt(hex.slice(1), 16);
-/** 15% accent over the app dark — the room's floor base tint. */
+/**
+ * Oda zemini taban tonu (2026-08-18 sanat turu): vurgu %25, AÇIK nötr gri
+ * %75. Eski karışım app-koyusuna gidiyordu ve ofis "gece vardiyası" gibi
+ * duruyordu; AGENTDESK referansı aydınlık karo ister — koridorla aynı
+ * parlaklık bandında, ama departman vurgusunu taşıyan bir ton.
+ */
+const FLOOR_NEUTRAL = 0x8d94a1;
 function roomBase(accent: string): string {
   const a = parseInt(accent.slice(1), 16);
-  const d = BG;
+  const d = FLOOR_NEUTRAL;
   const mix = (shift: number) =>
-    Math.round(((a >> shift) & 255) * 0.15 + ((d >> shift) & 255) * 0.85);
+    Math.round(((a >> shift) & 255) * 0.25 + ((d >> shift) & 255) * 0.75);
   return `#${((mix(16) << 16) | (mix(8) << 8) | mix(0)).toString(16).padStart(6, "0")}`;
 }
 
@@ -140,6 +153,43 @@ function shortName(name: string): string {
   return `${parts[0]!.slice(0, 10)} ${parts[parts.length - 1]![0]}.`;
 }
 
+/**
+ * Masa isim plakaları (2026-08-18 sanat turu, AGENTDESK dili): her sahipli
+ * masanın üstünde koyu plaka + BÜYÜK harf ilk ad. Kadro/yerleşim değişince
+ * yeniden kurulur — kare başına iş yok (plaka imzası ticker'da diff'lenir).
+ */
+function paintNamePlates(
+  layer: Container,
+  plan: Floorplan,
+  cell: number,
+  names: ReadonlyMap<string, string>,
+): void {
+  layer.removeChildren();
+  for (const room of plan.rooms) {
+    for (const desk of room.desks) {
+      if (!desk.agentId) continue;
+      const fullName = names.get(desk.agentId);
+      if (!fullName) continue;
+      const text = (fullName.trim().split(/\s+/)[0] ?? "").toUpperCase().slice(0, 10);
+      if (!text) continue;
+      const origin = deskOrigin(desk.cell, cell);
+      const label = new Text({
+        text,
+        style: { fill: 0xe8ecf2, fontSize: 8, fontFamily: "monospace", fontWeight: "bold" },
+      });
+      const w = label.width + 8;
+      const plate = new Graphics();
+      plate
+        .roundRect(desk.cell.x * cell - w / 2, origin.y - 11, w, 11, 2)
+        .fill({ color: 0x131820, alpha: 0.88 })
+        .stroke({ color: hexInt(room.accent), width: 1, alpha: 0.5 });
+      label.anchor.set(0.5, 0);
+      label.position.set(desk.cell.x * cell, origin.y - 9.5);
+      layer.addChild(plate, label);
+    }
+  }
+}
+
 function deskOrigin(cell: { x: number; y: number }, cellSize: number): { x: number; y: number } {
   const size = artSize(DESK_ART, PIXEL);
   // Katsayı 0.72 → 1.0: 0.72'de masa üstü hücrenin hemen üstüne düşüyordu ve
@@ -156,6 +206,13 @@ interface TileSet {
   coffee: Texture;
   wall: Texture;
   corridor: Texture;
+  wood: Texture;
+  bookshelf: Texture;
+  watercooler: Texture;
+  cabinet: Texture;
+  whiteboard: Texture;
+  rug: Texture;
+  sofa: Texture;
   /** oda vurgu rengi → zemin karosu (oda başına bir kez pişirilir) */
   floors: Map<string, Texture>;
 }
@@ -181,6 +238,18 @@ function paintProps(
       place(tiles.plant, x, y);
     } else if (prop.kind === "coffee") {
       place(tiles.coffee, x, y);
+    } else if (prop.kind === "bookshelf") {
+      place(tiles.bookshelf, x, y);
+    } else if (prop.kind === "watercooler") {
+      place(tiles.watercooler, x, y);
+    } else if (prop.kind === "cabinet") {
+      place(tiles.cabinet, x, y);
+    } else if (prop.kind === "whiteboard") {
+      place(tiles.whiteboard, x, y);
+    } else if (prop.kind === "rug") {
+      place(tiles.rug, x, y);
+    } else if (prop.kind === "sofa") {
+      place(tiles.sofa, x, y);
     } else if (prop.kind === "meeting_table") {
       const w = 5 * cell;
       const h = 2 * cell;
@@ -234,10 +303,10 @@ function paintFloorplan(layer: Container, plan: Floorplan, cell: number, tiles: 
     if (floor) tile(floor, x * cell, y * cell, w * cell, h * cell);
   }
 
-  // meeting floor
+  // meeting floor — ahşap tahta (AGENTDESK'in kahverengi orta odası)
   if (plan.meeting) {
     const { x, y, w, h } = plan.meeting.rect;
-    tile(tiles.corridor, x * cell, y * cell, w * cell, h * cell);
+    tile(tiles.wood, x * cell, y * cell, w * cell, h * cell);
   }
 
   layer.addChild(g);
@@ -303,7 +372,7 @@ function paintFloorplan(layer: Container, plan: Floorplan, cell: number, tiles: 
   }
   const lobby = new Text({
     text: "LOBİ",
-    style: { fill: 0xc9c4e0, fontSize: 11, fontFamily: "monospace" },
+    style: { fill: 0x39424f, fontSize: 11, fontFamily: "monospace", fontWeight: "bold" },
   });
   lobby.alpha = 0.55;
   lobby.position.set((plan.entrance.x - 6.6) * cell, (plan.entrance.y - 3.2) * cell);
@@ -413,11 +482,13 @@ export function OfficeCanvas({
       }
       const camera = new Container();
       const zoneLayer = new Container();
+      // masa isim plakaları (AGENTDESK dili) — zemin üstü, avatar altı
+      const plateLayer = new Container();
       const monitorLayer = new Graphics();
       const avatarLayer = new Container();
       avatarLayer.sortableChildren = true; // y-sort so lower avatars draw in front
       const effectLayer = new Container();
-      camera.addChild(zoneLayer, monitorLayer, avatarLayer, effectLayer);
+      camera.addChild(zoneLayer, plateLayer, monitorLayer, avatarLayer, effectLayer);
       app.stage.addChild(camera);
 
       const CELL = 32;
@@ -432,6 +503,13 @@ export function OfficeCanvas({
         coffee: bakeArt(app, COFFEE_ART, PIXEL),
         wall: bakeArt(app, wallFaceArt(), PIXEL),
         corridor: bakeArt(app, corridorTileArt(), PIXEL),
+        wood: bakeArt(app, woodPlankArt(), PIXEL),
+        bookshelf: bakeArt(app, BOOKSHELF_ART, PIXEL),
+        watercooler: bakeArt(app, WATERCOOLER_ART, PIXEL),
+        cabinet: bakeArt(app, CABINET_ART, PIXEL),
+        whiteboard: bakeArt(app, WHITEBOARD_ART, PIXEL),
+        rug: bakeArt(app, RUG_ART, PIXEL),
+        sofa: bakeArt(app, SOFA_ART, PIXEL),
         floors: new Map<string, Texture>(),
       };
 
@@ -509,10 +587,13 @@ export function OfficeCanvas({
       });
 
       let lastLabelsVisible: boolean | null = null;
+      let lastPlateSig = "";
       app.ticker.add((ticker) => {
         engine.tick(ticker.deltaMS / 1000);
-        // P2: zoom-thresholded name labels — react to wheel zoom immediately
-        const labelsVisible = camera.scale.x >= 0.85;
+        // P2: zoom-thresholded name labels — react to wheel zoom immediately.
+        // Eşik 0.85 → 1.25 (2026-08-18): adlar artık masa plakalarında kalıcı;
+        // avatar üstü etiket yalnız yakın kadraja iner (çifte yazı önlenir).
+        const labelsVisible = camera.scale.x >= 1.25;
         if (labelsVisible !== lastLabelsVisible) {
           lastLabelsVisible = labelsVisible;
           for (const [id, node] of avatarNodes) {
@@ -534,6 +615,14 @@ export function OfficeCanvas({
           }
           paintFloorplan(zoneLayer, plan, CELL, tiles);
           fitCamera();
+        }
+        // masa plakaları: yerleşim ya da kadro değişince yeniden kurulur
+        const plateSig = `${renderedLayoutVersion}:${engine.avatars.size}`;
+        if (plan && plateSig !== lastPlateSig) {
+          lastPlateSig = plateSig;
+          const names = new Map<string, string>();
+          for (const [id, a] of engine.avatars) names.set(id, a.name);
+          paintNamePlates(plateLayer, plan, CELL, names);
         }
         // CEO işareti geldi/değişti → avatar geçişini bir kez zorla, yoksa
         // motor durgunken (bütün ajanlar IDLE) halka hiç çizilmez
@@ -585,7 +674,13 @@ export function OfficeCanvas({
             const badge = new Graphics();
             const label = new Text({
               text: avatar.name,
-              style: { fill: 0xdbe4f5, fontSize: 12, fontFamily: "sans-serif" },
+              // koyu kontur: aydınlık zeminde (sanat turu) beyaz yazı konturssuz okunmuyor
+              style: {
+                fill: 0xffffff,
+                fontSize: 12,
+                fontFamily: "sans-serif",
+                stroke: { color: 0x131820, width: 3 },
+              },
             });
             label.anchor.set(0.5, 0);
             label.position.set(0, 8);
@@ -696,7 +791,7 @@ export function OfficeCanvas({
           // Çelik"). Ofis planında kim nerede oturuyor sorusuna ilk ad zaten
           // cevap veriyor; tam ad tıklanınca açılan ajan kartında duruyor.
           node.label.text = shortName(avatar.name);
-          node.label.visible = camera.scale.x >= 0.85 || agentId === selectedRef.current;
+          node.label.visible = camera.scale.x >= 1.25 || agentId === selectedRef.current;
           node.root.position.set(avatar.pos.x * CELL, avatar.pos.y * CELL);
           node.root.zIndex = avatar.pos.y;
           const focusSet = focusAgentIdsRef.current;

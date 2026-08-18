@@ -81,14 +81,19 @@ describe("computeFloorplan", () => {
     expect(a.rooms[0]!.accent).not.toBe(a.rooms[1]!.accent);
   });
 
-  it("places props: one rack, a plant per room, meeting table + coffee, reception", () => {
+  it("places props: rack, per-room decor, meeting set, lobby set (2026-08-18 sanat turu)", () => {
     const plan = computeFloorplan(layoutFixture());
     const byKind = (k: string) => plan.props.filter((p) => p.kind === k);
     expect(byKind("rack")).toHaveLength(1);
-    expect(byKind("plant")).toHaveLength(2);
+    // bitki: oda başına 1 + toplantı yanı 1 + lobi 1
+    expect(byKind("plant")).toHaveLength(4);
+    expect(byKind("whiteboard")).toHaveLength(2); // oda başına 1
     expect(byKind("meeting_table")).toHaveLength(1);
     expect(byKind("coffee")).toHaveLength(1);
+    expect(byKind("watercooler")).toHaveLength(1);
     expect(byKind("reception")).toHaveLength(1);
+    expect(byKind("rug")).toHaveLength(1);
+    expect(byKind("sofa")).toHaveLength(1);
   });
 
   it("copes with a layout without a meeting zone", () => {
