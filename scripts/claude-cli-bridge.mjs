@@ -83,7 +83,11 @@ const server = createServer((req, res) => {
     return res.end(JSON.stringify({ status: "ok", service: "claude-cli-bridge", active }));
   }
   if (req.method !== "POST" || !req.url?.includes("/chat/completions")) {
-    res.writeHead(404); return res.end();
+    // 503 (404 değil): 4xx router'da bad_request sayılır ve YEDEĞE DÜŞMEZ —
+    // köprüye yanlış yoldan gelen istek zinciri kilitlemesin (canlı bulgu:
+    // /responses'a düşen istekler sessizce 404 alıp tüm çağrıyı öldürüyordu).
+    res.writeHead(503, { "content-type": "application/json" });
+    return res.end(JSON.stringify({ error: { message: `unsupported path ${req.url} — bridge speaks /v1/chat/completions only`, type: "bridge_error" } }));
   }
   let body = "";
   req.on("data", (d) => (body += d));
