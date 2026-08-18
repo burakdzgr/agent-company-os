@@ -193,6 +193,22 @@ export function CommandCenter() {
   const apiRef = useRef<DockviewApi | null>(null);
   const saveTimer = useRef<number | null>(null);
   const presetSeq = useUiPrefs((s) => s.presetSeq);
+  // 2026-08-19 (Founder UX bulgusu): bir panel sekmesi X'lenince geri getirecek
+  // hiçbir yol yoktu — kapalı paneller burada izlenir ve alttaki pill'den tek
+  // tıkla geri açılır. Kalıcı layout kapalı hâli sakladığı için bu şart.
+  const [missing, setMissing] = useState<PanelSpec[]>([]);
+  function refreshMissing(api: DockviewApi) {
+    setMissing(Object.values(P).filter((spec) => !api.getPanel(spec.id)));
+  }
+  function reopenPanel(spec: PanelSpec) {
+    const api = apiRef.current;
+    if (!api || api.getPanel(spec.id)) return;
+    // aktif panelin grubuna sekme olarak katıl; hiç panel yoksa serbest ekle
+    const anchor = api.activePanel?.id ?? api.panels[0]?.id;
+    add(api, spec, anchor ? { referencePanel: anchor, direction: "within" } : undefined);
+    api.getPanel(spec.id)?.api.setActive();
+    refreshMissing(api);
+  }
 
   function onReady(event: DockviewReadyEvent) {
     const api = (apiRef.current = event.api);
@@ -207,7 +223,9 @@ export function CommandCenter() {
       }
     }
     if (!restored) BUILDERS[useUiPrefs.getState().activePreset](api);
+    refreshMissing(api);
     api.onDidLayoutChange(() => {
+      refreshMissing(api);
       if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
         useUiPrefs.getState().setCommandCenterLayout(api.toJSON());
@@ -236,6 +254,26 @@ export function CommandCenter() {
         onReady={onReady}
       />
       <GoalsPanel />
+      {/* Kapalı paneller pill'i: X'lenen sekmeler buradan tek tıkla döner */}
+      {missing.length > 0 && (
+        <div
+          className="absolute bottom-2 right-2 z-40 flex max-w-[60%] flex-wrap items-center gap-1 rounded-md border border-acos-line bg-acos-bg2/95 px-2 py-1 shadow-lg"
+          data-testid="closed-panels-pill"
+        >
+          <span className="text-[9.5px] text-acos-fg2">kapalı:</span>
+          {missing.map((spec) => (
+            <button
+              key={spec.id}
+              onClick={() => reopenPanel(spec)}
+              data-testid={`reopen-${spec.id}`}
+              className="rounded border border-acos-line bg-acos-bg3 px-1.5 py-0.5 text-[9.5px] text-acos-fg1 hover:border-dept-engineering hover:text-acos-fg0"
+              title={`${spec.title} panelini geri aç`}
+            >
+              + {spec.title}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
