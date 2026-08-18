@@ -252,6 +252,8 @@ export async function registerTaskRoutes(
             objective: request.body.objective,
             priority: request.body.priority,
             successCriteria: request.body.successCriteria,
+            // proje bağlandıysa hedefe işlenir; alt görevler kalıtır (delegation)
+            projectId: request.body.projectId,
           },
           founder,
         )

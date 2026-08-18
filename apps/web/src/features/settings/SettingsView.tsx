@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Card } from "@acos/ui";
 import { PermissionsPanel } from "./PermissionsPanel.js";
+import { GithubPanel } from "./GithubPanel.js";
 
-type Tab = "general" | "permissions";
+type Tab = "general" | "permissions" | "github";
 
 export function SettingsView() {
   const [tab, setTab] = useState<Tab>("permissions");
@@ -38,6 +39,17 @@ export function SettingsView() {
         >
           İzinler
         </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium transition-colors ${
+            tab === "github"
+              ? "border-b-2 border-accent-400 text-acos-fg0"
+              : "text-acos-fg1 hover:text-acos-fg0"
+          }`}
+          onClick={() => setTab("github")}
+          data-testid="settings-tab-github"
+        >
+          GitHub
+        </button>
       </div>
 
       {/* Content */}
@@ -48,6 +60,7 @@ export function SettingsView() {
       )}
 
       {tab === "permissions" && <PermissionsPanel />}
+      {tab === "github" && <GithubPanel />}
     </div>
   );
 }

@@ -448,6 +448,51 @@ export class GitWorkspaces {
    * partial write. Force-push protection: only `main` moves, fast-forward
    * of the squash commit.
    */
+  /**
+   * GitHub yansıması (2026-08-18): iç bare repo'yu dış remote'a iter.
+   * Kimlik http.extraheader ile gider — token URL'e gömülmez, git'in hata
+   * çıktısı URL'i basarsa bile sır sızmaz. --force: iç repo tek gerçek
+   * kaynak (ADR-010), yansı her yayında birebir eşitlenir.
+   */
+  async publishToRemote(input: {
+    projectId: string;
+    remoteUrl: string;
+    /** base64("x-access-token:<PAT>") — sunucu üretir, log'a düşmez. */
+    authB64: string;
+  }): Promise<{ published: true }> {
+    if (!UUID_PATTERN.test(input.projectId)) {
+      throw new GitError("INVALID_INPUT", `projectId is not a uuid: ${input.projectId}`);
+    }
+    if (!/^https:\/\/[^\s'"\\@]+$/.test(input.remoteUrl)) {
+      throw new GitError("INVALID_INPUT", "bad remote url");
+    }
+    if (!/^[A-Za-z0-9+/=]+$/.test(input.authB64)) {
+      throw new GitError("INVALID_INPUT", "bad auth blob");
+    }
+    const repo = this.bareRepoPath(input.projectId);
+    const script = [
+      "set -e",
+      "git config --global --add safe.directory '*'",
+      `R="${repo}"`,
+      '[ -d "$R" ] || { echo "bare repo missing" >&2; exit 44; }',
+      `git --git-dir="$R" -c http.extraheader="AUTHORIZATION: basic ${input.authB64}" push --force "${input.remoteUrl}" 'refs/heads/*:refs/heads/*'`,
+      "echo '::published::1'",
+    ].join("\n");
+    const result = await this.runner.run(
+      script,
+      [{ volume: this.reposVolume, target: REPOS_MOUNT }],
+      { network: "bridge" },
+    );
+    if (result.exitCode === 44) {
+      throw new GitError("REPO_NOT_FOUND", `no bare repo for project ${input.projectId}`);
+    }
+    if (result.exitCode !== 0) {
+      // stderr'i kırparken auth başlığı zaten çıktıya girmez (extraheader)
+      throw new GitError("GIT_FAILED", `publish failed: ${result.stderr.trim().slice(-500)}`);
+    }
+    return { published: true };
+  }
+
   async mergeTaskBranch(input: {
     projectId: string;
     branch: string;

@@ -178,6 +178,18 @@ export function buildApp(deps: AppDeps): FastifyInstance {
     return reply.status(200).send(result);
   });
 
+  // GitHub yansıması: bare repo → dış remote push (2026-08-18)
+  app.post("/internal/v1/repos/publish", async (request, reply) => {
+    const parsed = z
+      .object({ projectId: z.uuid(), remoteUrl: z.string().url(), authB64: z.string().min(8) })
+      .safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ code: "validation_failed", issues: parsed.error.issues });
+    }
+    const result = await deps.git.publishToRemote(parsed.data);
+    return reply.status(200).send(result);
+  });
+
   // project intake ingest (T42, 14 §3.1 stage 1)
   app.post("/internal/v1/repos/ingest", async (request, reply) => {
     const parsed = IngestRepoRequestSchema.safeParse(request.body);

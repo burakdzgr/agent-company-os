@@ -6,7 +6,7 @@
 // bulamıyordu. Burada tek form var; sunucu aynı YASAL geçişleri sırayla
 // yürütür (07 §2 durum makinesi ve §5 izin matrisi atlanmaz).
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AcosApiError } from "@acos/contracts/client";
 import type { Task } from "@acos/contracts";
 import { Button, Dialog, Field, Input, Select, Textarea } from "@acos/ui";
@@ -27,11 +27,25 @@ export function DirectiveDialog({
   const [title, setTitle] = useState("");
   const [objective, setObjective] = useState("");
   const [priority, setPriority] = useState("P1");
+  // 2026-08-18: hedef bir projeye bağlanır — alt görevler kalıtır ve kodlama
+  // ajanları "no project" duvarına çarpmaz. Boş bırakılabilir.
+  const [projectId, setProjectId] = useState("");
+  const projectsQuery = useQuery({
+    queryKey: [companyId, "projects", "list"],
+    queryFn: () => api.projects.list(companyId),
+    enabled: open,
+  });
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Task | null>(null);
 
   const submit = useMutation({
-    mutationFn: () => api.tasks.directive(companyId, { title, objective, priority }),
+    mutationFn: () =>
+      api.tasks.directive(companyId, {
+        title,
+        objective,
+        priority,
+        ...(projectId && { projectId }),
+      }),
     onSuccess: (task) => {
       setError(null);
       setCreated(task);
@@ -90,6 +104,25 @@ export function DirectiveDialog({
                 rows={5}
                 placeholder="Ne istediğinizi ve neyin başarı sayıldığını yazın."
               />
+            </Field>
+            <Field label="Proje (kod üretilecekse seçin)">
+              <Select
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+                name="directiveProject"
+                data-testid="directive-project"
+              >
+                <option value="">— proje yok (kod gerektirmeyen hedef) —</option>
+                {(projectsQuery.data?.items ?? []).map((proj) => (
+                  <option key={proj.id} value={proj.id}>
+                    {proj.name}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-1 text-[10px] text-acos-fg2">
+                Proje seçilirse tüm alt görevler bu projenin reposunda çalışır; GitHub
+                bağlıysa merge'ler otomatik yayınlanır. Yeni proje: Projeler sekmesi.
+              </p>
             </Field>
             <div className="w-28">
               <Field label="Öncelik">

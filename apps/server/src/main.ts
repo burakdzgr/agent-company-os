@@ -104,6 +104,22 @@ async function main(): Promise<void> {
     // B2': network tools leave only through the egress allowlist (27 §12, S8)
     egressProxyUrl: config.sandbox.egressProxyUrl,
     ...(process.env.SEARCH_API_URL && { searchApiUrl: process.env.SEARCH_API_URL }),
+    // GitHub yansıması: merge main'e girince dış remote'a best-effort push
+    onMergeCompleted: (companyId, projectId) => {
+      void (async () => {
+        const { publishProjectToGithub } = await import("./modules/integrations/github.js");
+        const result = await publishProjectToGithub({
+          db: guardedDb,
+          masterKey: config.security.masterKey,
+          sandbox: { url: config.sandbox.managerUrl, token: config.security.internalApiToken },
+          companyId,
+          projectId,
+        });
+        if (result.published) {
+          app.log.info({ projectId, remoteUrl: result.remoteUrl }, "github publish after merge");
+        }
+      })().catch((err) => app.log.warn({ err, projectId }, "github publish failed"));
+    },
   });
 
   // message delivery signalling (11 §4.4, T33): best-effort Temporal client —

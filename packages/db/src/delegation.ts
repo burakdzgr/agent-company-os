@@ -68,6 +68,18 @@ export class DelegationService {
       projectId?: string | undefined;
     },
   ): Promise<TaskRow> {
+    // Proje kalıtımı (2026-08-18, Founder gözlemi): model create_task'ta
+    // projectId'yi çoğu zaman GEÇMİYOR ve çocuk görev projesiz doğuyordu —
+    // kodlama ajanı "no project" duvarına çarpıp Founder'a eskale ediyordu.
+    // Aksiyonda proje yoksa EBEVEYNİN projesi kalıtılır.
+    let projectId = input.projectId;
+    if (projectId === undefined) {
+      const [parent] = await this.db
+        .select({ projectId: tasks.projectId })
+        .from(tasks)
+        .where(and(eq(tasks.companyId, ctx.companyId), eq(tasks.id, input.parentTaskId)));
+      projectId = parent?.projectId ?? undefined;
+    }
     return this.tasksService.create(
       ctx,
       {
@@ -80,7 +92,7 @@ export class DelegationService {
         successCriteria: input.successCriteria,
         risk: input.risk,
         orgUnitId: input.orgUnitId,
-        projectId: input.projectId,
+        projectId,
         context: { estimatedEffort: input.estimatedEffort ?? 1 },
       },
       { kind: "agent", agentId: managerAgentId },

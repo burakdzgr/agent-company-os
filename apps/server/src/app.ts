@@ -413,6 +413,18 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
     sandbox: () => sandboxInternal,
   });
 
+  // ---------- integrations: GitHub (2026-08-18) ----------
+  const { registerIntegrationRoutes } = await import("./modules/integrations/routes.js");
+  await registerIntegrationRoutes(app, {
+    guardedDb: () => {
+      if (!options.guardedDb) throw new ApiError("internal", "integrations not wired");
+      return options.guardedDb;
+    },
+    membership: (userId, companyId) => companiesSvc().membership(userId, companyId),
+    masterKey: options.masterKey,
+    sandbox: () => sandboxInternal,
+  });
+
   // ---------- reviews (T43; 15 §2) ----------
   await registerReviewRoutes(app, {
     guardedDb: () => {

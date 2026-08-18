@@ -110,6 +110,10 @@ export const CreateDirectiveRequestSchema = z.object({
   objective: z.string().min(1).max(8000),
   priority: TaskPrioritySchema.default("P1"),
   successCriteria: z.array(z.string().min(1).max(500)).max(20).default([]),
+  /** 2026-08-18: hedef bir projeye bağlanır — alt görevler kalıtır ve kodlama
+   *  workspace'leri repo'suz kalmaz (Founder gözlemi: "no project" eskalasyon
+   *  döngüsü). Boş bırakılabilir (kod gerektirmeyen hedefler). */
+  projectId: z.uuid().optional(),
 });
 
 /** Şirketin tepe yöneticisi (CEO) — org zincirinin kökü. */

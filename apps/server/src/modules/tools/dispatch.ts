@@ -61,6 +61,9 @@ export interface SandboxDispatchOptions {
   egressProxyUrl?: string | undefined;
   /** B2' — search API endpoint override; the key rides the credential seam. */
   searchApiUrl?: string | undefined;
+  /** 2026-08-18 GitHub yansıması: lead merge başarıyla bitince çağrılır —
+   *  fire-and-forget; yayının başarısızlığı merge'i asla geri almaz. */
+  onMergeCompleted?: ((companyId: string, projectId: string) => void) | undefined;
 }
 
 class DispatchError extends Error {}
@@ -620,6 +623,9 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
             );
           }
         }
+        // GitHub yansıması (2026-08-18): merge main'e girdi → dış remote'a
+        // best-effort yayın. Başarısızlık merge'i etkilemez (fire-and-forget).
+        options.onMergeCompleted?.(ctx.companyId, task.projectId);
         return {
           output: {
             merged: true,

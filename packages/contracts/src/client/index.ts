@@ -400,6 +400,7 @@ export function createAcosClient(options: AcosClientOptions) {
           objective: string;
           priority?: string;
           successCriteria?: string[];
+          projectId?: string;
         },
       ): Promise<Task> =>
         TaskSchema.parse(await post(`/api/v1/companies/${companyId}/directives`, body)),
@@ -658,6 +659,34 @@ export function createAcosClient(options: AcosClientOptions) {
         ApprovalSchema.parse(
           await post(`/api/v1/companies/${companyId}/approvals/${approvalId}/verdict`, body),
         ),
+    },
+    integrations: {
+      github: {
+        status: async (companyId: string): Promise<{ connected: boolean; owner: string | null }> =>
+          (await get(`/api/v1/companies/${companyId}/settings/github`)) as {
+            connected: boolean;
+            owner: string | null;
+          },
+        connect: async (
+          companyId: string,
+          token: string,
+        ): Promise<{ connected: boolean; owner: string | null }> =>
+          (await request("PUT", `/api/v1/companies/${companyId}/settings/github`, { token })) as {
+            connected: boolean;
+            owner: string | null;
+          },
+        disconnect: async (companyId: string): Promise<void> => {
+          await del(`/api/v1/companies/${companyId}/settings/github`);
+        },
+        publishProject: async (
+          companyId: string,
+          projectId: string,
+        ): Promise<{ published: boolean; remoteUrl: string | null }> =>
+          (await post(`/api/v1/companies/${companyId}/projects/${projectId}/github/publish`, {})) as {
+            published: boolean;
+            remoteUrl: string | null;
+          },
+      },
     },
     tools: {
       list: async (): Promise<ToolDefinition[]> =>
