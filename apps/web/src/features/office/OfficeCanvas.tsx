@@ -397,10 +397,6 @@ export function OfficeCanvas({
   const engine = useOfficeStore((s) => s.engine);
   const snapshotCount = useOfficeStore((s) => s.snapshotCount);
   const [fallback, setFallback] = useState(false);
-  // Zoom kontrolleri (2026-08-18, AGENTDESK dili): +/− ve ⤢ sığdır — React
-  // butonları efektin içindeki kamerayı bu ref üzerinden sürer (per-frame
-  // durum React'e girmez, yalnız komut geçer).
-  const controlsRef = useRef<{ zoom: (f: number) => void; fit: () => void } | null>(null);
   const snapshotCountRef = useRef(snapshotCount);
   snapshotCountRef.current = snapshotCount;
   const avatarUrlsRef = useRef(avatarUrls);
@@ -439,7 +435,6 @@ export function OfficeCanvas({
     let renderedLayoutVersion = -1;
     let renderedEngineVersion = -1;
     let plan: Floorplan | null = null;
-    let userAdjusted = false;
     interface AvatarNode {
       root: Container;
       sprite: AnimatedSprite | null;
@@ -513,31 +508,22 @@ export function OfficeCanvas({
         floors: new Map<string, Texture>(),
       };
 
-      // P2 (UI/UX review): FILL the panel edge-to-edge — fit the plan's
-      // width (the dominant axis of the auto-layout) instead of letterboxing
-      // the whole tall plan into a wide panel; the rooms anchor to the top
-      // and the rest is reachable by pan/zoom. Falls back to contain-fit
-      // when the plan is wider than tall relative to the panel.
+      // 2026-08-18 (Founder kararı): pan/zoom TAMAMEN kalktı — ofis her
+      // zaman panele CONTAIN-fit sığar ve panel boyutu değişince kendini
+      // yeniden ölçekler. Kamerayı süren tek şey bu fonksiyondur.
       function fitCamera(): void {
-        if (userAdjusted || !plan) return;
+        if (!plan) return;
         const sw = app.screen.width;
         const sh = app.screen.height;
         const pw = plan.bounds.w * CELL;
         const ph = plan.bounds.h * CELL;
         if (pw <= 0 || ph <= 0 || sw <= 0 || sh <= 0) return;
-        // cover-fit (capped): the floor always fills the panel; the overflow
-        // axis anchors to the plan's top/left and stays reachable by pan
-        const scale = Math.min(Math.max(sw / pw, sh / ph), 2.5);
+        const scale = Math.min(Math.min(sw / pw, sh / ph), 2.5);
         camera.scale.set(scale);
-        const x =
-          pw * scale > sw
-            ? -plan.bounds.x * CELL * scale + (sw - pw * scale) / 2 // center-crop wide plans
-            : (sw - pw * scale) / 2 - plan.bounds.x * CELL * scale;
-        const y =
-          ph * scale > sh
-            ? -plan.bounds.y * CELL * scale + 4 // rooms first for tall plans
-            : (sh - ph * scale) / 2 - plan.bounds.y * CELL * scale;
-        camera.position.set(x, y);
+        camera.position.set(
+          (sw - pw * scale) / 2 - plan.bounds.x * CELL * scale,
+          (sh - ph * scale) / 2 - plan.bounds.y * CELL * scale,
+        );
       }
       app.renderer.on("resize", fitCamera);
 
@@ -551,40 +537,6 @@ export function OfficeCanvas({
       });
       hostObserver.observe(host);
 
-      // React overlay'deki +/−/sığdır butonları kamerayı buradan sürer.
-      controlsRef.current = {
-        zoom: (factor: number) => {
-          userAdjusted = true;
-          const next = Math.min(2.5, Math.max(0.2, camera.scale.x * factor));
-          camera.scale.set(next);
-        },
-        fit: () => {
-          userAdjusted = false;
-          fitCamera();
-        },
-      };
-
-      // pan (drag) + zoom (wheel), clamped — camera only, no avatar motion
-      let dragging = false;
-      let last = { x: 0, y: 0 };
-      app.canvas.addEventListener("pointerdown", (e) => {
-        dragging = true;
-        last = { x: e.clientX, y: e.clientY };
-      });
-      window.addEventListener("pointerup", () => (dragging = false));
-      app.canvas.addEventListener("pointermove", (e) => {
-        if (!dragging) return;
-        userAdjusted = true;
-        camera.position.x += e.clientX - last.x;
-        camera.position.y += e.clientY - last.y;
-        last = { x: e.clientX, y: e.clientY };
-      });
-      app.canvas.addEventListener("wheel", (e) => {
-        e.preventDefault();
-        userAdjusted = true;
-        const next = Math.min(2.5, Math.max(0.2, camera.scale.x * (e.deltaY > 0 ? 0.9 : 1.1)));
-        camera.scale.set(next);
-      });
 
       let lastLabelsVisible: boolean | null = null;
       let lastPlateSig = "";
@@ -820,7 +772,6 @@ export function OfficeCanvas({
     return () => {
       destroyed = true;
       hostObserver?.disconnect();
-      controlsRef.current = null;
       try {
         app.destroy(true, { children: true });
       } catch {
@@ -834,41 +785,9 @@ export function OfficeCanvas({
     // degraded mode (23 §15): same store, list rendering
     return <FallbackList onSelectAgent={onSelectAgent} />;
   }
-  // height is the caller's: the route view pins 540px, panels give h-full
-  return (
-    <div className="relative h-full w-full">
-      <div ref={hostRef} data-testid="office-canvas" className="h-full w-full rounded-lg" />
-      {/* AGENTDESK dili: sol-üst zoom kontrolleri — kamera komutları,
-          animasyon değil (ofis lint kuralı ihlal edilmez). */}
-      <div className="absolute left-2 top-2 flex flex-col overflow-hidden rounded border border-acos-line bg-acos-bg2/90">
-        <button
-          data-testid="office-zoom-in"
-          aria-label="Yakınlaş"
-          onClick={() => controlsRef.current?.zoom(1.2)}
-          className="px-2 py-0.5 text-[13px] leading-5 text-acos-fg1 hover:bg-acos-bg3 hover:text-acos-fg0"
-        >
-          +
-        </button>
-        <button
-          data-testid="office-zoom-out"
-          aria-label="Uzaklaş"
-          onClick={() => controlsRef.current?.zoom(1 / 1.2)}
-          className="border-t border-acos-line px-2 py-0.5 text-[13px] leading-5 text-acos-fg1 hover:bg-acos-bg3 hover:text-acos-fg0"
-        >
-          −
-        </button>
-        <button
-          data-testid="office-zoom-fit"
-          aria-label="Sığdır"
-          title="ekrana sığdır"
-          onClick={() => controlsRef.current?.fit()}
-          className="border-t border-acos-line px-2 py-0.5 text-[11px] leading-5 text-acos-fg1 hover:bg-acos-bg3 hover:text-acos-fg0"
-        >
-          ⤢
-        </button>
-      </div>
-    </div>
-  );
+  // height is the caller's: the route view pins 540px, panels give h-full.
+  // Pan/zoom yok (2026-08-18): ofis panele her zaman contain-fit sığar.
+  return <div ref={hostRef} data-testid="office-canvas" className="h-full w-full rounded-lg" />;
 }
 
 function FallbackList({

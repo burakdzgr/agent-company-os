@@ -67,7 +67,7 @@ export interface Floorplan {
 
 export const WALL = 0.8; // wall thickness (cells)
 export const DOOR_W = 3; // door gap width (cells)
-const MARGIN = 1.5; // envelope margin around the zones
+const MARGIN = 1; // envelope margin around the zones (dış duvar + dar kaldırım)
 
 const ACCENTS = [
   departmentColors.engineering,
@@ -174,8 +174,9 @@ export function computeFloorplan(layout: OfficeLayout): Floorplan {
       x: meeting.rect.x + meeting.rect.w / 2,
       y: meeting.rect.y + meeting.rect.h / 2,
     });
+    // hepsi toplantının SAĞINA: oda x=1'e dayandı, solda dış duvar var
     props.push({ kind: "coffee", x: meeting.rect.x + meeting.rect.w + 1.2, y: meeting.rect.y + 1 });
-    props.push({ kind: "watercooler", x: meeting.rect.x - 1.8, y: meeting.rect.y + 1 });
+    props.push({ kind: "watercooler", x: meeting.rect.x + meeting.rect.w + 2.6, y: meeting.rect.y + 1 });
     props.push({ kind: "plant", x: meeting.rect.x + meeting.rect.w + 1.1, y: meeting.rect.y + 3 });
   }
   // lobby: reception desk beside the entrance, inside the outer wall

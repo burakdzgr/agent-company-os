@@ -28,8 +28,14 @@ export interface AgentInput {
 }
 
 const CELL_SIZE = 32;
-const ROOM_TOP = 2;
-const ROOM_GAP = 2;
+const ROOM_TOP = 1;
+/**
+ * Oda arası boşluk = 0 (2026-08-18, Founder kararı): odalar duvar paylaşır —
+ * her odanın kendi 0.8 hücrelik duvarı rect'inin İÇİNDE çizildiği için bitişik
+ * iki oda arasında kalın tek bir duvar okunur; koridor yalnız sıralar arasında
+ * (ROW_GAP) ve kapıların açıldığı bantta kalır. "Aralardaki boşluklar" gitti.
+ */
+const ROOM_GAP = 0;
 /** Salon sırası bu genişliği aşınca alt kuşağa iner. */
 const ROW_WRAP = 74;
 const ROW_GAP = 2;
@@ -104,7 +110,7 @@ export function computeAutoLayout(units: OrgUnitInput[], agents: AgentInput[]): 
   }
 
   const zones: OfficeZone[] = [];
-  let cursorX = 2;
+  let cursorX = 1;
   let rowTop = ROOM_TOP;
   let rowHeight = 0;
 
@@ -119,9 +125,9 @@ export function computeAutoLayout(units: OrgUnitInput[], agents: AgentInput[]): 
 
       // satır taşarsa alt kuşağa in — departmanlar bölünebilir ama salonlar
       // sırayla kaldığı için aynı renk hâlâ yan yana kümelenir
-      if (cursorX + size.w > ROW_WRAP && cursorX > 2) {
+      if (cursorX + size.w > ROW_WRAP && cursorX > 1) {
         rowTop += rowHeight + ROW_GAP;
-        cursorX = 2;
+        cursorX = 1;
         rowHeight = 0;
       }
 
@@ -163,7 +169,7 @@ export function computeAutoLayout(units: OrgUnitInput[], agents: AgentInput[]): 
   zones.push({
     id: "z_meet_central",
     kind: "meeting",
-    rect: { x: 2, y: rowTop + rowHeight + ROW_GAP + 1, w: 12, h: 8 },
+    rect: { x: 1, y: rowTop + rowHeight + ROW_GAP + 1, w: 12, h: 8 },
     label: "Toplantı",
     spots: 6,
   });
