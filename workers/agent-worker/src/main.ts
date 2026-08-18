@@ -24,6 +24,7 @@ import {
   createAnthropicAdapter,
   createGeminiAdapter,
   createOllamaAdapter,
+  createOpenAiCompatAdapter,
   createOpenAiAdapter,
   createOpenRouterAdapter,
   pricingDefaultsFor,
@@ -134,9 +135,10 @@ async function buildLiveRouter(pool: Pool, guardedDb: GuardedDb, config: Config)
       adapter = createAnthropicAdapter({ providerId: row.id, apiKey: config.llm.anthropicApiKey });
     } else if (row.kind === "openai" && row.name === "claude-cli" && config.llm.claudeCliUrl) {
       // Claude Code CLI köprüsü (2026-08-19): host'taki claude-cli-bridge —
-      // ABONELİK kotası, API kredisi değil. OpenAI-uyumlu yüzey; kayıtlı
-      // sapma gemini ile aynı (kind CHECK'i sabit → kind='openai' + name).
-      adapter = createOpenAiAdapter({ providerId: row.id, apiKey: "subscription", baseUrl: config.llm.claudeCliUrl });
+      // ABONELİK kotası, API kredisi değil. openai-COMPATIBLE adaptör şart:
+      // saf OpenAI sağlayıcısı /responses API'sine gider, köprü yalnız
+      // /chat/completions konuşur (canlı bulgu: istekler 404'e düşüyordu).
+      adapter = { ...createOpenAiCompatAdapter({ providerId: "claude-cli", baseUrl: config.llm.claudeCliUrl, apiKey: "subscription" }), providerId: row.id };
     } else if (row.kind === "openai" && row.name === "gemini" && config.llm.geminiApiKey) {
       // Gemini (2026-08-19, kayıtlı sapma): model_providers.kind CHECK'i beş
       // türle sabit — Gemini, OpenAI-uyumlu endpoint'inden konuşulduğu için
