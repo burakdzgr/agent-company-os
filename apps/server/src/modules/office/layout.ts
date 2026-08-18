@@ -36,8 +36,6 @@ const ROOM_TOP = 1;
  * (ROW_GAP) ve kapıların açıldığı bantta kalır. "Aralardaki boşluklar" gitti.
  */
 const ROOM_GAP = 0;
-/** Salon sırası bu genişliği aşınca alt kuşağa iner. */
-const ROW_WRAP = 74;
 const ROW_GAP = 2;
 /**
  * Masa aralığı (hücre).
@@ -109,67 +107,92 @@ export function computeAutoLayout(units: OrgUnitInput[], agents: AgentInput[]): 
     byDepartment.set(key, bucket);
   }
 
+  // 1. geçiş: salon ölçüleri (paketlemeden önce hepsi bilinmeli)
+  interface RoomPlan {
+    unitId: string;
+    unit: OrgUnitInput | null;
+    members: AgentInput[];
+    size: ReturnType<typeof roomSize>;
+    accent: string;
+    label: string;
+  }
+  const roomPlans: RoomPlan[] = [];
+  [...byDepartment.keys()].sort().forEach((departmentId, departmentIndex) => {
+    const accent = DEPARTMENT_ACCENTS[departmentIndex % DEPARTMENT_ACCENTS.length]!;
+    const department = unitsById.get(departmentId);
+    for (const unitId of byDepartment.get(departmentId)!) {
+      const members = byUnit.get(unitId)!.slice().sort((a, b) => a.id.localeCompare(b.id));
+      const unit = unitId === "unassigned" ? null : unitsById.get(unitId) ?? null;
+      const isDepartmentBucket = unit?.kind === "department" || unit == null;
+      const label = isDepartmentBucket
+        ? `${department?.name ?? unit?.name ?? "Genel"} Genel`
+        : (unit?.name ?? "Genel");
+      roomPlans.push({ unitId, unit, members, size: roomSize(members.length), accent, label });
+    }
+  });
+
+  // 2026-08-18 (Founder kararı, "aralardaki boşluklar"): salonlar YÜKSEKLİĞE
+  // göre sıralanıp raf-paketlenir — bir satırdaki odalar benzer boyda olur ve
+  // kalabalık odanın yanında dev gri boşluk kalmaz. Satır genişliği sabit
+  // değil, toplam alandan ~16:10 hedef oranla türer. Sıralama deterministik
+  // (boy → en → unitId); departman renk kümelenmesi bilinçli feda edildi.
+  roomPlans.sort(
+    (a, b) => b.size.h - a.size.h || b.size.w - a.size.w || a.unitId.localeCompare(b.unitId),
+  );
+  const totalArea = roomPlans.reduce((sum, r) => sum + r.size.w * r.size.h, 0);
+  const widest = Math.max(...roomPlans.map((r) => r.size.w), 12);
+  const wrapWidth = Math.max(widest + 2, Math.ceil(Math.sqrt(totalArea * 1.6)));
+
   const zones: OfficeZone[] = [];
   let cursorX = 1;
   let rowTop = ROOM_TOP;
   let rowHeight = 0;
 
-  [...byDepartment.keys()].sort().forEach((departmentId, departmentIndex) => {
-    const accent = DEPARTMENT_ACCENTS[departmentIndex % DEPARTMENT_ACCENTS.length]!;
-    const department = unitsById.get(departmentId);
-
-    for (const unitId of byDepartment.get(departmentId)!) {
-      const members = byUnit.get(unitId)!.slice().sort((a, b) => a.id.localeCompare(b.id));
-      const unit = unitId === "unassigned" ? null : unitsById.get(unitId);
-      const size = roomSize(members.length);
-
-      // satır taşarsa alt kuşağa in — departmanlar bölünebilir ama salonlar
-      // sırayla kaldığı için aynı renk hâlâ yan yana kümelenir
-      if (cursorX + size.w > ROW_WRAP && cursorX > 1) {
-        rowTop += rowHeight + ROW_GAP;
-        cursorX = 1;
-        rowHeight = 0;
-      }
-
-      const desks: OfficeDesk[] = [];
-      for (let i = 0; i < size.deskCount; i++) {
-        const row = Math.floor(i / size.perRow);
-        const col = i % size.perRow;
-        desks.push({
-          id: `d_${unitId.slice(-6)}_${i}`,
-          cell: {
-            x: cursorX + 2 + col * DESK_STEP,
-            y: rowTop + LABEL_BAND + row * DESK_STEP,
-          },
-          agentId: members[i]?.id ?? null, // home desks persist in layout (23 §2)
-        });
-      }
-
-      // Departmanın kendisi bir salon olarak çizilmez; salon takımdır.
-      // Departmana doğrudan bağlı üyeler "<Departman> Genel" salonunu alır.
-      const isDepartmentBucket = unit?.kind === "department" || unit == null;
-      const label = isDepartmentBucket
-        ? `${department?.name ?? unit?.name ?? "Genel"} Genel`
-        : (unit?.name ?? "Genel");
-
-      zones.push({
-        id: `z_${unitId.slice(-6)}`,
-        kind: unit?.kind === "executive" ? "executive" : "team",
-        ...(unit && { orgUnitId: unit.id }),
-        rect: { x: cursorX, y: rowTop, w: size.w, h: size.h },
-        label,
-        color: accent,
-        desks,
-      });
-      cursorX += size.w + ROOM_GAP;
-      rowHeight = Math.max(rowHeight, size.h);
+  for (const plan of roomPlans) {
+    const { unitId, unit, members, size } = plan;
+    if (cursorX + size.w > wrapWidth && cursorX > 1) {
+      rowTop += rowHeight + ROW_GAP;
+      cursorX = 1;
+      rowHeight = 0;
     }
-  });
 
+    const desks: OfficeDesk[] = [];
+    for (let i = 0; i < size.deskCount; i++) {
+      const row = Math.floor(i / size.perRow);
+      const col = i % size.perRow;
+      desks.push({
+        id: `d_${unitId.slice(-6)}_${i}`,
+        cell: {
+          x: cursorX + 2 + col * DESK_STEP,
+          y: rowTop + LABEL_BAND + row * DESK_STEP,
+        },
+        agentId: members[i]?.id ?? null, // home desks persist in layout (23 §2)
+      });
+    }
+
+    zones.push({
+      id: `z_${unitId.slice(-6)}`,
+      kind: unit?.kind === "executive" ? "executive" : "team",
+      ...(unit && { orgUnitId: unit.id }),
+      rect: { x: cursorX, y: rowTop, w: size.w, h: size.h },
+      label: plan.label,
+      color: plan.accent,
+      desks,
+    });
+    cursorX += size.w + ROOM_GAP;
+    rowHeight = Math.max(rowHeight, size.h);
+  }
+
+  // Toplantı odası son satırın artığına sığıyorsa oraya girer (alt boşluğu
+  // küçültür); sığmıyorsa kendi satırına iner.
+  const meetingRect =
+    cursorX + 12 <= wrapWidth
+      ? { x: cursorX, y: rowTop, w: 12, h: 8 }
+      : { x: 1, y: rowTop + rowHeight + ROW_GAP + 1, w: 12, h: 8 };
   zones.push({
     id: "z_meet_central",
     kind: "meeting",
-    rect: { x: 1, y: rowTop + rowHeight + ROW_GAP + 1, w: 12, h: 8 },
+    rect: meetingRect,
     label: "Toplantı",
     spots: 6,
   });
