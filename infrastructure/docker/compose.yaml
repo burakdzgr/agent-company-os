@@ -123,6 +123,7 @@ services:
       LLM_MODE: ${LLM_MODE:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       # D4 (27 §12): per-project egress allowlist include, rendered here and
       # read by egress-proxy (read-only on its side).
@@ -187,6 +188,7 @@ services:
       LLM_MODE: ${LLM_MODE:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       # use_tool → Tool Gateway internal HTTP (T40, S3)
       SERVER_INTERNAL_URL: http://server:3000

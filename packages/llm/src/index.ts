@@ -63,6 +63,7 @@ export {
   createOpenAiAdapter,
   createOpenAiCompatAdapter,
   createOpenRouterAdapter,
+  createGeminiAdapter,
   createOllamaAdapter,
 } from "./adapters/ai-sdk.js";
 export { createProvidersFromConfig } from "./providers.js";

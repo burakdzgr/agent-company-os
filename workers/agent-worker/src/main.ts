@@ -22,6 +22,7 @@ import {
   ModelRouter,
   SCRIPTED_PRICING,
   createAnthropicAdapter,
+  createGeminiAdapter,
   createOllamaAdapter,
   createOpenAiAdapter,
   createOpenRouterAdapter,
@@ -131,6 +132,12 @@ async function buildLiveRouter(pool: Pool, guardedDb: GuardedDb, config: Config)
     let adapter: ProviderAdapter | null = null;
     if (row.kind === "anthropic" && config.llm.anthropicApiKey) {
       adapter = createAnthropicAdapter({ providerId: row.id, apiKey: config.llm.anthropicApiKey });
+    } else if (row.kind === "openai" && row.name === "gemini" && config.llm.geminiApiKey) {
+      // Gemini (2026-08-19, kayıtlı sapma): model_providers.kind CHECK'i beş
+      // türle sabit — Gemini, OpenAI-uyumlu endpoint'inden konuşulduğu için
+      // kind='openai' + name='gemini' satırıyla temsil edilir (migrasyonsuz).
+      // Ücretsiz AI Studio anahtarı: kredi gerektirmeyen bulut katmanı.
+      adapter = { ...createGeminiAdapter({ apiKey: config.llm.geminiApiKey }), providerId: row.id };
     } else if (row.kind === "openai" && config.llm.openaiApiKey) {
       adapter = createOpenAiAdapter({ providerId: row.id, apiKey: config.llm.openaiApiKey });
     } else if (row.kind === "openrouter" && config.llm.openrouterApiKey) {

@@ -206,6 +206,18 @@ export function createOpenRouterAdapter(options: { apiKey: string }): ProviderAd
   });
 }
 
+/** Gemini (2026-08-19, Founder kararı): Google'ın OpenAI-uyumlu endpoint'i —
+ *  ücretsiz AI Studio anahtarıyla çalışır; zincire kredi gerektirmeyen bir
+ *  bulut katmanı ekler (Anthropic/OpenAI kredisi bitince şirket yerel modele
+ *  düşmek zorunda kalmasın). */
+export function createGeminiAdapter(options: { providerId?: string; apiKey: string }): ProviderAdapter {
+  return createOpenAiCompatAdapter({
+    providerId: options.providerId ?? "gemini",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    apiKey: options.apiKey,
+  });
+}
+
 export function createOllamaAdapter(options: { baseUrl: string }): ProviderAdapter {
   return createOpenAiCompatAdapter({
     providerId: "ollama",
