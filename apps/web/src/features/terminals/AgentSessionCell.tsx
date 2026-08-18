@@ -144,9 +144,23 @@ export function SessionFeed({
     new Date(session.startedAt).getTime();
   // Takılma sinyali: canlı görünen oturumda son adımın üzerinden 3+ dk geçtiyse
   // "Çalışıyor" demek yalan olur — sarı ⏳ satırına düşülür.
-  const lastStepAt = ordered.length > 0 ? new Date(ordered[ordered.length - 1]!.createdAt).getTime() : null;
+  const lastStep = ordered.length > 0 ? ordered[ordered.length - 1]! : null;
+  const lastStepAt = lastStep ? new Date(lastStep.createdAt).getTime() : null;
   const sinceLastStepMs = Date.now() - (lastStepAt ?? new Date(session.startedAt).getTime());
   const stalled = live && sinceLastStepMs > 3 * 60_000;
+  // Bilinen bekleme türleri: takılma değil, adı konmuş bekleyiş — Founder ne
+  // olduğunu (ve gerekiyorsa NE YAPACAĞINI) durum satırında görür.
+  const lastAction = (lastStep?.action ?? {}) as Record<string, unknown>;
+  const knownWait =
+    !live || !lastStep
+      ? null
+      : lastStep.actionKind === "wait_for"
+        ? `⏸ Bekliyor: ${String(lastAction.what ?? "sinyal")} (${formatElapsed(sinceLastStepMs)})`
+        : lastStep.actionKind === "escalate" && stalled
+          ? "🔔 Founder kararı bekliyor — Onaylar sekmesine bak"
+          : lastStep.actionKind === "delegate_task" && stalled
+            ? `⤷ Alt görev sürüyor (${formatElapsed(sinceLastStepMs)})`
+            : null;
 
   return (
     <div
@@ -196,19 +210,20 @@ export function SessionFeed({
           "mt-1",
           !live
             ? "text-acos-fg2/70"
-            : stalled
-              ? "text-[#e8c268]"
-              : "animate-pulse text-[#a879ff]",
+            : knownWait
+              ? "text-[#4cc2ff]"
+              : stalled
+                ? "text-[#e8c268]"
+                : "animate-pulse text-[#a879ff]",
         )}
         data-testid="session-live-cursor"
       >
         {!live
           ? `${session.status === "completed" ? "✔ Tamamlandı" : "✕ Bitti"} — ${formatElapsed(elapsedMs)}`
-          : stalled
-            ? `⏳ ${formatElapsed(sinceLastStepMs)} oldu, yeni adım yok (${session.currentActivity}) — toplam ${formatElapsed(elapsedMs)}`
-            : session.status === "waiting"
-              ? `⏸ Bekliyor (${session.currentActivity}) — ${formatElapsed(elapsedMs)}`
-              : `✳ Çalışıyor — ${formatElapsed(elapsedMs)}`}
+          : (knownWait ??
+            (stalled
+              ? `⏳ ${formatElapsed(sinceLastStepMs)} oldu, yeni adım yok (${session.currentActivity}) — toplam ${formatElapsed(elapsedMs)}`
+              : `✳ Çalışıyor — ${formatElapsed(elapsedMs)}`))}
         {totalTokens > 0 && ` · ${formatTokens(totalTokens)} jeton`}
       </p>
     </div>

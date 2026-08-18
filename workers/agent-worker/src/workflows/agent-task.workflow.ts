@@ -236,6 +236,8 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
   // Ardışık salt-okuma araç çağrıları sayılır; 8+ olunca sert marker girer.
   const READ_ONLY_TOOLS = new Set(["fs.read", "fs.search", "task.query", "memory.search", "git.diff", "web.fetch", "web.search", "db.inspect"]);
   let readStreak = 0;
+  // wait_for uyanış notları — bir sonraki adımın working set'ine marker olur
+  const wakeNotes: string[] = [];
   let localSteps = 0;
   let continuing = false;
   let outcome: AgentTaskOutcome["outcome"] = "guard_stopped";
@@ -280,6 +282,7 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
       const signalMarkers: string[] = drained.map(
         (m) => `[signal:message=${m.kind}] from ${m.senderAgentId ?? "founder"}: ${m.preview}`,
       );
+      signalMarkers.push(...wakeNotes.splice(0, wakeNotes.length));
       // 2026-08-14: karar notları marker'a eklenir — Founder'ın onay notu
       // yalnız "approved" kelimesine indirgeniyordu, ajan talimatı göremiyordu
       if (signals.reviewVerdict !== null) {
@@ -432,25 +435,43 @@ export async function agentTaskWorkflow(input: AgentTaskInput): Promise<AgentTas
 
       // wait_for maps to Temporal condition + timer — never polling (08 §6)
       if (action.type === "wait_for") {
+        // 2026-08-18 (Founder: "40 dk'dır iş yapılmıyor"): üç düzeltme.
+        // 1) Park süresi 15 dk ile SINIRLI — model 120 dk (şema varsayılanı)
+        //    isteyebiliyor ve ofis saatlerce sessiz kalıyordu; zaman aşımında
+        //    döngü devam eder, model taze bağlamla yeniden karar verir.
+        // 2) Adım UYUMADAN ÖNCE persist edilir — Founder terminal hücresinde
+        //    "⏸ bekliyor" anında görünür (eskiden uyanana dek hiçbir iz yoktu).
+        // 3) HERHANGİ bir gelen mesaj (Founder direktifi dahil) her bekleyişi
+        //    uyandırır — direktif atınca ajan anında işe döner.
+        const effectiveWaitMs = Math.min(action.timeoutMinutes, 15) * 60_000;
         await activities.executeActionActivity({ ...ref, stepId, action }); // → WAITING
-        const woken = await condition(
-          () => wakeConditionMet(action.what),
-          action.timeoutMinutes * 60_000,
-        );
         await activities.persistStepActivity({
           ...ref,
           stepId,
           stepNo,
           action,
-          observation: { ok: true, woken, waitedFor: action.what },
+          observation: {
+            ok: true,
+            waiting: action.what,
+            effectiveTimeoutMinutes: Math.min(action.timeoutMinutes, 15),
+          },
           usage,
           costCents,
           durationMs: Date.now() - stepStart,
         });
+        const woken = await condition(
+          () => wakeConditionMet(action.what) || pendingMessages.length > 0,
+          effectiveWaitMs,
+        );
         if (signals.cancelled !== null) {
           outcome = "abandoned";
           break;
         }
+        wakeNotes.push(
+          woken
+            ? `[signal:wait_over] '${action.what}' bekleyişi bir sinyalle uyandı — şimdi harekete geç.`
+            : `[signal:wait_timeout] '${action.what}' bekleyişi ${Math.min(action.timeoutMinutes, 15)} dk zaman aşımıyla bitti; beklenen şey GELMEDİ. Durumu yeniden değerlendir ve MUTASYON üreten bir aksiyon seç (gerekirse escalate).`,
+        );
         await activities.resumeFromWaitActivity({ ...ref });
         continue;
       }

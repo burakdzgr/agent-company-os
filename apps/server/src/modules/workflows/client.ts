@@ -25,7 +25,13 @@ export function createAgentWorkflowStarter(
       await temporalClient.workflow.start("agentTaskWorkflow", {
         taskQueue: TASK_QUEUES.agentTasks,
         workflowId: `agent-task.${input.taskId}.${input.agentId}`,
-        workflowIdReusePolicy: WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,
+        // 2026-08-18: REJECT_DUPLICATE, KAPALI (ölmüş/sonlandırılmış) bir
+        // koşunun aynı id ile yeniden başlatılmasını da reddediyordu — A6
+        // sweep'in "sahibinin döngüsü ölmüşse yeniden başlat" vaadi hiç
+        // çalışamazdı. ALLOW_DUPLICATE eşzamanlılığı GEVŞETMEZ: aynı id'li
+        // KOŞAN workflow her politikada AlreadyStarted ile reddedilir;
+        // politika yalnız kapalı koşular için geçerlidir.
+        workflowIdReusePolicy: WorkflowIdReusePolicy.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
         args: [{ ...input, sessionId: uuidv7(), attempt: 1 }],
       });
       return true;

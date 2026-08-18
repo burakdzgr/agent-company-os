@@ -909,6 +909,12 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
               agentId: input.agentId,
             }, { note: `waiting for ${action.what}` });
           }
+          // 2026-08-18: oturum da WAITING'e geçer — Founder terminal hücresi
+          // "Çalışıyor" yerine dürüstçe "Bekliyor" göstersin (resume geri alır)
+          await guardedDb
+            .update(agentSessions)
+            .set({ currentActivity: "WAITING" })
+            .where(and(eq(agentSessions.companyId, ctx.companyId), eq(agentSessions.id, input.sessionId)));
           return { ok: true, waiting: action.what };
         }
         case "create_task": {
@@ -1403,6 +1409,11 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
       if (current?.status === "WAITING") {
         await taskState.transition(ctx, input.taskId, "IN_PROGRESS", { kind: "system" });
       }
+      // wait_for'un WAITING'e aldığı oturum aktivitesi geri WORKING olur
+      await guardedDb
+        .update(agentSessions)
+        .set({ currentActivity: "WORKING" })
+        .where(and(eq(agentSessions.companyId, ctx.companyId), eq(agentSessions.id, input.sessionId)));
     },
 
     /** Workflow-timer expiry fallback (19 §6/§7): if the wait on the verdict
