@@ -112,12 +112,29 @@ describe("headless instruction replay (T26)", () => {
     expect(ringIds).toEqual(expect.arrayContaining([EVT(10), EVT(11), EVT(12), EVT(13)]));
   });
 
-  it("snapshot replaces queues outright — no replayed choreography on resume", () => {
+  // 2026-08-18 kayıtlı sapma (Founder: "arada bir tekrar render oluyor"):
+  // aynı epoch'lu snapshot (WS reconnect) sahneyi SIFIRLAMAZ — süren yürüyüş
+  // ve pozisyon korunur, rozet/masa/ad güncellenir. Sert sıfırlama yalnız
+  // snapshotEpoch değişince (23 §6 "no replayed choreography" niyeti korunur:
+  // hiçbir şey yeniden oynatılmaz).
+  it("same-epoch snapshot soft-merges — the ongoing walk survives a reconnect", () => {
     const engine = new OfficeSceneEngine();
     engine.applySnapshot(snapshot());
     engine.apply(walk(A, { x: 4, y: 4 }, { x: 10, y: 4 }, EVT(20)));
     engine.tick(0.2); // mid-walk
-    engine.applySnapshot(snapshot()); // reconnect catch-up
+    engine.applySnapshot(snapshot()); // reconnect catch-up, SAME epoch
+    const avatar = engine.avatars.get(A)!;
+    expect(avatar.walking).not.toBeNull(); // yürüyüş sürer
+    engine.tick(10);
+    expect(avatar.pos).toEqual({ x: 10, y: 4 }); // hedefine varır
+  });
+
+  it("epoch bump resets outright — no replayed choreography after a rebuild", () => {
+    const engine = new OfficeSceneEngine();
+    engine.applySnapshot(snapshot());
+    engine.apply(walk(A, { x: 4, y: 4 }, { x: 10, y: 4 }, EVT(20)));
+    engine.tick(0.2); // mid-walk
+    engine.applySnapshot({ ...snapshot(), snapshotEpoch: snapshot().snapshotEpoch + 1 });
     const avatar = engine.avatars.get(A)!;
     expect(avatar.pos).toEqual({ x: 4, y: 4 });
     expect(avatar.queue).toHaveLength(0);

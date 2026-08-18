@@ -88,24 +88,65 @@ export class OfficeSceneEngine {
   // ---------- snapshot-then-delta (22 §5.3) ----------
 
   applySnapshot(state: PresenceState, layout?: OfficeLayout | null): void {
-    // snapshot replaces queues outright — no replayed choreography (23 §6)
-    this.avatars.clear();
-    this.interactions.clear();
+    // 2026-08-18 (Founder: "arada bir tekrar render oluyor"): WS her yeniden
+    // bağlanışta snapshot yollar; sahneyi sıfırlamak herkesi ışınlıyor ve
+    // ofis "baştan kuruluyor" gibi görünüyordu. Aynı epoch + aynı layout ise
+    // YUMUŞAK birleştirme: rozet/masa/ad güncellenir, POZİSYON ve süren
+    // yürüyüş korunur. Sert sıfırlama yalnız epoch/layout değişiminde —
+    // 23 §6'nın "no replayed choreography" niyeti korunur (hiçbir şey
+    // yeniden OYNATILMAZ; yalnız mevcut durum yerinde bırakılır).
+    const hard =
+      this.avatars.size === 0 ||
+      state.snapshotEpoch !== this.snapshotEpoch ||
+      state.layoutVersion !== this.layoutVersion;
     if (layout) this.layout = layout;
     this.layoutVersion = state.layoutVersion;
     this.snapshotEpoch = state.snapshotEpoch;
-    for (const agent of state.agents) {
-      this.avatars.set(agent.agentId, {
-        agentId: agent.agentId,
-        name: agent.name,
-        pos: { x: agent.cell.x, y: agent.cell.y },
-        badge: agent.badge,
-        deskId: agent.deskId,
-        queue: [],
-        walking: null,
-        collapsedCount: 0,
-      });
+
+    if (hard) {
+      // snapshot replaces queues outright — no replayed choreography (23 §6)
+      this.avatars.clear();
+      for (const agent of state.agents) {
+        this.avatars.set(agent.agentId, {
+          agentId: agent.agentId,
+          name: agent.name,
+          pos: { x: agent.cell.x, y: agent.cell.y },
+          badge: agent.badge,
+          deskId: agent.deskId,
+          queue: [],
+          walking: null,
+          collapsedCount: 0,
+        });
+      }
+    } else {
+      const seen = new Set<string>();
+      for (const agent of state.agents) {
+        seen.add(agent.agentId);
+        const existing = this.avatars.get(agent.agentId);
+        if (existing) {
+          existing.name = agent.name;
+          existing.badge = agent.badge;
+          existing.deskId = agent.deskId;
+          // pos/queue/walking KORUNUR — yürüyen adam yürümeye devam eder
+        } else {
+          this.avatars.set(agent.agentId, {
+            agentId: agent.agentId,
+            name: agent.name,
+            pos: { x: agent.cell.x, y: agent.cell.y },
+            badge: agent.badge,
+            deskId: agent.deskId,
+            queue: [],
+            walking: null,
+            collapsedCount: 0,
+          });
+        }
+      }
+      for (const id of [...this.avatars.keys()]) {
+        if (!seen.has(id)) this.avatars.delete(id);
+      }
     }
+
+    this.interactions.clear();
     for (const interaction of state.interactions) {
       this.interactions.set(interaction.id, { ...interaction });
     }

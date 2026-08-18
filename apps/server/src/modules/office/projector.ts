@@ -313,6 +313,31 @@ export class OfficeProjector {
           });
         break;
       }
+      // Delegasyon koreografisi (2026-08-18, Founder: "CEO görevi verdiyse
+      // ofiste Mert'in masasına gitmeli"): atama olayı iki kimliği de taşır —
+      // byAgentId (veren yönetici) atadığı ajanın masasına yürür, görev
+      // teslimi balonu (dm) gösterir, dwell sonrası kendi masasına döner.
+      case "agent.task.assigned": {
+        if (stale) break;
+        const assignee = payload.agentId as string | undefined;
+        const manager = payload.byAgentId as string | undefined;
+        if (
+          manager &&
+          assignee &&
+          manager !== assignee &&
+          state.agents.has(manager) &&
+          state.agents.has(assignee)
+        ) {
+          this.walkAndInteract(state, envelope, emit, {
+            walker: manager,
+            target: assignee,
+            reason: "dm",
+            interactionKind: "dm",
+            dwellMs: DM_DWELL_MS,
+          });
+        }
+        break;
+      }
       case "agent.task.started": {
         const agentId = (payload.agentId as string) ?? actorAgent;
         if (agentId && this.setBadge(state, agentId, "WORKING"))

@@ -435,3 +435,27 @@ describe("oturum adımı koreografisi (2026-08-18 — agent.step.recorded)", () 
     expect(done.every((i) => i.type !== "office.avatar.moved")).toBe(true);
   });
 });
+
+describe("delegasyon koreografisi (2026-08-18 — agent.task.assigned)", () => {
+  it("yönetici atadığı ajanın masasına yürür ve dwell sonrası döner", async () => {
+    const h = makeHarness();
+    const out = await h.projector.handleEvent(
+      envelope("agent.task.assigned", { taskId: ALICE, agentId: ALICE, byAgentId: BOB }, ALICE),
+    );
+    const walk = out.find((i) => i.type === "office.avatar.moved");
+    expect(walk).toMatchObject({ agentId: BOB, reason: "dm" });
+    h.fire(h.timers.length - 1);
+    const home = h.published
+      .map((p) => p.instruction)
+      .find((i) => i.type === "office.avatar.moved" && i.reason === "return_home");
+    expect(home).toMatchObject({ agentId: BOB });
+  });
+
+  it("kendine atama yürüyüş üretmez", async () => {
+    const h = makeHarness();
+    const out = await h.projector.handleEvent(
+      envelope("agent.task.assigned", { taskId: ALICE, agentId: BOB, byAgentId: BOB }, BOB),
+    );
+    expect(out.every((i) => i.type !== "office.avatar.moved")).toBe(true);
+  });
+});

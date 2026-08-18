@@ -44,6 +44,11 @@ export const useOfficeStore = create<OfficeStoreState>()((set, get) => ({
     set((s) => ({ snapshotCount: s.snapshotCount + 1 }));
   },
   setLayout: (layout) => {
+    // 2026-08-18: React Query odak/yenilemede layout'u yeniden çeker; içerik
+    // DEĞİŞMEDİYSE layoutVersion'ı zıplatmak tüm zemini yeniden boyatıyordu
+    // ("arada bir tekrar render"). Birebir aynı layout sessizce yutulur.
+    const current = get().engine.layout;
+    if (current && JSON.stringify(current) === JSON.stringify(layout)) return;
     get().engine.setLayout(layout);
   },
   reset: () => set({ engine: new OfficeSceneEngine(), snapshotCount: 0 }),
