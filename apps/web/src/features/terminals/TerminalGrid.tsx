@@ -7,18 +7,19 @@
 // focus-terminal Founder directive lands in U06.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useParams } from "@tanstack/react-router";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { cn, presenceColor } from "@acos/ui";
 import type { TerminalSessionDto } from "@acos/contracts";
-import { api, queryClient } from "../../lib/api.js";
+import { api } from "../../lib/api.js";
 import { useTeamMemberSet } from "../../lib/teamFilter.js";
 import { clearTopicCursor, getRealtimeClient } from "../../realtime/client.js";
 import { usePresence } from "../../stores/presence.js";
 import { useFocus } from "../../stores/focus.js";
 import { DENSITY_COLS, useTerminalGrid, type TerminalDensity } from "../../stores/terminalGrid.js";
+import { AgentSessionCell, FounderDirectiveForm, SessionFocusModal } from "./AgentSessionCell.js";
 
 function base64ToUtf8(data: string): string {
   const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
@@ -115,24 +116,7 @@ function DensityChip({ value }: { value: TerminalDensity }) {
 function FocusModal({ session, onClose }: { session: TerminalSessionDto; onClose: () => void }) {
   const { companyId } = useParams({ from: "/c/$companyId" });
   const badges = usePresence((s) => s.badges);
-  const [draft, setDraft] = useState("");
-  const [sentNote, setSentNote] = useState<string | null>(null);
   const badge = session.agentId ? (badges[session.agentId] ?? "IDLE") : "IDLE";
-
-  const directive = useMutation({
-    mutationFn: async (body: string) => {
-      const channel = await api.comms.openDm(companyId, session.agentId!);
-      return api.comms.send(companyId, channel.id, {
-        body,
-        ...(session.taskId ? { refs: [{ kind: "task", id: session.taskId }] } : {}),
-      });
-    },
-    onSuccess: () => {
-      setDraft("");
-      setSentNote("Direktif gönderildi — Founder→ajan DM'i olarak kaydedildi (denetlenebilir).");
-      void queryClient.invalidateQueries({ queryKey: [companyId, "channels"] });
-    },
-  });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -176,48 +160,12 @@ function FocusModal({ session, onClose }: { session: TerminalSessionDto; onClose
         <div className="min-h-0 flex-1 bg-[#06080b] p-1">
           <GridXterm session={session} fontSize={13} />
         </div>
-        <form
-          className="flex shrink-0 items-center gap-2 border-t border-acos-line bg-acos-bg2 px-3 py-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const body = draft.trim();
-            if (body && session.agentId && !directive.isPending) directive.mutate(body);
-          }}
-        >
-          <input
-            data-testid="directive-input"
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              setSentNote(null);
-            }}
-            placeholder={
-              session.agentId
-                ? `${session.agentName ?? "ajan"}'a Founder direktifi… (DM olarak iletilir)`
-                : "bu oturuma bağlı ajan yok"
-            }
-            disabled={!session.agentId || directive.isPending}
-            className="min-w-0 flex-1 rounded-md border border-acos-line bg-acos-bg1 px-2.5 py-1.5 font-mono text-[12px] text-acos-fg0 placeholder:text-acos-fg2 focus:border-dept-engineering focus:outline-none"
-          />
-          <button
-            type="submit"
-            data-testid="directive-send"
-            disabled={!session.agentId || draft.trim() === "" || directive.isPending}
-            className="shrink-0 rounded-md px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40"
-            style={{ background: "#a879ff" }}
-          >
-            {directive.isPending ? "Gönderiliyor…" : "Direktif Gönder"}
-          </button>
-        </form>
-        {(sentNote ?? directive.error) && (
-          <div
-            className="shrink-0 border-t border-acos-line px-3 py-1 text-[10px]"
-            style={{ color: directive.error ? "#ff6b8a" : "#3fd0a0" }}
-            data-testid="directive-status"
-          >
-            {directive.error ? `Gönderilemedi: ${String(directive.error)}` : sentNote}
-          </div>
-        )}
+        <FounderDirectiveForm
+          companyId={companyId}
+          agentId={session.agentId}
+          agentName={session.agentName}
+          taskId={session.taskId}
+        />
       </div>
     </div>
   );
@@ -294,10 +242,19 @@ export function TerminalGrid() {
   const closedAgentIds = useTerminalGrid((s) => s.closedAgentIds);
   const openAll = useTerminalGrid((s) => s.openAll);
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
 
   const sessions = useQuery({
     queryKey: [companyId, "terminals"],
     queryFn: () => api.terminals.list(companyId, { limit: 100 }),
+    refetchInterval: 10_000,
+  });
+  // Ajan oturum hücreleri (2026-08-18): görev alan HER ajan — CEO dahil —
+  // burada bir "düşünce terminali" açar. Poll yedek; asıl tazeleme
+  // agent.step.recorded / agent.session.* WS invalidation'ından gelir.
+  const agentSessions = useQuery({
+    queryKey: [companyId, "agent-sessions"],
+    queryFn: () => api.agents.companySessions(companyId, { limit: 50 }),
     refetchInterval: 10_000,
   });
 
@@ -308,14 +265,22 @@ export function TerminalGrid() {
       (members === null || (s.agentId !== null && members.has(s.agentId))),
   );
   const open = active.filter((s) => !s.agentId || !closedAgentIds.includes(s.agentId));
-  const hiddenCount = active.length - open.length;
+  const visibleSessions = (agentSessions.data ?? []).filter(
+    (s) => members === null || members.has(s.agentId),
+  );
+  const openSessions = visibleSessions.filter((s) => !closedAgentIds.includes(s.agentId));
+  const hiddenCount =
+    active.length - open.length + (visibleSessions.length - openSessions.length);
   const focused = focusedId ? (active.find((s) => s.id === focusedId) ?? null) : null;
+  const focusedSession = focusedSessionId
+    ? (visibleSessions.find((s) => s.id === focusedSessionId) ?? null)
+    : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-acos-bg1">
       <div className="flex h-6 shrink-0 items-center gap-1.5 border-b border-acos-line px-2 text-[9.5px] text-acos-fg2">
         <span>
-          {open.length} açık terminal
+          {openSessions.length} oturum · {open.length} terminal
           {hiddenCount > 0 && ` · ${hiddenCount} gizli`}
           {team && <span className="text-dept-engineering"> · filtre: {team.name}</span>}
         </span>
@@ -342,14 +307,14 @@ export function TerminalGrid() {
         <DensityChip value="M" />
         <DensityChip value="L" />
       </div>
-      {open.length === 0 ? (
+      {open.length === 0 && openSessions.length === 0 ? (
         <div
           className="flex flex-1 items-center justify-center text-[11px] text-acos-fg2"
           data-testid="terminal-grid-empty"
         >
-          {active.length === 0
-            ? "Açık terminal oturumu yok — ajanlar çalışmaya başlayınca burada belirir."
-            : "Tüm terminaller gizli — roster'dan ya da 'hepsini aç' ile geri aç."}
+          {active.length === 0 && visibleSessions.length === 0
+            ? "Açık oturum yok — bir ajana görev verildiğinde düşünce ve aksiyon akışı burada belirir."
+            : "Tüm hücreler gizli — roster'dan ya da 'hepsini aç' ile geri aç."}
         </div>
       ) : (
         <div
@@ -360,6 +325,17 @@ export function TerminalGrid() {
             gridAutoRows: DENSITY_MIN_H[density],
           }}
         >
+          {/* Ajan oturumları önce: CEO dahil, görev alan her ajanın düşünce
+              terminali. Aynı ajanın PTY hücresi (kabuk) ayrıca görünür. */}
+          {openSessions.map((session) => (
+            <AgentSessionCell
+              key={session.id}
+              companyId={companyId}
+              session={session}
+              fontSize={DENSITY_FONT[density]}
+              onFocus={() => setFocusedSessionId(session.id)}
+            />
+          ))}
           {open.map((session) => (
             <CellFrame key={session.id} session={session} onFocus={() => setFocusedId(session.id)}>
               {/* while focused, the cell releases its topic subscription so the
@@ -376,6 +352,13 @@ export function TerminalGrid() {
         </div>
       )}
       {focused && <FocusModal session={focused} onClose={() => setFocusedId(null)} />}
+      {focusedSession && (
+        <SessionFocusModal
+          companyId={companyId}
+          session={focusedSession}
+          onClose={() => setFocusedSessionId(null)}
+        />
+      )}
     </div>
   );
 }

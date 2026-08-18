@@ -30,6 +30,7 @@ import {
   AgentSchema,
   AgentSessionSchema,
   AgentStepSchema,
+  CompanyAgentSessionSchema,
   ModelBindingSchema,
   type Agent,
   type ModelBinding,
@@ -314,6 +315,16 @@ export function createAcosClient(options: AcosClientOptions) {
         z
           .array(AgentSessionSchema)
           .parse(await get(`/api/v1/companies/${companyId}/agents/${agentId}/sessions`)),
+      // Komuta merkezi oturum hücreleri: şirket genelindeki canlı (+ yeni
+      // bitmiş) ajan oturumları — ajan adı ve görev etiketiyle zenginleşmiş.
+      companySessions: async (companyId: string, opts: { limit?: number } = {}) => {
+        const search = new URLSearchParams();
+        if (opts.limit) search.set("limit", String(opts.limit));
+        const qs = search.toString();
+        return z
+          .array(CompanyAgentSessionSchema)
+          .parse(await get(`/api/v1/companies/${companyId}/agent-sessions${qs ? `?${qs}` : ""}`));
+      },
       steps: async (
         companyId: string,
         agentId: string,
@@ -651,37 +662,21 @@ export function createAcosClient(options: AcosClientOptions) {
     tools: {
       list: async (): Promise<ToolDefinition[]> =>
         z.array(ToolDefinitionSchema).parse(await get("/api/v1/tools")),
+      // 2026-08-18: izin CRUD'u şirket kapsamına taşındı (sunucu yüzeyiyle birlikte)
       permissions: {
-        list: async (): Promise<ToolPermissionItem[]> =>
-          z.array(ToolPermissionItemSchema).parse(await get("/api/v1/tools/permissions")),
-        grant: async (body: GrantToolPermissionRequest): Promise<{ id: string }> =>
-          (await post("/api/v1/tools/permissions", body)) as { id: string },
-        revoke: async (permissionId: string): Promise<void> => {
-          await del(`/api/v1/tools/permissions/${permissionId}`);
+        list: async (companyId: string): Promise<ToolPermissionItem[]> =>
+          z
+            .array(ToolPermissionItemSchema)
+            .parse(await get(`/api/v1/companies/${companyId}/tools/permissions`)),
+        grant: async (
+          companyId: string,
+          body: GrantToolPermissionRequest,
+        ): Promise<{ id: string }> =>
+          (await post(`/api/v1/companies/${companyId}/tools/permissions`, body)) as { id: string },
+        revoke: async (companyId: string, permissionId: string): Promise<void> => {
+          await del(`/api/v1/companies/${companyId}/tools/permissions/${permissionId}`);
         },
       },
-    },
-  };
-}
-        if (filters.limit !== undefined) search.set("limit", String(filters.limit));
-        if (filters.offset !== undefined) search.set("offset", String(filters.offset));
-        const qs = search.toString();
-        return z
-          .array(ApprovalSchema)
-          .parse(await get(`/api/v1/companies/${companyId}/approvals${qs ? `?${qs}` : ""}`));
-      },
-      get: async (companyId: string, approvalId: string): Promise<ApprovalDetail> =>
-        ApprovalDetailSchema.parse(
-          await get(`/api/v1/companies/${companyId}/approvals/${approvalId}`),
-        ),
-      verdict: async (
-        companyId: string,
-        approvalId: string,
-        body: ApprovalVerdictRequest,
-      ): Promise<Approval> =>
-        ApprovalSchema.parse(
-          await post(`/api/v1/companies/${companyId}/approvals/${approvalId}/verdict`, body),
-        ),
     },
   };
 }

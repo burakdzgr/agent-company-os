@@ -21,6 +21,7 @@ import {
   positions,
   projectMembers,
   projects,
+  tasks,
 } from "@acos/db/schema";
 import { OrgService, orgLockInTx } from "../org/service.js";
 import { emitDomainEvent } from "../events/emit.js";
@@ -703,6 +704,50 @@ export class AgentsService {
       .where(and(eq(agentSessions.companyId, ctx.companyId), eq(agentSessions.agentId, agentId)))
       .orderBy(desc(agentSessions.startedAt))
       .limit(50);
+  }
+
+  /**
+   * Komuta merkezi oturum hücreleri (2026-08-18): şirket genelindeki CANLI
+   * ajan oturumları + son 10 dakikada bitenler (hücre "tamamlandı" olarak
+   * sönümlenip kaybolsun diye) — ajan adı ve görev etiketiyle zenginleşmiş.
+   */
+  async listCompanySessions(ctx: CompanyContext, opts: { limit: number }) {
+    const rows = await this.db
+      .select({
+        session: agentSessions,
+        agentName: agents.name,
+        taskNumber: tasks.number,
+        taskTitle: tasks.title,
+      })
+      .from(agentSessions)
+      .leftJoin(agents, eq(agentSessions.agentId, agents.id))
+      .leftJoin(tasks, eq(agentSessions.taskId, tasks.id))
+      .where(
+        and(
+          eq(agentSessions.companyId, ctx.companyId),
+          or(
+            sql`${agentSessions.status} IN ('starting','running','waiting')`,
+            sql`${agentSessions.endedAt} >= now() - interval '10 minutes'`,
+          ),
+        ),
+      )
+      .orderBy(desc(agentSessions.startedAt))
+      .limit(opts.limit);
+    return rows.map((r) => ({
+      id: r.session.id,
+      agentId: r.session.agentId,
+      taskId: r.session.taskId,
+      workflowId: r.session.workflowId,
+      status: r.session.status,
+      currentActivity: r.session.currentActivity,
+      startedAt: r.session.startedAt.toISOString(),
+      endedAt: r.session.endedAt?.toISOString() ?? null,
+      stepsCount: r.session.stepsCount,
+      costCents: r.session.costCents,
+      agentName: r.agentName ?? null,
+      taskNumber: r.taskNumber ?? null,
+      taskTitle: r.taskTitle ?? null,
+    }));
   }
 
   /** Founder gözlemi: ajanın adım akışı (agent_steps read-model, en yeni önce). */

@@ -7,7 +7,7 @@ export const ToolPermissionItemSchema = z.object({
   subjectKind: z.enum(["agent", "org_unit", "position"]),
   subjectId: z.string().uuid(),
   subjectLabel: z.string().optional(), // enriched by backend (agent name / unit slug)
-  constraints: z.record(z.unknown()).default({}),
+  constraints: z.record(z.string(), z.unknown()).default({}),
   grantedByUserId: z.string().uuid().nullable(),
   grantedByAgentId: z.string().uuid().nullable(),
   expiresAt: z.string().datetime().nullable(),
@@ -21,7 +21,7 @@ export const GrantToolPermissionRequestSchema = z.object({
   toolName: z.string().min(1),
   subjectKind: z.enum(["agent", "org_unit", "position"]),
   subjectId: z.string().uuid(),
-  constraints: z.record(z.unknown()).optional(),
+  constraints: z.record(z.string(), z.unknown()).optional(),
   expiresAt: z.string().datetime().optional(),
 });
 

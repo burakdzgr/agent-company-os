@@ -61,6 +61,22 @@ async function main(): Promise<void> {
     console.warn("terminal reconciliation skipped:", (err as Error).message);
   }
 
+  // Grant mutabakatı (2026-08-18): seedToolGrants yalnız SEED şirketine
+  // koşuyordu — sihirbazla kurulan şirketin CEO'su ilk görevinde
+  // NO_PERMISSION_GRANT'e çarpıyor ve Founder'dan izin dilemek zorunda
+  // kalıyordu. Liste (tool, subject) bazında idempotent; bilinen birim
+  // slug'ı olmayan şirkette hiçbir satır eşleşmez, yani zararsız.
+  try {
+    const { seedToolGrants } = await import("./seed.js");
+    const { companyContext } = await import("@acos/db");
+    const companyRows = await createDb(pool).select({ id: companies.id }).from(companies);
+    for (const row of companyRows) {
+      await seedToolGrants(guardedDb, companyContext(row.id));
+    }
+  } catch (err) {
+    console.warn("tool-grant reconciliation skipped:", (err as Error).message);
+  }
+
   const app = await buildApp({
     db: createDb(pool),
     guardedDb,

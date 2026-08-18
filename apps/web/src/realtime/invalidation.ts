@@ -18,6 +18,12 @@ export function invalidationKeysFor(cid: string, event: Event): QueryKey[] {
       invalidated.push(keys.agentBindings(cid, agentId));
     if (type.startsWith("agent.session") && agentId)
       invalidated.push(keys.agentSessions(cid, agentId));
+    // Komuta merkezi oturum hücreleri: oturum başla/bit + her kaydedilen adım
+    // ana sayfadaki canlı akışı tazeler (CEO dahil her görev alan ajan).
+    if (type.startsWith("agent.session") || type.startsWith("agent.step") || type === "agent.task.started")
+      invalidated.push([cid, "agent-sessions"]);
+    if (type.startsWith("agent.step") && agentId)
+      invalidated.push([cid, "agents", agentId, "steps"]);
     if (type === "agent.task.assigned") invalidated.push([cid, "tasks"]);
     return invalidated;
   }

@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { useParams } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Card, Dialog, Field, Input, Select } from "@acos/ui";
 import { api } from "../../lib/api.js";
-import type { ToolDefinition, ToolPermissionItem, GrantToolPermissionRequest } from "@acos/contracts";
+import type { ToolDefinition, GrantToolPermissionRequest } from "@acos/contracts";
 
 export function PermissionsPanel() {
+  const { companyId } = useParams({ from: "/c/$companyId" });
   const queryClient = useQueryClient();
   const [grantDialogOpen, setGrantDialogOpen] = useState(false);
 
@@ -14,22 +16,22 @@ export function PermissionsPanel() {
   });
 
   const permissionsQuery = useQuery({
-    queryKey: ["toolPermissions"],
-    queryFn: () => api.tools.permissions.list(),
+    queryKey: [companyId, "toolPermissions"],
+    queryFn: () => api.tools.permissions.list(companyId),
   });
 
   const grantMutation = useMutation({
-    mutationFn: (body: GrantToolPermissionRequest) => api.tools.permissions.grant(body),
+    mutationFn: (body: GrantToolPermissionRequest) => api.tools.permissions.grant(companyId, body),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["toolPermissions"] });
+      queryClient.invalidateQueries({ queryKey: [companyId, "toolPermissions"] });
       setGrantDialogOpen(false);
     },
   });
 
   const revokeMutation = useMutation({
-    mutationFn: (permissionId: string) => api.tools.permissions.revoke(permissionId),
+    mutationFn: (permissionId: string) => api.tools.permissions.revoke(companyId, permissionId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["toolPermissions"] });
+      queryClient.invalidateQueries({ queryKey: [companyId, "toolPermissions"] });
     },
   });
 
@@ -42,10 +44,10 @@ export function PermissionsPanel() {
 
   return (
     <div className="space-y-4">
-      <Card
-        title="Araç İzinleri"
-        description="Ajanların ve departmanların kullanabileceği araçları yönetin."
-      >
+      <Card title="Araç İzinleri">
+        <p className="mb-3 text-xs text-acos-fg2">
+          Ajanların ve departmanların kullanabileceği araçları yönetin.
+        </p>
         <div className="mb-4 flex justify-end">
           <Button onClick={() => setGrantDialogOpen(true)}>İzin Ekle</Button>
         </div>
@@ -125,6 +127,7 @@ export function PermissionsPanel() {
         onClose={() => setGrantDialogOpen(false)}
       >
         <GrantPermissionForm
+          companyId={companyId}
           tools={tools}
           onSubmit={(data) => grantMutation.mutate(data)}
           isPending={grantMutation.isPending}
@@ -136,11 +139,13 @@ export function PermissionsPanel() {
 }
 
 function GrantPermissionForm({
+  companyId,
   tools,
   onSubmit,
   isPending,
   error,
 }: {
+  companyId: string;
   tools: ToolDefinition[];
   onSubmit: (data: GrantToolPermissionRequest) => void;
   isPending: boolean;
@@ -149,6 +154,30 @@ function GrantPermissionForm({
   const [toolName, setToolName] = useState("");
   const [subjectKind, setSubjectKind] = useState<"agent" | "org_unit" | "position">("org_unit");
   const [subjectId, setSubjectId] = useState("");
+
+  // UUID yapıştırtmak Founder'a iş çıkarıyordu — hedefler listeden seçilir
+  // (2026-08-18); Input'a düşmek yalnız listeler boşken gerekir.
+  const agentsQuery = useQuery({
+    queryKey: [companyId, "agents", "list"],
+    queryFn: () => api.agents.list(companyId),
+    enabled: subjectKind === "agent",
+  });
+  const unitsQuery = useQuery({
+    queryKey: [companyId, "org", "units"],
+    queryFn: () => api.org.listUnits(companyId),
+    enabled: subjectKind === "org_unit",
+  });
+  const positionsQuery = useQuery({
+    queryKey: [companyId, "org", "positions"],
+    queryFn: () => api.org.listPositions(companyId),
+    enabled: subjectKind === "position",
+  });
+  const subjectOptions: Array<{ id: string; label: string }> =
+    subjectKind === "agent"
+      ? (agentsQuery.data ?? []).map((a) => ({ id: a.id, label: a.name }))
+      : subjectKind === "org_unit"
+        ? (unitsQuery.data ?? []).map((u) => ({ id: u.id, label: u.name }))
+        : (positionsQuery.data ?? []).map((p) => ({ id: p.id, label: p.title }));
 
   return (
     <form
@@ -172,7 +201,10 @@ function GrantPermissionForm({
       <Field label="Hedef Türü">
         <Select
           value={subjectKind}
-          onChange={(e) => setSubjectKind(e.target.value as typeof subjectKind)}
+          onChange={(e) => {
+            setSubjectKind(e.target.value as typeof subjectKind);
+            setSubjectId("");
+          }}
           required
         >
           <option value="org_unit">Departman (org_unit)</option>
@@ -181,21 +213,28 @@ function GrantPermissionForm({
         </Select>
       </Field>
 
-      <Field label="Hedef ID (UUID)">
-        <Input
-          value={subjectId}
-          onChange={(e) => setSubjectId(e.target.value)}
-          placeholder="ör. 123e4567-e89b-12d3-a456-426614174000"
-          pattern="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
-          required
-        />
-        <p className="mt-1 text-xs text-acos-fg2">
-          İpucu: Departman ID'lerini Organizasyon sayfasından, ajan ID'lerini Ajanlar sayfasından
-          kopyalayabilirsiniz.
-        </p>
+      <Field label="Hedef">
+        {subjectOptions.length > 0 ? (
+          <Select value={subjectId} onChange={(e) => setSubjectId(e.target.value)} required>
+            <option value="">Seçin...</option>
+            {subjectOptions.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </Select>
+        ) : (
+          <Input
+            value={subjectId}
+            onChange={(e) => setSubjectId(e.target.value)}
+            placeholder="ör. 123e4567-e89b-12d3-a456-426614174000"
+            pattern="[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+            required
+          />
+        )}
       </Field>
 
-      {error && <p className="text-sm text-danger">{String(error)}</p>}
+      {error != null && <p className="text-sm text-danger">{String(error)}</p>}
 
       <Button type="submit" disabled={isPending} className="w-full justify-center">
         {isPending ? "Ekleniyor..." : "İzin Ekle"}

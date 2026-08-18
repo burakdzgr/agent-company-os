@@ -265,7 +265,7 @@ export function ApprovalsView() {
     queryFn: () =>
       tab === "inbox"
         ? api.approvals.list(companyId, { status: "pending" })
-        : api.approvals.list(companyId, { limit: 100 }),
+        : api.approvals.list(companyId),
   });
 
   const items = (list.data ?? []).filter((a) => (tab === "inbox" ? a.status === "pending" : true));

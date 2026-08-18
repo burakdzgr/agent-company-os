@@ -375,7 +375,13 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
       return options.internalApiToken;
     },
   });
-  registerToolManagementRoutes(app, { db: guardedDb });
+  registerToolManagementRoutes(app, {
+    db: () => {
+      if (!options.guardedDb) throw new ApiError("internal", "tool permissions not wired");
+      return options.guardedDb;
+    },
+    membership: (userId, companyId) => companiesSvc().membership(userId, companyId),
+  });
 
   // ---------- terminals (T41; 24 §6.9) ----------
   const sandboxInternal =

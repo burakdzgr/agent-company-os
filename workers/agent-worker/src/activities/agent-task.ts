@@ -1236,6 +1236,19 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           costCents: input.costCents,
           durationMs: input.durationMs,
         });
+        // 10 §10 satırı "agent.step.recorded → OP (badges), WS (Monitor)":
+        // olay ana sayfadaki oturum hücresinin canlı tazelenmesini tetikler
+        // (Founder, CEO dahil her ajanın düşünce/aksiyon akışını izler).
+        // Adım eklemesiyle AYNI tx — replay yolu yukarıda erken döndüğü için
+        // exactly-once (INV-11: olay, etkisiyle aynı outbox tx'inde).
+        await emitDomainEvent(tx, ctx, {
+          type: "agent.step.recorded",
+          actor: { kind: "agent", id: input.agentId },
+          agentId: input.agentId,
+          taskId: input.taskId,
+          causationId: input.stepId,
+          payload: { sessionId: input.sessionId, stepNo: input.stepNo, actionType: actionKind },
+        });
         await tx
           .update(agentSessions)
           .set({

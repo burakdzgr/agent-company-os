@@ -467,7 +467,7 @@ const SEED_GRANT_TOOLS = [
  * budget per call. Idempotent via the active-grant unique index, and safe
  * to re-run on existing installs (additive seed upgrade).
  */
-async function seedToolGrants(db: GuardedDb, ctx: CompanyContext): Promise<void> {
+export async function seedToolGrants(db: GuardedDb, ctx: CompanyContext): Promise<void> {
   const units = await db
     .select({ id: orgUnits.id })
     .from(orgUnits)

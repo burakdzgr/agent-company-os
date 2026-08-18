@@ -122,3 +122,16 @@ export const AgentSessionSchema = z.object({
   stepsCount: z.number().int(),
   costCents: z.number().int(),
 });
+
+/**
+ * Komuta merkezi oturum hücreleri (2026-08-18): şirket GENELİNDEKİ canlı ajan
+ * oturumları — CEO dahil, görev alan her ajanın düşünce/aksiyon akışı ana
+ * sayfadaki terminal ızgarasında bir hücre olarak izlenir. PTY oturumlarından
+ * (TerminalSessionDto) farklı: bu, agent_steps read-model'inin oturum başlığı.
+ */
+export const CompanyAgentSessionSchema = AgentSessionSchema.extend({
+  agentName: z.string().nullable(),
+  taskNumber: z.number().int().nullable(),
+  taskTitle: z.string().nullable(),
+});
+export type CompanyAgentSession = z.infer<typeof CompanyAgentSessionSchema>;

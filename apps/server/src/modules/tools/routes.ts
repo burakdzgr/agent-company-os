@@ -11,7 +11,8 @@ import {
   ToolInvokeWireRequestSchema,
   ToolPermissionItemSchema,
 } from "@acos/contracts";
-import { and, companyContext, eq, isNull, type GuardedDb } from "@acos/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { companyContext, type GuardedDb } from "@acos/db";
 import { agents, orgUnits, positions, toolPermissions } from "@acos/db/schema";
 import { listTools } from "@acos/tools";
 import type { ToolGateway } from "./gateway.js";
@@ -55,14 +56,35 @@ export function registerToolGatewayRoutes(
 }
 
 /**
- * Tool Management API — Founder/admin UI için permission CRUD + tool registry listeleme.
+ * Tool Management API — Founder/admin UI için permission CRUD + tool registry
+ * listeleme. 2026-08-18 düzeltmesi: ilk sürüm hiç var olmayan
+ * `request.companyId` dekorasyonuna yaslanıyordu (HEAD derlenmiyordu);
+ * yüzey, kod tabanının standardı olan /companies/:companyId kapsamına ve
+ * membership kontrolüne taşındı.
  */
 export function registerToolManagementRoutes(
   app: FastifyInstance,
-  deps: { db: GuardedDb },
+  deps: {
+    db: () => GuardedDb;
+    membership: (userId: string, companyId: string) => Promise<string | null>;
+  },
 ): void {
+  /** Üyelik + founder/admin kapısı (izin yönetimi en yetkili yüzeydir). */
+  async function requireAdmin(userId: string, companyId: string): Promise<void> {
+    const role = await deps.membership(userId, companyId);
+    if (!role) {
+      throw Object.assign(new Error("company not found"), { statusCode: 404 });
+    }
+    if (role !== "founder" && role !== "admin") {
+      throw Object.assign(new Error("tool permissions require founder/admin"), {
+        statusCode: 403,
+      });
+    }
+  }
+
   // GET /api/v1/tools — registry'deki tüm tool tanımlarını listele
-  app.get("/api/v1/tools", async (_request, reply) => {
+  app.get("/api/v1/tools", async (request, reply) => {
+    request.requireUser();
     const tools = listTools().map((t) => ({
       name: t.name,
       description: t.description,
@@ -73,14 +95,14 @@ export function registerToolManagementRoutes(
     return reply.send(tools.map((t) => ToolDefinitionSchema.parse(t)));
   });
 
-  // GET /api/v1/tools/permissions — şirketteki tüm aktif permission'ları listele (enriched)
-  app.get("/api/v1/tools/permissions", async (request, reply) => {
-    if (!request.principal || !request.companyId) {
-      return reply.status(401).send({ code: "unauthenticated" });
-    }
-    const ctx = companyContext(request.companyId);
+  // GET …/tools/permissions — şirketteki tüm aktif permission'ları listele (enriched)
+  app.get("/api/v1/companies/:companyId/tools/permissions", async (request, reply) => {
+    const user = request.requireUser();
+    const { companyId } = request.params as { companyId: string };
+    await requireAdmin(user.id, companyId);
+    const ctx = companyContext(companyId);
 
-    const rows = await deps.db
+    const rows = await deps.db()
       .select({
         id: toolPermissions.id,
         toolName: toolPermissions.toolName,
@@ -132,12 +154,12 @@ export function registerToolManagementRoutes(
     return reply.send(items);
   });
 
-  // POST /api/v1/tools/permissions — yeni grant oluştur
-  app.post("/api/v1/tools/permissions", async (request, reply) => {
-    if (!request.principal || !request.companyId) {
-      return reply.status(401).send({ code: "unauthenticated" });
-    }
-    const ctx = companyContext(request.companyId);
+  // POST …/tools/permissions — yeni grant oluştur
+  app.post("/api/v1/companies/:companyId/tools/permissions", async (request, reply) => {
+    const user = request.requireUser();
+    const { companyId } = request.params as { companyId: string };
+    await requireAdmin(user.id, companyId);
+    const ctx = companyContext(companyId);
 
     const parsed = GrantToolPermissionRequestSchema.safeParse(request.body);
     if (!parsed.success) {
@@ -146,7 +168,7 @@ export function registerToolManagementRoutes(
 
     const { toolName, subjectKind, subjectId, constraints, expiresAt } = parsed.data;
 
-    const [created] = await deps.db
+    const [created] = await deps.db()
       .insert(toolPermissions)
       .values({
         companyId: ctx.companyId,
@@ -154,8 +176,8 @@ export function registerToolManagementRoutes(
         subjectKind,
         subjectId,
         constraints: constraints ?? {},
-        grantedByUserId: request.principal.kind === "user" ? request.principal.userId : null,
-        grantedByAgentId: request.principal.kind === "agent" ? request.principal.agentId : null,
+        grantedByUserId: user.id, // bu yüzeyde principal her zaman insan (Founder/admin)
+        grantedByAgentId: null,
         expiresAt: expiresAt ? new Date(expiresAt) : null,
       })
       .returning();
@@ -169,15 +191,14 @@ export function registerToolManagementRoutes(
     });
   });
 
-  // DELETE /api/v1/tools/permissions/:id — permission'ı revoke et (soft delete)
-  app.delete("/api/v1/tools/permissions/:id", async (request, reply) => {
-    if (!request.principal || !request.companyId) {
-      return reply.status(401).send({ code: "unauthenticated" });
-    }
-    const ctx = companyContext(request.companyId);
-    const { id } = request.params as { id: string };
+  // DELETE …/tools/permissions/:id — permission'ı revoke et (soft delete)
+  app.delete("/api/v1/companies/:companyId/tools/permissions/:id", async (request, reply) => {
+    const user = request.requireUser();
+    const { companyId, id } = request.params as { companyId: string; id: string };
+    await requireAdmin(user.id, companyId);
+    const ctx = companyContext(companyId);
 
-    const [updated] = await deps.db
+    const [updated] = await deps.db()
       .update(toolPermissions)
       .set({ revokedAt: new Date() })
       .where(

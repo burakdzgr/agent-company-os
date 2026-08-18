@@ -6,6 +6,7 @@ import {
   AgentSchema,
   AgentSessionSchema,
   AgentStepSchema,
+  CompanyAgentSessionSchema,
   ChangeAgentPlacementRequestSchema,
   HireAgentRequestSchema,
   LifecycleActionRequestSchema,
@@ -254,6 +255,30 @@ export async function registerAgentRoutes(
         stepsCount: s.stepsCount,
         costCents: s.costCents,
       }));
+    },
+  );
+
+  // Komuta merkezi oturum hücreleri (2026-08-18): şirket genelindeki canlı
+  // ajan oturumları — ana sayfa terminal ızgarası her görev alan ajan (CEO
+  // dahil) için bir "oturum" hücresi açar; içeriği /agents/:id/steps besler.
+  app.get(
+    "/api/v1/companies/:id/agent-sessions",
+    {
+      schema: {
+        operationId: "listCompanyAgentSessions",
+        tags: ["agents"],
+        params: idParam,
+        querystring: z.object({
+          limit: z.coerce.number().int().min(1).max(100).default(50),
+        }),
+        response: { 200: z.array(CompanyAgentSessionSchema) },
+      },
+    },
+    async (request) => {
+      const ctx = await requireCompany(request, request.params.id);
+      return (await agentsSvc().listCompanySessions(ctx, { limit: request.query.limit })).map(
+        (s) => ({ ...s, status: s.status as never }),
+      );
     },
   );
 
