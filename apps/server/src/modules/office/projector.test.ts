@@ -389,3 +389,49 @@ describe("golden choreography (23 §4.1 mapping rows)", () => {
     expect(snapshot.snapshotEpoch).toBe(1);
   });
 });
+
+describe("oturum adımı koreografisi (2026-08-18 — agent.step.recorded)", () => {
+  it("düşünme/araç/iletişim adımları rozetlere yansır", async () => {
+    const h = makeHarness();
+    const think = await h.projector.handleEvent(
+      envelope("agent.step.recorded", { sessionId: ALICE, stepNo: 1, actionType: "record_decision" }, ALICE),
+    );
+    expect(think[0]).toMatchObject({ type: "office.status.changed", agentId: ALICE, badge: "THINKING" });
+
+    const tool = await h.projector.handleEvent(
+      envelope("agent.step.recorded", { sessionId: ALICE, stepNo: 2, actionType: "use_tool" }, ALICE),
+    );
+    expect(tool[0]).toMatchObject({ agentId: ALICE, badge: "WORKING" });
+
+    // aynı rozet tekrar gelirse talimat çıkmaz (coalesce)
+    const again = await h.projector.handleEvent(
+      envelope("agent.step.recorded", { sessionId: ALICE, stepNo: 3, actionType: "use_tool" }, ALICE),
+    );
+    expect(again).toHaveLength(0);
+  });
+
+  it("complete_task → yöneticiye rapor yürüyüşü + dwell sonrası eve dönüş", async () => {
+    const h = makeHarness(); // reportsTo: ALICE → BOB
+    const done = await h.projector.handleEvent(
+      envelope("agent.step.recorded", { sessionId: ALICE, stepNo: 9, actionType: "complete_task" }, ALICE),
+    );
+    const walk = done.find((i) => i.type === "office.avatar.moved");
+    expect(walk).toMatchObject({ agentId: ALICE, reason: "dm" });
+    expect(done.some((i) => i.type === "office.interaction.started")).toBe(true);
+
+    // dwell zamanlayıcısı ateşlenince yürüyen masasına döner (return_home)
+    h.fire(h.timers.length - 1);
+    const returned = h.published
+      .map((p) => p.instruction)
+      .find((i) => i.type === "office.avatar.moved" && i.reason === "return_home");
+    expect(returned).toMatchObject({ agentId: ALICE });
+  });
+
+  it("yöneticisi olmayan ajanın complete_task'ı yürüyüş üretmez", async () => {
+    const h = makeHarness(); // CARO'nun yöneticisi yok
+    const done = await h.projector.handleEvent(
+      envelope("agent.step.recorded", { sessionId: CARO, stepNo: 4, actionType: "complete_task" }, CARO),
+    );
+    expect(done.every((i) => i.type !== "office.avatar.moved")).toBe(true);
+  });
+});

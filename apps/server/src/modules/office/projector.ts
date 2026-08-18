@@ -326,6 +326,39 @@ export class OfficeProjector {
           emit({ type: "office.status.changed", agentId: ownerId, badge: "WORKING", ...cause });
         break;
       }
+      // Oturum adımları (2026-08-18; 10 §10 satırı "agent.step.recorded → OP
+      // (badges)"): ajanın düşünme/araç/iletişim ritmi rozetlere yansır —
+      // ofis, oturum aktivitesini gerçek zamanlı gösterir. Görevini bitiren
+      // ajan yöneticisine yürüyüp raporlar (dwell sonrası masasına döner);
+      // yürüyüş GERÇEK bir olaydan doğar, N2 korunur.
+      case "agent.step.recorded": {
+        const agentId = actorAgent ?? (payload.agentId as string | undefined);
+        if (!agentId || !state.agents.has(agentId)) break;
+        const action = String(payload.actionType ?? "");
+        const badgeByAction: Record<string, PresenceBadge> = {
+          record_decision: "THINKING",
+          use_tool: "WORKING",
+          send_message: "COMMUNICATING",
+          request_review: "REVIEWING",
+          escalate: "ESCALATING",
+        };
+        const badge = badgeByAction[action];
+        if (badge && this.setBadge(state, agentId, badge))
+          emit({ type: "office.status.changed", agentId, badge, ...cause });
+        if (action === "complete_task" && !stale) {
+          const managerId = state.reportsTo[agentId];
+          if (managerId && state.agents.has(managerId)) {
+            this.walkAndInteract(state, envelope, emit, {
+              walker: agentId,
+              target: managerId,
+              reason: "dm",
+              interactionKind: "dm",
+              dwellMs: DM_DWELL_MS,
+            });
+          }
+        }
+        break;
+      }
       case "agent.message.sent": {
         if (stale) break;
         const sender = (payload.senderAgentId as string) ?? actorAgent;

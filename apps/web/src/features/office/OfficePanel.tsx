@@ -18,6 +18,10 @@ import { OfficeCanvas } from "./OfficeCanvas.js";
 export function OfficePanel() {
   const { companyId } = useParams({ from: "/c/$companyId" });
   const snapshot = usePresence((s) => s.snapshot);
+  const badges = usePresence((s) => s.badges);
+  const activeCount = Object.values(badges).filter(
+    (b) => b !== "IDLE" && b !== "OFFLINE",
+  ).length;
   const setLayout = useOfficeStore((s) => s.setLayout);
   const setSelectedAgent = useFocus((s) => s.setSelectedAgent);
   const [hireOpen, setHireOpen] = useState(false);
@@ -57,7 +61,11 @@ export function OfficePanel() {
   return (
     <div className="flex h-full min-h-0 flex-col bg-acos-bg1" data-testid="office-panel">
       <div className="flex h-6 shrink-0 items-center gap-2 border-b border-acos-line px-2 text-[9.5px] text-acos-fg2">
-        <span data-testid="office-panel-count">{snapshot?.agents.length ?? 0} ajan sahada</span>
+        {/* AGENTDESK dili: "aktif/toplam" — aktif = IDLE/OFFLINE dışı rozet */}
+        <span data-testid="office-panel-count">
+          <span className="font-semibold text-[#3fd0a0]">{activeCount}</span>/
+          {snapshot?.agents.length ?? 0} aktif
+        </span>
         <span className="ml-auto" />
         <button
           data-testid="office-hire"

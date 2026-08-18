@@ -328,6 +328,10 @@ export function OfficeCanvas({
   const engine = useOfficeStore((s) => s.engine);
   const snapshotCount = useOfficeStore((s) => s.snapshotCount);
   const [fallback, setFallback] = useState(false);
+  // Zoom kontrolleri (2026-08-18, AGENTDESK dili): +/− ve ⤢ sığdır — React
+  // butonları efektin içindeki kamerayı bu ref üzerinden sürer (per-frame
+  // durum React'e girmez, yalnız komut geçer).
+  const controlsRef = useRef<{ zoom: (f: number) => void; fit: () => void } | null>(null);
   const snapshotCountRef = useRef(snapshotCount);
   snapshotCountRef.current = snapshotCount;
   const avatarUrlsRef = useRef(avatarUrls);
@@ -362,6 +366,7 @@ export function OfficeCanvas({
     const host = hostRef.current;
     const app = new Application();
     let destroyed = false;
+    let hostObserver: ResizeObserver | null = null;
     let renderedLayoutVersion = -1;
     let renderedEngineVersion = -1;
     let plan: Floorplan | null = null;
@@ -457,6 +462,29 @@ export function OfficeCanvas({
         camera.position.set(x, y);
       }
       app.renderer.on("resize", fitCamera);
+
+      // Panel duyarlılığı (2026-08-18, Founder geri bildirimi: "ekran
+      // büyüdüğünde ofis stabil kalıyor"): Pixi'nin resizeTo'su yalnız
+      // window resize dinler; dockview paneli PENCERE değişmeden büyür.
+      // ResizeObserver panelin gerçek boyutunu app.resize'a taşır — fitCamera
+      // renderer'ın resize olayından zaten tetiklenir.
+      hostObserver = new ResizeObserver(() => {
+        if (!destroyed) app.resize();
+      });
+      hostObserver.observe(host);
+
+      // React overlay'deki +/−/sığdır butonları kamerayı buradan sürer.
+      controlsRef.current = {
+        zoom: (factor: number) => {
+          userAdjusted = true;
+          const next = Math.min(2.5, Math.max(0.2, camera.scale.x * factor));
+          camera.scale.set(next);
+        },
+        fit: () => {
+          userAdjusted = false;
+          fitCamera();
+        },
+      };
 
       // pan (drag) + zoom (wheel), clamped — camera only, no avatar motion
       let dragging = false;
@@ -696,6 +724,8 @@ export function OfficeCanvas({
 
     return () => {
       destroyed = true;
+      hostObserver?.disconnect();
+      controlsRef.current = null;
       try {
         app.destroy(true, { children: true });
       } catch {
@@ -710,7 +740,40 @@ export function OfficeCanvas({
     return <FallbackList onSelectAgent={onSelectAgent} />;
   }
   // height is the caller's: the route view pins 540px, panels give h-full
-  return <div ref={hostRef} data-testid="office-canvas" className="h-full w-full rounded-lg" />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={hostRef} data-testid="office-canvas" className="h-full w-full rounded-lg" />
+      {/* AGENTDESK dili: sol-üst zoom kontrolleri — kamera komutları,
+          animasyon değil (ofis lint kuralı ihlal edilmez). */}
+      <div className="absolute left-2 top-2 flex flex-col overflow-hidden rounded border border-acos-line bg-acos-bg2/90">
+        <button
+          data-testid="office-zoom-in"
+          aria-label="Yakınlaş"
+          onClick={() => controlsRef.current?.zoom(1.2)}
+          className="px-2 py-0.5 text-[13px] leading-5 text-acos-fg1 hover:bg-acos-bg3 hover:text-acos-fg0"
+        >
+          +
+        </button>
+        <button
+          data-testid="office-zoom-out"
+          aria-label="Uzaklaş"
+          onClick={() => controlsRef.current?.zoom(1 / 1.2)}
+          className="border-t border-acos-line px-2 py-0.5 text-[13px] leading-5 text-acos-fg1 hover:bg-acos-bg3 hover:text-acos-fg0"
+        >
+          −
+        </button>
+        <button
+          data-testid="office-zoom-fit"
+          aria-label="Sığdır"
+          title="ekrana sığdır"
+          onClick={() => controlsRef.current?.fit()}
+          className="border-t border-acos-line px-2 py-0.5 text-[11px] leading-5 text-acos-fg1 hover:bg-acos-bg3 hover:text-acos-fg0"
+        >
+          ⤢
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function FallbackList({
