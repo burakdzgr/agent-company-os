@@ -75,11 +75,18 @@ describe("hardened HostConfig (S8)", () => {
 });
 
 describe("workspace egress env (27 §12)", () => {
-  it("injects proxy env only for egress levels", () => {
-    expect(workspaceEnv("analysis")).toEqual({});
+  it("injects proxy env only for egress levels; HOME/npm cache everywhere", () => {
+    // 2026-08-18: /home/node exec'li tmpfs — HOME + npm cache her seviyede
+    // oraya sabitlenir (readonly rootfs'te ~/.npm yazılamıyordu, npx 126).
+    const analysis = workspaceEnv("analysis");
+    expect(analysis.HOME).toBe("/home/node");
+    expect(analysis.npm_config_cache).toBe("/home/node/.npm");
+    expect(analysis.HTTP_PROXY).toBeUndefined();
     const env = workspaceEnv("coding");
+    expect(env.HOME).toBe("/home/node");
     expect(env.HTTP_PROXY).toBe("http://egress-proxy:3128");
     expect(env.HTTPS_PROXY).toBe("http://egress-proxy:3128");
     expect(env.NO_PROXY).toContain("127.0.0.1");
+    expect(env.GIT_CONFIG_VALUE_0).toBe("/work");
   });
 });

@@ -117,6 +117,15 @@ export function hardenedHostConfig(
     Tmpfs: {
       // noexec on scratch — nothing dropped there may be run (S8 hardening)
       "/tmp": `rw,noexec,nosuid,size=${limits.scratchBytes}`,
+      // 2026-08-18 (canlı bulgu: `npx create-next-app` → exit 126, 10 deneme):
+      // rootfs salt-okunur olduğu için ~/.npm YAZILAMIYOR, /tmp ise noexec —
+      // npx'in indirip ÇALIŞTIRDIĞI paket modeli iki çitin arasında ölüyordu.
+      // /home/node exec'li tmpfs olur (HOME + npm cache buraya taşınır,
+      // workspaceEnv). Bu S8'i gevşetmez: /work volume'u zaten yazılabilir ve
+      // exec'lidir (npm install oradaki node_modules/.bin'i çalıştırır) —
+      // aynı tehdit sınıfı; /tmp'nin noexec çiti aynen yerinde.
+      // uid/gid şart: tmpfs varsayılanı root'undur ve User 1000 yazamaz
+      "/home/node": `rw,exec,nosuid,size=${limits.scratchBytes},uid=1000,gid=1000`,
     },
     Mounts: mounts.map((m) => ({
       Type: m.type ?? ("bind" as const),
@@ -131,8 +140,21 @@ export function hardenedHostConfig(
 /** Proxy env injected into egress-level workspaces so tooling routes out
  *  through the allowlist; there is no default route otherwise (27 §12). */
 export function workspaceEnv(level: IsolationLevel): Record<string, string> {
-  if (ISOLATION_LIMITS[level].network !== "egress") return {};
+  // /home/node exec'li tmpfs'tir (üstteki Tmpfs notu): HOME ve npm cache
+  // oraya sabitlenir — imajın /home/node içeriği (ör. .gitconfig) tmpfs
+  // altında KAYBOLDUĞU için safe.directory git env'iyle yeniden verilir.
+  const base: Record<string, string> = {
+    HOME: "/home/node",
+    npm_config_cache: "/home/node/.npm",
+    npm_config_update_notifier: "false",
+    COREPACK_HOME: "/home/node/.corepack",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "safe.directory",
+    GIT_CONFIG_VALUE_0: "/work",
+  };
+  if (ISOLATION_LIMITS[level].network !== "egress") return base;
   return {
+    ...base,
     HTTP_PROXY: EGRESS_PROXY_URL,
     HTTPS_PROXY: EGRESS_PROXY_URL,
     http_proxy: EGRESS_PROXY_URL,
