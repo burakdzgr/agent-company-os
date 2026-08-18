@@ -13,6 +13,14 @@ function toLlmError(err: unknown, providerId: string): LlmError {
   if (APICallError.isInstance(err)) {
     const status = err.statusCode ?? 0;
     if (status === 429) return new LlmError("rate_limited", err.message, providerId);
+    // 2026-08-18 canlı bulgu: Anthropic "credit balance is too low" hatasını
+    // HTTP 400 ile döndürüyor → bad_request sayılıyor ve router YEDEĞE
+    // DÜŞMÜYORDU — tüm şirket tek kalemde durdu (9 workflow Failed). Kota/
+    // bakiye tükenmesi istek hatası değil sağlayıcı kullanılamazlığıdır;
+    // rate_limited gibi fallback'e uygundur (ollama devralır).
+    if (status === 402 || /credit balance|billing|quota|insufficient/i.test(err.message)) {
+      return new LlmError("rate_limited", err.message, providerId);
+    }
     if (status === 401 || status === 403) return new LlmError("auth", err.message, providerId);
     if (status >= 500 || status === 0)
       return new LlmError("provider_unavailable", err.message, providerId);
