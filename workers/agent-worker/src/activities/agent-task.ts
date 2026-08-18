@@ -2,7 +2,7 @@
 // the workflow only orchestrates. Effects are exactly-once at the DB via
 // stepId-derived idempotency keys (08 §11). Task transitions go through the
 // ONE status writer (TaskStateService — @acos/db/task-engine).
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { uuidv5 } from "@acos/domain";
 import { parseEventPayload } from "@acos/events";
 import {
@@ -38,6 +38,7 @@ import {
   environments,
   llmCalls,
   modelProfiles,
+  orgEdges,
   positions,
   projects,
   repositories,
@@ -668,8 +669,8 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
         `- {"type":"create_task","kind":"initiative|epic|task|subtask","parentTaskId":"<uuid>","title":"<=200","objective":"...","successCriteria":["..."],"priority":"P0|P1|P2|P3","estimatedEffort":1-13,"risk":"low|medium|high|critical"}`,
         `- {"type":"delegate_task","taskId":"<uuid>","toAgentId":"<uuid>","note":"<=1000"}`,
         `- {"type":"request_review","taskId":"<uuid>","artifactId":"<uuid>","summary":"<=2000"}`,
-        `- {"type":"request_help","topic":"<=200","body":"<=4000","audience":"peer|team|lead|manager|specialist"}`,
-        `- {"type":"escalate","reason":"<=2000","attempted":["..."],"options":[{"option":"...","risk":"...","cost":"..."}],"recommendation":"..."}`,
+        `- {"type":"request_help","topic":"<=200","body":"<=4000","audience":"peer|team|lead|manager|specialist"} — blokajlarda İLK adres: audience:"manager" seçersen yöneticin uyandırılır ve DM ile yanıt verir; cevabı wait_for {"what":"reply"} ile bekle`,
+        `- {"type":"escalate","reason":"<=2000","attempted":["..."],"options":[{"option":"...","risk":"...","cost":"..."}],"recommendation":"..."} — Founder'a resmi onay talebi. SON ÇAREDİR: önce request_help(manager) dene; escalate yalnız (a) yöneticin çözemedi/yanıtlamadı, (b) karar gerçekten Founder-seviyesi (bütçe/politika/geri döndürülemez etki) ise`,
         `- {"type":"update_task_status","taskId":"<uuid>","to":"IN_PROGRESS|WAITING|BLOCKED|REVIEW","note":"<=1000"}`,
         `- {"type":"record_decision","title":"<=200","decision":"...","alternatives":["..."],"consequences":"..."}`,
         `- {"type":"complete_task","result":{"summary":"...","criteria":[{"criterion":"...","met":true,"evidence":"..."}],"artifactIds":[],"cost":{"tokensIn":0,"tokensOut":0,"cents":0}}}`,
@@ -1111,6 +1112,71 @@ export function createAgentTaskActivities(deps: AgentTaskActivityDeps) {
           });
           if (deps.signalPort) {
             await deliverMessage(guardedDb, ctx, plan, deps.signalPort);
+          }
+          // 2026-08-18 (Founder kararı — "onaylar önce yetkili liderine"):
+          // DM yalnız KOŞAN oturumlara sinyal taşır; boştaki yönetici yardım
+          // isteğini hiç görmüyordu ve talep sessizce zaman aşımına gidiyordu.
+          // Yönetici boşsa P1 müdahale görevi açılıp ona atanır — kuyruğuna
+          // girer, döngüsü uyanır, DM'i okuyup yanıtlar (istek sahibinin
+          // wait'i artık gelen mesajla uyanıyor). Yönetici de çözemezse KENDİ
+          // escalate'i zinciri yukarı taşır; Founder yalnız zincirin sonudur.
+          if (action.audience === "manager") {
+            try {
+              const [edge] = await guardedDb
+                .select({ managerId: orgEdges.toAgentId })
+                .from(orgEdges)
+                .where(
+                  and(
+                    eq(orgEdges.companyId, ctx.companyId),
+                    eq(orgEdges.kind, "reports_to"),
+                    eq(orgEdges.fromAgentId, input.agentId),
+                    isNull(orgEdges.endedAt),
+                  ),
+                );
+              const managerId = edge?.managerId;
+              if (managerId && managerId !== input.agentId) {
+                const [liveSession] = await guardedDb
+                  .select({ id: agentSessions.id })
+                  .from(agentSessions)
+                  .where(
+                    and(
+                      eq(agentSessions.companyId, ctx.companyId),
+                      eq(agentSessions.agentId, managerId),
+                      inArray(agentSessions.status, ["starting", "running"]),
+                    ),
+                  )
+                  .limit(1);
+                if (!liveSession) {
+                  const helpTask = await tasksService.create(
+                    ctx,
+                    {
+                      id: uuidv5("help-task", input.stepId), // idempotent replay
+                      kind: "task",
+                      title: `Yardım talebi: ${action.topic}`.slice(0, 200),
+                      objective:
+                        `${plan.message.id} numaralı yardım mesajını yanıtla. ` +
+                        `Talep eden ajanla DM üzerinden ilerle; çözemiyorsan kendi escalate'inle yukarı taşı.\n\n${action.body}`.slice(0, 4000),
+                      priority: "P1",
+                    },
+                    { kind: "founder" }, // create matrisi founder|agent ister
+                  );
+                  for (const to of ["BACKLOG", "PLANNED"] as const) {
+                    await taskState.transition(ctx, helpTask.id, to, { kind: "system" });
+                  }
+                  // atama founder aktörüyle: sistem aktörü assign matrisinde yok; bu
+                  // uyandırma Founder kararının (2026-08-18) mekanik uygulamasıdır
+                  await taskState.assign(ctx, helpTask.id, { agentId: managerId }, { kind: "founder" });
+                  await deps.startAgentWorkflow?.({
+                    companyId: ctx.companyId,
+                    agentId: managerId,
+                    taskId: helpTask.id,
+                  });
+                }
+              }
+            } catch (err) {
+              // yardım DM'i zaten teslim edildi — uyandırma best-effort kalır
+              console.warn("help-request manager wake failed", err);
+            }
           }
           return {
             ok: true,

@@ -105,7 +105,10 @@ export function HireModal({ open, onClose }: { open: boolean; onClose: () => voi
         positionId,
         orgUnitId: effectiveUnit,
         seniority: "mid",
-        autonomyLevel: 2,
+        // 2026-08-18 (Founder kararı): L2, her R2 aracında (terminal.run vb.)
+        // onay istetiyordu ve onaylar Founder'a taşıyordu. L3 = kendi takım
+        // kapsamında R2'ye kadar serbest; R3 (deploy/ödeme sınıfı) yine kapılı.
+        autonomyLevel: 3,
         persona: `${(positions.data ?? []).find((p) => p.id === positionId)?.title ?? "Ekip üyesi"} olarak çalışır.${expertise.length > 0 ? ` Uzmanlık: ${expertise.join(", ")}.` : ""}`,
         ...(unitLead ? { managerAgentId: unitLead } : {}),
         activate: true,

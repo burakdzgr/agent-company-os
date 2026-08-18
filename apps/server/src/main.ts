@@ -162,8 +162,10 @@ async function main(): Promise<void> {
       }
     };
     const { createAgentWorkflowStarter } = await import("./modules/workflows/client.js");
-    app.agentWorkflowStarter = createAgentWorkflowStarter(temporalClient, (err, input) =>
-      app.log.warn({ err, ...input }, "agentTaskWorkflow start failed"),
+    app.agentWorkflowStarter = createAgentWorkflowStarter(
+      temporalClient,
+      (err, input) => app.log.warn({ err, ...input }, "agentTaskWorkflow start failed"),
+      guardedDb, // ajan başına tek canlı oturum kapısı (kuyruk)
     );
     // project creation → projectIntakeWorkflow on the intake queue (T42)
     app.intakeStarter = async ({ companyId, projectId, source }) => {
@@ -311,6 +313,49 @@ async function main(): Promise<void> {
     dlq = new DlqHandler(nats, createDb(pool));
     await dlq.start();
     app.log.info("outbox relay + DLQ handler started");
+
+    // Kuyruk drain'i (2026-08-18, Founder kararı — ajan başına tek oturum):
+    // oturum kapanınca aynı ajanın EN ESKİ ASSIGNED görevi başlatılır.
+    // Starter'daki tek-oturum kapısıyla birlikte "aynı kişiye iki iş →
+    // sıraya girer, tek tek ilerler" davranışını verir; 30 dk'lık stuck
+    // sweep yedek ağdır (drain kaçarsa görevi o yakalar).
+    void (async () => {
+      const { and, asc, eq } = await import("drizzle-orm");
+      const { tasks } = await import("@acos/db/schema");
+      const drainSub = nats.subscribe("co.>");
+      for await (const message of drainSub) {
+        try {
+          const envelope = JSON.parse(new TextDecoder().decode(message.data)) as {
+            type?: string;
+            companyId?: string;
+            payload?: { sessionId?: string };
+            subject?: { agentId?: string | null };
+          };
+          if (envelope.type !== "agent.session.ended") continue;
+          const agentId = envelope.subject?.agentId;
+          const companyId = envelope.companyId;
+          if (!agentId || !companyId || !app.agentWorkflowStarter) continue;
+          const [next] = await guardedDb
+            .select({ id: tasks.id })
+            .from(tasks)
+            .where(
+              and(
+                eq(tasks.companyId, companyId),
+                eq(tasks.ownerAgentId, agentId),
+                eq(tasks.status, "ASSIGNED"),
+              ),
+            )
+            .orderBy(asc(tasks.createdAt))
+            .limit(1);
+          if (next) {
+            const started = await app.agentWorkflowStarter({ companyId, agentId, taskId: next.id });
+            if (started) app.log.info({ agentId, taskId: next.id }, "queued task drained");
+          }
+        } catch (err) {
+          app.log.warn({ err }, "session-ended drain failed");
+        }
+      }
+    })();
 
     // 12 §5.0 triggers → memoryConsolidationWorkflow (T44/M1) — rides the T21
     // memory-trigger durable; the deterministic workflow id

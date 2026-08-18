@@ -241,8 +241,25 @@ async function run(): Promise<void> {
       router,
       routingFor,
       signalPort: createTemporalSignalPort(temporalClient),
-      // delegation → child workflow start (09 §4, T36); duplicate = no-op
+      // delegation → child workflow start (09 §4, T36); duplicate = no-op.
+      // 2026-08-18 (Founder kararı — ajan başına TEK canlı oturum): meşgul
+      // ajana ikinci workflow başlatılmaz; görev ASSIGNED kuyruğunda bekler,
+      // oturum kapanınca sunucudaki session-ended drain'i sıradakini başlatır.
       startAgentWorkflow: async ({ companyId, agentId, taskId }) => {
+        const { and, eq, inArray } = await import("drizzle-orm");
+        const { agentSessions } = await import("@acos/db/schema");
+        const [live] = await guardedDb
+          .select({ taskId: agentSessions.taskId })
+          .from(agentSessions)
+          .where(
+            and(
+              eq(agentSessions.companyId, companyId),
+              eq(agentSessions.agentId, agentId),
+              inArray(agentSessions.status, ["starting", "running"]),
+            ),
+          )
+          .limit(1);
+        if (live && live.taskId !== taskId) return; // kuyrukta bekler
         await startAgentTaskWorkflow(temporalClient, "agentTaskWorkflow", {
           companyId,
           agentId,
