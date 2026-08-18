@@ -18,7 +18,7 @@ import { useTeamMemberSet } from "../../lib/teamFilter.js";
 import { clearTopicCursor, getRealtimeClient } from "../../realtime/client.js";
 import { usePresence } from "../../stores/presence.js";
 import { useFocus } from "../../stores/focus.js";
-import { DENSITY_COLS, useTerminalGrid, type TerminalDensity } from "../../stores/terminalGrid.js";
+import { useTerminalGrid, type TerminalDensity } from "../../stores/terminalGrid.js";
 import { AgentSessionCell, FounderDirectiveForm, SessionFocusModal } from "./AgentSessionCell.js";
 
 function base64ToUtf8(data: string): string {
@@ -36,9 +36,14 @@ interface TerminalFrame {
 const DENSITY_FONT: Record<TerminalDensity, number> = { S: 12, M: 10, L: 9 };
 const DENSITY_MIN_H: Record<TerminalDensity, string> = {
   S: "minmax(260px,1fr)",
-  M: "minmax(160px,1fr)",
-  L: "minmax(120px,1fr)",
+  M: "minmax(200px,1fr)",
+  L: "minmax(150px,1fr)",
 };
+// Sütun sayısı sabit değil (2026-08-18, Founder geri bildirimi: dar panelde
+// hücreler okunmaz oluyordu): yoğunluk MINIMUM hücre genişliğini seçer,
+// sütun sayısı panelin gerçek genişliğinden türer (auto-fill). Dar panelde
+// tek sütun tüm genişliği kaplar; panel büyüdükçe sütun eklenir.
+const DENSITY_MIN_W: Record<TerminalDensity, number> = { S: 460, M: 320, L: 230 };
 
 /** Compact read-only xterm cell body — refits on container resize. */
 function GridXterm({ session, fontSize }: { session: TerminalSessionDto; fontSize: number }) {
@@ -373,7 +378,7 @@ export function TerminalGrid() {
           data-testid="terminal-grid"
           className="grid min-h-0 flex-1 gap-1 overflow-auto p-1"
           style={{
-            gridTemplateColumns: `repeat(${DENSITY_COLS[density]}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(auto-fill, minmax(min(${DENSITY_MIN_W[density]}px, 100%), 1fr))`,
             gridAutoRows: DENSITY_MIN_H[density],
           }}
           onDragOver={(e) => e.preventDefault()}

@@ -142,6 +142,11 @@ export function SessionFeed({
   const elapsedMs =
     (session.endedAt ? new Date(session.endedAt).getTime() : Date.now()) -
     new Date(session.startedAt).getTime();
+  // Takılma sinyali: canlı görünen oturumda son adımın üzerinden 3+ dk geçtiyse
+  // "Çalışıyor" demek yalan olur — sarı ⏳ satırına düşülür.
+  const lastStepAt = ordered.length > 0 ? new Date(ordered[ordered.length - 1]!.createdAt).getTime() : null;
+  const sinceLastStepMs = Date.now() - (lastStepAt ?? new Date(session.startedAt).getTime());
+  const stalled = live && sinceLastStepMs > 3 * 60_000;
 
   return (
     <div
@@ -183,13 +188,27 @@ export function SessionFeed({
           );
         })
       )}
-      {/* ✳ durum satırı (ekran görüntüsü dili): süre + jeton sayacı */}
+      {/* ✳ durum satırı: GERÇEK ilerlemeyi yansıtır (Founder geri bildirimi,
+          2026-08-18: oturum saatlerce adımsız kalırken "Çalışıyor" demek
+          yanıltıcıydı). Ölçü, oturum yaşı değil SON ADIMIN yaşıdır. */}
       <p
-        className={cn("mt-1", live ? "animate-pulse text-[#a879ff]" : "text-acos-fg2/70")}
+        className={cn(
+          "mt-1",
+          !live
+            ? "text-acos-fg2/70"
+            : stalled
+              ? "text-[#e8c268]"
+              : "animate-pulse text-[#a879ff]",
+        )}
         data-testid="session-live-cursor"
       >
-        {live ? "✳ Çalışıyor" : session.status === "completed" ? "✔ Tamamlandı" : "✕ Bitti"} —{" "}
-        {formatElapsed(elapsedMs)}
+        {!live
+          ? `${session.status === "completed" ? "✔ Tamamlandı" : "✕ Bitti"} — ${formatElapsed(elapsedMs)}`
+          : stalled
+            ? `⏳ ${formatElapsed(sinceLastStepMs)} oldu, yeni adım yok (${session.currentActivity}) — toplam ${formatElapsed(elapsedMs)}`
+            : session.status === "waiting"
+              ? `⏸ Bekliyor (${session.currentActivity}) — ${formatElapsed(elapsedMs)}`
+              : `✳ Çalışıyor — ${formatElapsed(elapsedMs)}`}
         {totalTokens > 0 && ` · ${formatTokens(totalTokens)} jeton`}
       </p>
     </div>
