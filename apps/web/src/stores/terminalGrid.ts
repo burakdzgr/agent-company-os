@@ -15,6 +15,11 @@ interface TerminalGridState {
   toggleAgent: (agentId: string) => void;
   closeAgent: (agentId: string) => void;
   openAll: () => void;
+  /** Hücre sırası (2026-08-18, Founder isteği): sürükle-bırak ile ızgarada
+   *  istenen konuma taşıma. Anahtarlar hücre kimlikleridir (`sess:<agentId>`
+   *  / `pty:<sessionId>`); listede olmayan hücreler doğal sırayla sona eklenir. */
+  order: string[];
+  setOrder: (order: string[]) => void;
 }
 
 export const useTerminalGrid = create<TerminalGridState>()(
@@ -36,6 +41,11 @@ export const useTerminalGrid = create<TerminalGridState>()(
             : [...s.closedAgentIds, agentId],
         })),
       openAll: () => set({ closedAgentIds: [] }),
+      order: [],
+      // Bırakma anında ızgara, GÖRÜNÜR dizilişten tam sırayı hesaplayıp
+      // buraya yazar — sırada henüz kaydı olmayan hücreler de böylece
+      // deterministik bir konum kazanır.
+      setOrder: (order) => set({ order }),
     }),
     { name: "acos-terminal-grid" },
   ),

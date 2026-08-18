@@ -5,14 +5,14 @@
 // roster toggle). Output is the REAL sandbox PTY stream — ring replay first,
 // then live frames over `terminal:<sessionId>` (T41); read-only here, the
 // focus-terminal Founder directive lands in U06.
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { cn, presenceColor } from "@acos/ui";
-import type { TerminalSessionDto } from "@acos/contracts";
+import type { CompanyAgentSession, TerminalSessionDto } from "@acos/contracts";
 import { api } from "../../lib/api.js";
 import { useTeamMemberSet } from "../../lib/teamFilter.js";
 import { clearTopicCursor, getRealtimeClient } from "../../realtime/client.js";
@@ -175,10 +175,12 @@ function CellFrame({
   session,
   children,
   onFocus,
+  dragHandleProps,
 }: {
   session: TerminalSessionDto;
   children: ReactNode;
   onFocus: () => void;
+  dragHandleProps?: HTMLAttributes<HTMLDivElement>;
 }) {
   const badges = usePresence((s) => s.badges);
   const closeAgent = useTerminalGrid((s) => s.closeAgent);
@@ -195,7 +197,10 @@ function CellFrame({
         focused ? "border-dept-engineering" : "border-acos-line",
       )}
     >
-      <div className="flex h-[22px] shrink-0 items-center gap-1.5 border-b border-acos-line bg-acos-bg2 px-1.5 text-[9.5px]">
+      <div
+        className="flex h-[22px] shrink-0 cursor-grab items-center gap-1.5 border-b border-acos-line bg-acos-bg2 px-1.5 text-[9.5px] active:cursor-grabbing"
+        {...dragHandleProps}
+      >
         <span
           className="h-[5px] w-[5px] shrink-0 rounded-full"
           style={{ background: presenceColor(badge.toLowerCase()) }}
@@ -236,13 +241,23 @@ function CellFrame({
   );
 }
 
+/** Izgaradaki bir hücre: ajan oturumu (düşünce akışı) ya da PTY (kabuk). */
+type GridCell =
+  | { key: string; kind: "session"; session: CompanyAgentSession }
+  | { key: string; kind: "pty"; session: TerminalSessionDto };
+
 export function TerminalGrid() {
   const { companyId } = useParams({ from: "/c/$companyId" });
   const density = useTerminalGrid((s) => s.density);
   const closedAgentIds = useTerminalGrid((s) => s.closedAgentIds);
   const openAll = useTerminalGrid((s) => s.openAll);
+  const order = useTerminalGrid((s) => s.order);
+  const setOrder = useTerminalGrid((s) => s.setOrder);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
+  // sürükle-bırak durumu (U05+): tutamaç başlıktır, bırakma hedefi hücredir
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [overKey, setOverKey] = useState<string | null>(null);
 
   const sessions = useQuery({
     queryKey: [companyId, "terminals"],
@@ -275,6 +290,43 @@ export function TerminalGrid() {
   const focusedSession = focusedSessionId
     ? (visibleSessions.find((s) => s.id === focusedSessionId) ?? null)
     : null;
+
+  // Birleşik hücre listesi: oturumlar + PTY'ler, kalıcı sıraya göre dizilir.
+  // Sırada kaydı olmayan hücreler doğal sırayla sona düşer (stable sort).
+  const cells: GridCell[] = [
+    ...openSessions.map((s) => ({ key: `sess:${s.agentId}`, kind: "session" as const, session: s })),
+    ...open.map((s) => ({ key: `pty:${s.id}`, kind: "pty" as const, session: s })),
+  ];
+  const orderPos = new Map(order.map((k, i) => [k, i] as const));
+  cells.sort(
+    (a, b) => (orderPos.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (orderPos.get(b.key) ?? Number.MAX_SAFE_INTEGER),
+  );
+
+  /** Başlık tutamacı: hücreyi sürüklenebilir yapar. */
+  const handleFor = (key: string): HTMLAttributes<HTMLDivElement> => ({
+    draggable: true,
+    onDragStart: (e) => {
+      setDragKey(key);
+      e.dataTransfer.setData("text/plain", key);
+      e.dataTransfer.effectAllowed = "move";
+    },
+    onDragEnd: () => {
+      setDragKey(null);
+      setOverKey(null);
+    },
+  });
+
+  /** Bırakma: sürüklenen hücre, hedefin konumuna girer (hedef sağa kayar). */
+  const dropOn = (targetKey: string | null) => {
+    if (!dragKey || dragKey === targetKey) return;
+    const keys = cells.map((c) => c.key).filter((k) => k !== dragKey);
+    const at = targetKey ? keys.indexOf(targetKey) : -1;
+    if (at === -1) keys.push(dragKey);
+    else keys.splice(at, 0, dragKey);
+    setOrder(keys);
+    setDragKey(null);
+    setOverKey(null);
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-acos-bg1">
@@ -324,30 +376,63 @@ export function TerminalGrid() {
             gridTemplateColumns: `repeat(${DENSITY_COLS[density]}, minmax(0, 1fr))`,
             gridAutoRows: DENSITY_MIN_H[density],
           }}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            // boşluğa bırakma = sona taşı
+            e.preventDefault();
+            dropOn(null);
+          }}
         >
-          {/* Ajan oturumları önce: CEO dahil, görev alan her ajanın düşünce
-              terminali. Aynı ajanın PTY hücresi (kabuk) ayrıca görünür. */}
-          {openSessions.map((session) => (
-            <AgentSessionCell
-              key={session.id}
-              companyId={companyId}
-              session={session}
-              fontSize={DENSITY_FONT[density]}
-              onFocus={() => setFocusedSessionId(session.id)}
-            />
-          ))}
-          {open.map((session) => (
-            <CellFrame key={session.id} session={session} onFocus={() => setFocusedId(session.id)}>
-              {/* while focused, the cell releases its topic subscription so the
-                  modal's fresh subscribe gets the full ring replay (refcount) */}
-              {focused?.id === session.id ? (
-                <div className="flex flex-1 items-center justify-center text-[10px] text-acos-fg2">
-                  öne çıkarıldı ⤢
-                </div>
-              ) : (
-                <GridXterm session={session} fontSize={DENSITY_FONT[density]} />
+          {/* Ajan oturumları (düşünce terminali) + PTY'ler (kabuk) tek sıralı
+              listede; başlığından sürükleyip herhangi bir hücrenin üstüne
+              bırakınca o konuma taşınır (sıra kalıcı, U05+). */}
+          {cells.map((cell) => (
+            <div
+              key={cell.key}
+              className={cn(
+                "flex min-h-0 rounded-md [&>*]:min-w-0 [&>*]:flex-1",
+                overKey === cell.key && dragKey && dragKey !== cell.key
+                  ? "ring-2 ring-dept-engineering"
+                  : "",
+                dragKey === cell.key ? "opacity-50" : "",
               )}
-            </CellFrame>
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setOverKey(cell.key);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropOn(cell.key);
+              }}
+            >
+              {cell.kind === "session" ? (
+                <AgentSessionCell
+                  companyId={companyId}
+                  session={cell.session}
+                  fontSize={DENSITY_FONT[density]}
+                  onFocus={() => setFocusedSessionId(cell.session.id)}
+                  dragHandleProps={handleFor(cell.key)}
+                />
+              ) : (
+                <CellFrame
+                  session={cell.session}
+                  onFocus={() => setFocusedId(cell.session.id)}
+                  dragHandleProps={handleFor(cell.key)}
+                >
+                  {/* while focused, the cell releases its topic subscription so the
+                      modal's fresh subscribe gets the full ring replay (refcount) */}
+                  {focused?.id === cell.session.id ? (
+                    <div className="flex flex-1 items-center justify-center text-[10px] text-acos-fg2">
+                      öne çıkarıldı ⤢
+                    </div>
+                  ) : (
+                    <GridXterm session={cell.session} fontSize={DENSITY_FONT[density]} />
+                  )}
+                </CellFrame>
+              )}
+            </div>
           ))}
         </div>
       )}

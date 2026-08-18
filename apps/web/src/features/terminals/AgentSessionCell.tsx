@@ -4,7 +4,7 @@
 // agent_steps read-model'inden düşünce → araç çağrısı → gözlem akışı,
 // Claude Code oturumu gibi kronolojik ve canlı (WS invalidation + poll).
 // Salt-okunur; Founder müdahalesi ⤢ modalındaki direktif formundan (DM yolu).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type HTMLAttributes } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { cn, presenceColor } from "@acos/ui";
 import type { AgentStep, CompanyAgentSession } from "@acos/contracts";
@@ -14,6 +14,19 @@ import { useFocus } from "../../stores/focus.js";
 import { useTerminalGrid } from "../../stores/terminalGrid.js";
 
 const SESSION_LIVE = new Set(["starting", "running", "waiting"]);
+
+/** 128400 → "128.4k" — ekran görüntüsündeki jeton sayacı biçimi. */
+function formatTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+/** 442sn → "7dk 22sn" */
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return m > 0 ? `${m}dk ${s}sn` : `${s}sn`;
+}
 
 function compact(value: unknown, max = 220): string {
   if (value === null || value === undefined) return "";
@@ -107,6 +120,10 @@ export function SessionFeed({
     refetchInterval: live ? 4000 : false,
   });
   const ordered = useMemo(() => [...(steps.data ?? [])].reverse(), [steps.data]);
+  const totalTokens = useMemo(
+    () => ordered.reduce((sum, s) => sum + s.tokensIn + s.tokensOut, 0),
+    [ordered],
+  );
 
   const hostRef = useRef<HTMLDivElement | null>(null);
   const followRef = useRef(true);
@@ -114,6 +131,17 @@ export function SessionFeed({
     const host = hostRef.current;
     if (host && followRef.current) host.scrollTop = host.scrollHeight;
   }, [ordered.length]);
+
+  // ✳ durum satırındaki süre sayacı — yalnız canlı oturumda saniyede bir işler
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!live) return;
+    const t = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [live]);
+  const elapsedMs =
+    (session.endedAt ? new Date(session.endedAt).getTime() : Date.now()) -
+    new Date(session.startedAt).getTime();
 
   return (
     <div
@@ -155,11 +183,15 @@ export function SessionFeed({
           );
         })
       )}
-      {live && (
-        <p className="animate-pulse text-acos-fg2" data-testid="session-live-cursor">
-          ▊
-        </p>
-      )}
+      {/* ✳ durum satırı (ekran görüntüsü dili): süre + jeton sayacı */}
+      <p
+        className={cn("mt-1", live ? "animate-pulse text-[#a879ff]" : "text-acos-fg2/70")}
+        data-testid="session-live-cursor"
+      >
+        {live ? "✳ Çalışıyor" : session.status === "completed" ? "✔ Tamamlandı" : "✕ Bitti"} —{" "}
+        {formatElapsed(elapsedMs)}
+        {totalTokens > 0 && ` · ${formatTokens(totalTokens)} jeton`}
+      </p>
     </div>
   );
 }
@@ -337,17 +369,20 @@ export function SessionFocusModal({
   );
 }
 
-/** Izgara hücresi: başlık (ajan · görev · durum) + akış gövdesi. */
+/** Izgara hücresi: başlık (ajan · görev · durum) + akış gövdesi.
+ *  Başlık aynı zamanda sürükleme tutamacıdır (U05+ drag&drop). */
 export function AgentSessionCell({
   companyId,
   session,
   fontSize,
   onFocus,
+  dragHandleProps,
 }: {
   companyId: string;
   session: CompanyAgentSession;
   fontSize: number;
   onFocus: () => void;
+  dragHandleProps?: HTMLAttributes<HTMLDivElement>;
 }) {
   const badges = usePresence((s) => s.badges);
   const closeAgent = useTerminalGrid((s) => s.closeAgent);
@@ -364,7 +399,10 @@ export function AgentSessionCell({
         focused ? "border-dept-engineering" : "border-acos-line",
       )}
     >
-      <div className="flex h-[22px] shrink-0 items-center gap-1.5 border-b border-acos-line bg-acos-bg2 px-1.5 text-[9.5px]">
+      <div
+        className="flex h-[22px] shrink-0 cursor-grab items-center gap-1.5 border-b border-acos-line bg-acos-bg2 px-1.5 text-[9.5px] active:cursor-grabbing"
+        {...dragHandleProps}
+      >
         <span
           className="h-[5px] w-[5px] shrink-0 rounded-full"
           style={{ background: presenceColor(badge.toLowerCase()) }}
