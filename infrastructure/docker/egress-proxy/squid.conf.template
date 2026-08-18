@@ -31,9 +31,15 @@ acl CONNECT method CONNECT
 # entrypoint reloads squid when it changes. Missing file = no additions.
 include /etc/squid/generated/projects.conf
 
-http_access allow workspaces allowed_dst
-http_access allow acos_services allowed_dst
-http_access deny all                       # default deny, logged
+# 2026-08-19 FOUNDER KARARI (kayıtlı sapma — S8/27 §12 allowlist'inden):
+# "agentlar internete açılmalı, tam açık moda çek." Uyarı verildi (prompt
+# injection ile veri sızdırma riski), Founder kararı yineledi. Alan adı
+# filtresi kaldırıldı: compose ağlarındaki her istemci HER hedefe çıkabilir.
+# Proxy mimaride kalıyor (tek kapı + access log), yani karar tek satırla
+# geri alınabilir: aşağıdaki iki allow'u eski `allowed_dst`'li hâline döndür.
+http_access allow workspaces
+http_access allow acos_services
+http_access deny all                       # yalnız compose dışı (port zaten yayınlanmıyor)
 
 access_log stdio:/dev/stdout               # scraped to Loki; denials alertable
 cache deny all
