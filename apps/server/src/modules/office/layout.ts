@@ -134,14 +134,14 @@ export function computeAutoLayout(units: OrgUnitInput[], agents: AgentInput[]): 
   // 2026-08-18 (Founder kararı, "aralardaki boşluklar"): salonlar YÜKSEKLİĞE
   // göre sıralanıp raf-paketlenir — bir satırdaki odalar benzer boyda olur ve
   // kalabalık odanın yanında dev gri boşluk kalmaz. Satır genişliği sabit
-  // değil, toplam alandan ~16:10 hedef oranla türer. Sıralama deterministik
+  // değil, toplam alandan YATAY hedef oranla türer (paneller genellikle geniş). Sıralama deterministik
   // (boy → en → unitId); departman renk kümelenmesi bilinçli feda edildi.
   roomPlans.sort(
     (a, b) => b.size.h - a.size.h || b.size.w - a.size.w || a.unitId.localeCompare(b.unitId),
   );
   const totalArea = roomPlans.reduce((sum, r) => sum + r.size.w * r.size.h, 0);
   const widest = Math.max(...roomPlans.map((r) => r.size.w), 12);
-  const wrapWidth = Math.max(widest + 2, Math.ceil(Math.sqrt(totalArea * 1.6)));
+  const wrapWidth = Math.max(widest + 2, Math.ceil(Math.sqrt(totalArea * 2.6)));
 
   const zones: OfficeZone[] = [];
   let cursorX = 1;
