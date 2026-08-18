@@ -207,6 +207,14 @@ export {
   type ToolInvokeWireResponse,
 } from "./tool-invoke.js";
 export {
+  ToolPermissionItemSchema,
+  GrantToolPermissionRequestSchema,
+  ToolDefinitionSchema,
+  type ToolPermissionItem,
+  type GrantToolPermissionRequest,
+  type ToolDefinition,
+} from "./tools.js";
+export {
   TerminalSessionDtoSchema,
   TerminalListQuerySchema,
   TerminalListResponseSchema,

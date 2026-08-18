@@ -51,6 +51,13 @@ import {
   type ApprovalVerdictRequest,
 } from "../approvals.js";
 import {
+  ToolDefinitionSchema,
+  ToolPermissionItemSchema,
+  type ToolDefinition,
+  type ToolPermissionItem,
+  type GrantToolPermissionRequest,
+} from "../tools.js";
+import {
   TaskSchema,
   TaskAssignmentSchema,
   TaskDependenciesResponseSchema,
@@ -620,15 +627,41 @@ export function createAcosClient(options: AcosClientOptions) {
         `${options.baseUrl}/api/v1/companies/${companyId}/terminals/${sessionId}/log`,
     },
     approvals: {
-      list: async (
+      list: async (companyId: string, filters: { status?: "pending" | "approved" | "rejected" | "expired" } = {}): Promise<Approval[]> => {
+        const qs = new URLSearchParams();
+        if (filters.status) qs.set("status", filters.status);
+        return z
+          .array(ApprovalSchema)
+          .parse(await get(`/api/v1/companies/${companyId}/approvals${qs ? `?${qs}` : ""}`));
+      },
+      get: async (companyId: string, approvalId: string): Promise<ApprovalDetail> =>
+        ApprovalDetailSchema.parse(
+          await get(`/api/v1/companies/${companyId}/approvals/${approvalId}`),
+        ),
+      verdict: async (
         companyId: string,
-        filters: { status?: string; kind?: string; urgency?: string; limit?: number; offset?: number } = {},
-      ): Promise<Approval[]> => {
-        const search = new URLSearchParams();
-        for (const key of ["status", "kind", "urgency"] as const) {
-          const value = filters[key];
-          if (value !== undefined) search.set(key, value);
-        }
+        approvalId: string,
+        body: ApprovalVerdictRequest,
+      ): Promise<Approval> =>
+        ApprovalSchema.parse(
+          await post(`/api/v1/companies/${companyId}/approvals/${approvalId}/verdict`, body),
+        ),
+    },
+    tools: {
+      list: async (): Promise<ToolDefinition[]> =>
+        z.array(ToolDefinitionSchema).parse(await get("/api/v1/tools")),
+      permissions: {
+        list: async (): Promise<ToolPermissionItem[]> =>
+          z.array(ToolPermissionItemSchema).parse(await get("/api/v1/tools/permissions")),
+        grant: async (body: GrantToolPermissionRequest): Promise<{ id: string }> =>
+          (await post("/api/v1/tools/permissions", body)) as { id: string },
+        revoke: async (permissionId: string): Promise<void> => {
+          await del(`/api/v1/tools/permissions/${permissionId}`);
+        },
+      },
+    },
+  };
+}
         if (filters.limit !== undefined) search.set("limit", String(filters.limit));
         if (filters.offset !== undefined) search.set("offset", String(filters.offset));
         const qs = search.toString();

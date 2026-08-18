@@ -37,7 +37,7 @@ import { registerTaskRoutes } from "./modules/tasks/routes.js";
 import { TasksService, TaskStateService } from "./modules/tasks/service.js";
 import { registerCommsRoutes } from "./modules/comms/routes.js";
 import { registerApprovalRoutes, type ApprovalSignalPort } from "./modules/approvals/routes.js";
-import { registerToolGatewayRoutes } from "./modules/tools/routes.js";
+import { registerToolGatewayRoutes, registerToolManagementRoutes } from "./modules/tools/routes.js";
 import { registerTerminalRoutes } from "./modules/terminals/routes.js";
 import { registerProjectRoutes, type IntakeStarter } from "./modules/projects/routes.js";
 import { registerReviewRoutes } from "./modules/reviews/routes.js";
@@ -375,6 +375,7 @@ export async function buildApp(options: BuildAppOptions): Promise<App> {
       return options.internalApiToken;
     },
   });
+  registerToolManagementRoutes(app, { db: guardedDb });
 
   // ---------- terminals (T41; 24 §6.9) ----------
   const sandboxInternal =

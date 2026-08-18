@@ -85,7 +85,7 @@ const NAV_ITEMS: Array<{
   { id: "events", label: "Olaylar", icon: EventsIcon, path: "/c/$companyId/events" },
   { id: "reports", label: "Raporlar", icon: ReportsIcon, path: "/c/$companyId/reports" },
   { id: "costs", label: "Maliyetler", icon: CostsIcon, path: "/c/$companyId/costs" },
-  { id: "settings", label: "Ayarlar", icon: SettingsIcon },
+  { id: "settings", label: "Ayarlar", icon: SettingsIcon, path: "/c/$companyId/settings" },
 ];
 
 function GlobalSearch({ companyId }: { companyId: string }) {

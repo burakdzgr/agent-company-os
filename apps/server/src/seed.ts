@@ -437,11 +437,19 @@ async function seedOrgAndAgents(db: GuardedDb, companyId: string): Promise<void>
 // 2026-08-14 saha bulgusu: Founder org'u yeniden kurunca yeni birimler
 // grant'siz kalıyordu (NO_PERMISSION_GRANT). Boot'ta her koşulan bu liste
 // mühendislik birim slug'larının güncel kayıtlarına grant basar (idempotent).
-const SEED_GRANT_UNIT_SLUGS = ["engineering", "backend", "frontend", "devops", "qa", "security"];
+const SEED_GRANT_UNIT_SLUGS = [
+  "executive",
+  "engineering",
+  "backend",
+  "frontend",
+  "devops",
+  "qa",
+  "security",
+];
 // B4 (2026-08-15): grant listesi dispatch'i olan araçları izler. task.query ve
 // memory.search B1' ile, web.fetch B2' ile bağlandı. db.inspect grant'i proje
-// bazlı verilir (veritabanı tanımı olmayan projede işe yaramaz); web.search
-// arama API anahtarı yapılandırılana kadar karanlıkta.
+// bazlı verilir (veritabanı tanımı olmayan projede işe yaramaz).
+// 2026-08-18: web.search eklendi (AbacusAI API entegrasyonu ile).
 const SEED_GRANT_TOOLS = [
   "fs.*",
   "git.*",
@@ -449,6 +457,7 @@ const SEED_GRANT_TOOLS = [
   "task.query",
   "memory.search",
   "web.fetch",
+  "web.search",
 ];
 
 /**
