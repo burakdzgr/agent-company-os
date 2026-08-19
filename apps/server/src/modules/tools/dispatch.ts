@@ -832,9 +832,12 @@ export function createSandboxDispatchPort(options: SandboxDispatchOptions): Tool
               // live PTY frames on term.<sessionId> while we await (T41)
               sessionId: session.id,
               env: {
-                // hardened rootfs is read-only — point every writer at /tmp
-                HOME: "/tmp",
-                npm_config_cache: "/tmp/.npm",
+                // 2026-08-19 KÖK NEDEN: burası HOME=/tmp + npm_config_cache=/tmp/.npm
+                // enjekte ediyordu ve /tmp NOEXEC — npx'in indirdiği binary
+                // çalıştırılamıyor, `create-next-app` her denemede exit 126
+                // veriyordu. Konteyner env'i artık doğru adresi taşıyor
+                // (workspaceEnv: HOME=/home/node exec'li tmpfs); exec'in onu
+                // EZMEMESİ yeterli. Ajan args.env ile hâlâ bilerek ezebilir.
                 ...(args.env as Record<string, string>),
               },
             });
